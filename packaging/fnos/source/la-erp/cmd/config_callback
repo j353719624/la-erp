@@ -1,0 +1,6 @@
+#!/bin/bash
+
+### This script is called after the user change environment variables in application setting page.
+### LA-ERP 运行配置由 cmd/main 首次启动时在 @appdata 自动生成, 设置页无需额外处理。
+
+exit 0

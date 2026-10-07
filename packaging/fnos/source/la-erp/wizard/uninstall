@@ -1,0 +1,50 @@
+[
+    {
+        "stepTitle": "确认卸载",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "您即将卸载 LA-ERP 专业版。请选择如何处理应用数据："
+            },
+            {
+                "type": "radio",
+                "field": "wizard_data_action",
+                "label": "选择卸载方式",
+                "initValue": "keep",
+                "options": [
+                    {
+                        "label": "保留数据卸载（推荐）- 将来重新安装时可恢复",
+                        "value": "keep"
+                    },
+                    {
+                        "label": "删除所有数据卸载 - 此操作不可恢复！",
+                        "value": "delete"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择卸载方式"
+                    }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "⚠️ 警告：选择删除数据将删除数据库及所有数据文件（商品/客户/供应商/单据/库存/财务等全部数据），导致所有数据永久丢失，请确认！<br/><br/>💡 建议：卸载前先在「系统管理 → 数据备份」中下载一份备份文件。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "卸载完成",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "卸载完成！\nLA-ERP 专业版已成功卸载。"
+            },
+            {
+                "type": "tips",
+                "helpText": "如需重新安装：\n1. 下载最新版本的安装包\n2. 按照安装向导步骤进行安装\n3. 如需恢复数据，请导入备份的数据库文件"
+            }
+        ]
+    }
+]

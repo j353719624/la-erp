@@ -1,0 +1,64 @@
+#!/bin/bash
+# 升级前处理 - LA-ERP 专业版 (2026-09-12 完善)
+# 目标:
+#   1) 停止应用进程, 保证数据库文件一致(避免运行中复制出损坏快照)
+#   2) 升级前自动备份数据库到 @appdata/backups/(升级失败可手工回滚)
+#   3) 清理过期升级前备份(保留最近 5 份)
+# 说明: 数据(数据库/配置/日志/授权)均位于 @appdata(TRIM_PKGVAR), 升级不覆盖 target 不影响数据。
+
+LOG_FILE="${TRIM_PKGVAR}/upgrade.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+DB_FILE="${TRIM_PKGVAR}/data/la-erp.db"
+BACKUP_DIR="${TRIM_PKGVAR}/backups"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [upgrade_init] $1" >> "${LOG_FILE}"
+}
+
+log_msg "=== 升级前处理开始 ==="
+
+# 1. 停止应用(飞牛通常会在升级前停止, 此处兜底保证数据库一致)
+if [ -f "${PID_FILE}" ]; then
+    OLD_PID="$(cat "${PID_FILE}" 2>/dev/null)"
+    if [ -n "${OLD_PID}" ] && kill -0 "${OLD_PID}" 2>/dev/null; then
+        kill "${OLD_PID}" 2>/dev/null
+        for i in $(seq 1 10); do
+            kill -0 "${OLD_PID}" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "${OLD_PID}" 2>/dev/null; then
+            kill -9 "${OLD_PID}" 2>/dev/null
+            log_msg "进程 ${OLD_PID} 超时未退出, 已强制结束"
+        else
+            log_msg "已停止应用进程 (${OLD_PID})"
+        fi
+    else
+        log_msg "PID 文件存在但进程未运行 (${OLD_PID})"
+    fi
+    rm -f "${PID_FILE}"
+else
+    log_msg "无 PID 文件, 应用未在运行"
+fi
+
+# 2. 升级前快照备份(服务已停, 文件一致, 可直接复制)
+if [ "$(cat "${TRIM_PKGVAR}/db_mode" 2>/dev/null)" = "postgres" ]; then
+    log_msg "PostgreSQL 模式: 数据在 PG 容器中(升级不涉及数据库文件), 跳过 SQLite 文件快照"
+elif [ -f "${DB_FILE}" ]; then
+    mkdir -p "${BACKUP_DIR}" >> "${LOG_FILE}" 2>&1
+    STAMP="$(date '+%Y%m%d-%H%M%S')"
+    TARGET="${BACKUP_DIR}/pre-upgrade-${STAMP}.db"
+    if cp "${DB_FILE}" "${TARGET}" 2>>"${LOG_FILE}"; then
+        log_msg "已创建升级前备份: ${TARGET}"
+    else
+        log_msg "警告: 升级前备份失败(不阻塞升级, 请检查磁盘空间)"
+    fi
+    # 3. 保留最近 5 份
+    ls -1t "${BACKUP_DIR}"/pre-upgrade-*.db 2>/dev/null | tail -n +6 | while read -r old; do
+        rm -f "${old}" && log_msg "清理过期升级前备份: $(basename "${old}")"
+    done
+else
+    log_msg "数据库文件不存在(全新安装场景), 跳过备份"
+fi
+
+log_msg "=== 升级前处理完成 ==="
+exit 0

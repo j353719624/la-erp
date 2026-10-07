@@ -1,0 +1,120 @@
+#!/bin/bash
+# 安装后初始化 - 应用文件已解压到 TRIM_APPDEST
+# Go 静态二进制版: 只需确保二进制可执行 + 数据/上传目录就绪
+
+LOG_FILE="${TRIM_PKGVAR}/install.log"
+APP_DIR="${TRIM_APPDEST}/server"
+BINARY="${APP_DIR}/la-erp-server"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+log_msg "=== install_callback 开始(Go 二进制模式) ==="
+log_msg "TRIM_APPDEST=${TRIM_APPDEST}"
+
+# 记录本包版本（平台在生命周期脚本中注入 TRIM_APPVER / TRIM_OLD_APPVER / TRIM_SYS_ARCH）
+# 用途: SSH/运维可直接核对「设备上装的是哪个包」，支撑「部署包 vs 工作树」一致性核验。
+# 背景: 2026-09-23 ARM 真机检查发现设备上无任何版本痕迹（@appmeta 为空、无残留 fpk），
+#       只能靠前端资源指纹反推。
+BUILD_STAMP="${TRIM_PKGVAR}/build_stamp"
+{
+    echo "version=${TRIM_APPVER:-unknown}"
+    echo "old_version=${TRIM_OLD_APPVER:-}"
+    echo "action=${TRIM_APP_STATUS:-INSTALL}"
+    echo "arch=${TRIM_SYS_ARCH:-unknown}"
+    echo "installed_at=$(date '+%Y-%m-%d %H:%M:%S')"
+} > "${BUILD_STAMP}" 2>>"${LOG_FILE}"
+chmod 644 "${BUILD_STAMP}" 2>/dev/null || true
+log_msg "包版本: ${TRIM_APPVER:-unknown} (arch=${TRIM_SYS_ARCH:-?}) -> ${BUILD_STAMP}"
+
+# 确保应用目录存在
+mkdir -p "${APP_DIR}"
+
+# 检查二进制是否存在
+if [ ! -f "${BINARY}" ]; then
+    log_msg "二进制不存在: ${BINARY}"
+    echo "应用二进制缺失: ${BINARY}" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+
+# 赋予可执行权限
+chmod +x "${BINARY}" >> "${LOG_FILE}" 2>&1
+log_msg "二进制已赋予可执行权限"
+
+# 检查二进制可执行性
+if [ ! -x "${BINARY}" ]; then
+    log_msg "二进制不可执行"
+    echo "应用二进制不可执行: ${BINARY}" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+
+# 输出二进制信息
+log_msg "二进制大小: $(du -h "${BINARY}" 2>/dev/null | cut -f1)"
+file "${BINARY}" >> "${LOG_FILE}" 2>&1 || true
+
+# 确保数据目录与上传目录存在
+# 数据库/配置/日志 -> @appdata (TRIM_PKGVAR), 升级不会被覆盖
+# 上传文件 -> data-share 共享目录 (TRIM_DATA_SHARE_PATHS), 用户可在文件管理器中直接查看
+DATA_DIR="${TRIM_PKGVAR}"
+UPLOADS_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
+mkdir -p "${DATA_DIR}/data" "${DATA_DIR}/logs" "${UPLOADS_DIR}" >> "${LOG_FILE}" 2>&1
+log_msg "数据目录已就绪: ${DATA_DIR} (数据库/配置/日志)"
+log_msg "上传目录已就绪: ${UPLOADS_DIR} (上传文件)"
+
+# 设置权限: 应用用户可读写(TRIM_UID/TRIM_GID 或 TRIM_RUN_UID/TRIM_RUN_GID)
+APP_UID="${TRIM_UID:-${TRIM_RUN_UID:-0}}"
+APP_GID="${TRIM_GID:-${TRIM_RUN_GID:-0}}"
+if [ -n "$APP_UID" ] && [ -n "$APP_GID" ]; then
+    # ⚠️ pgdata 属 PostgreSQL 容器内用户（uid 70），应用身份无权变更 →
+    #    必须跳过，否则每次安装/升级都在 install.log 刷 Permission denied（真机实测 2026-09-23）
+    find "${DATA_DIR}" -mindepth 1 -maxdepth 1 ! -name pgdata \
+        -exec chown -R "${APP_UID}:${APP_GID}" {} + >> "${LOG_FILE}" 2>&1
+    find "${DATA_DIR}" -mindepth 1 -maxdepth 1 ! -name pgdata \
+        -exec chmod -R 755 {} + >> "${LOG_FILE}" 2>&1
+    chown -R "${APP_UID}:${APP_GID}" "${UPLOADS_DIR}" >> "${LOG_FILE}" 2>&1
+    chmod -R 755 "${UPLOADS_DIR}" >> "${LOG_FILE}" 2>&1
+    # ⚠️ 递归 755 会连带把「保留数据重装」时已存在的敏感文件放宽权限
+    #    （config.yaml 含 JWT 密钥 / PG 密码；license.key 为授权凭据）——必须收紧回来：
+    #    目录保持 755（可进入），配置文件与数据库文件 600（仅属主）。
+    chmod 600 "${DATA_DIR}/config.yaml" 2>/dev/null || true
+    for f in "${DATA_DIR}"/*.db "${DATA_DIR}"/*.db-wal "${DATA_DIR}"/*.db-shm "${DATA_DIR}/license.key"; do
+        [ -f "$f" ] && chmod 600 "$f" 2>/dev/null || true
+    done
+    log_msg "数据目录权限已设置: ${APP_UID}:${APP_GID}（config.yaml/数据库/授权文件已收紧为 600）"
+fi
+
+# 安装向导数据库选择：选择 PostgreSQL 时自动通过 Docker 安装（失败回退 SQLite，不中断安装）
+DB_MODE="${wizard_db_mode:-sqlite}"
+# ⚠️ 升级/保留数据重装：升级向导的数据库步骤只是默认值（通常是 sqlite），
+#    不代表用户要改模式。若已有 db_mode 标记，一律以**既有模式为准**——否则 PG 用户在
+#    平台升级（升级会先跑卸载钩子 → 容器可能已被清理）时不会重建容器，
+#    而 config.yaml 仍指 PG → 应用静默不可用（2026-09-23 x86 真机实测 P1）。
+if [ -s "${TRIM_PKGVAR}/db_mode" ]; then
+    EXISTING_MODE="$(cat "${TRIM_PKGVAR}/db_mode" 2>/dev/null)"
+    if [ -n "${EXISTING_MODE}" ] && [ "${EXISTING_MODE}" != "${DB_MODE}" ]; then
+        log_msg "检测到既有数据库模式标记 ${EXISTING_MODE}（向导值 ${DB_MODE}）→ 以既有模式为准，不改动数据库"
+        DB_MODE="${EXISTING_MODE}"
+    fi
+fi
+log_msg "安装向导数据库选择: ${DB_MODE}"
+if [ "${DB_MODE}" = "postgres" ]; then
+    PG_SETUP="${APP_DIR}/scripts/pg-setup.sh"
+    if [ -f "${PG_SETUP}" ]; then
+        chmod +x "${PG_SETUP}" >> "${LOG_FILE}" 2>&1 || true
+        log_msg "开始自动安装 PostgreSQL（Docker 容器，仅监听本机）..."
+        # pg-setup.sh 内部自带兜底：失败写 pg_setup_status 并回退 SQLite，不影响安装结果
+        bash "${PG_SETUP}" >> "${LOG_FILE}" 2>&1 || true
+        if [ "$(cat "${TRIM_PKGVAR}/db_mode" 2>/dev/null)" = "postgres" ]; then
+            log_msg "PostgreSQL 自动安装完成（首次启动将使用 PostgreSQL）"
+        else
+            log_msg "PostgreSQL 自动安装未成功，将使用 SQLite 模式（详情: ${TRIM_PKGVAR}/pg_setup_status）"
+        fi
+    else
+        log_msg "警告: 未找到 pg-setup.sh，回退 SQLite"
+        echo "fallback:未找到 pg-setup.sh" > "${TRIM_PKGVAR}/pg_setup_status" 2>/dev/null || true
+    fi
+fi
+
+log_msg "=== install_callback 完成(二进制就绪) ==="
+exit 0

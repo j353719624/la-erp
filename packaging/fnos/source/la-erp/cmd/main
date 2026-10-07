@@ -1,0 +1,289 @@
+#!/bin/bash
+# LA-ERP - 启停脚本
+# Go 静态二进制(自带运行时, 无需系统依赖)
+
+LOG_FILE="${TRIM_PKGVAR}/app.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+
+# 应用目录
+APP_DIR="${TRIM_APPDEST}/server"
+# 二进制路径
+BINARY="${APP_DIR}/la-erp-server"
+# 数据目录(数据库/配置/日志) - 使用 @appdata(TRIM_PKGVAR), 升级不会被覆盖
+DATA_DIR="${TRIM_PKGVAR}"
+# 运行配置(首次启动生成, 含持久化 JWT 密钥)
+CONFIG_FILE="${DATA_DIR}/config.yaml"
+# 数据库模式标记与 PG 凭据(由安装向导 pg-setup.sh 写入; 缺省=SQLite)
+DB_MODE_FILE="${DATA_DIR}/db_mode"
+PG_CRED_FILE="${DATA_DIR}/pg_credentials"
+# PG 容器名按**应用**派生（2026-09-23 真机 P1：同机装专业版 + Lite 时硬编码同名会互相
+# 误删/复用容器）；可用 LAERP_PG_CONTAINER 覆盖。
+PG_CONTAINER="${LAERP_PG_CONTAINER:-$(basename "${DATA_DIR}")-pg}"
+# 上传目录(导入文件/附件等) - 使用 data-share 共享目录, 用户可在文件管理器中直接查看
+UPLOADS_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
+# 服务端口(manifest.service_port; 18885 被客服通占用, 用 18886)
+PORT="${TRIM_SERVICE_PORT:-18886}"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+check_process() {
+    local pid=$1
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# 首次启动生成配置文件: 数据/日志/上传全部指向应用数据目录, JWT 密钥随机生成并持久化
+# (密钥持久化保证重启/升级后已登录 token 不失效, 参考 la-biz 2026-08-18 安全教训)
+ensure_config() {
+    if [ -f "${CONFIG_FILE}" ]; then
+        # 既有配置自动补齐 license 段(2026-09-05): 交付版必须启用授权/试用校验,
+        # 否则授权页显示"未启用(开发模式)"、导入授权/防跨版形同虚设。
+        # JWT/数据库等既有键保留不变(不重置登录)。
+        if ! grep -q '^license:' "${CONFIG_FILE}"; then
+            cat >> "${CONFIG_FILE}" <<EOF
+
+license:
+  enabled: true
+  file: '${DATA_DIR}/license.key'
+  trial_days: 30
+EOF
+            chmod 600 "${CONFIG_FILE}"
+            log_msg "已为既有配置补写 license 段(启用授权/试用校验)"
+        fi
+        return 0
+    fi
+
+    SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    mkdir -p "${DATA_DIR}/data" "${DATA_DIR}/logs" "${UPLOADS_DIR}"
+
+    # 数据库模式: 安装向导选择 PostgreSQL 时(pg-setup.sh 已写好凭据)直接生成 PG 配置
+    DB_DRIVER="sqlite"
+    DB_DSN="${DATA_DIR}/data/la-erp.db"
+    if [ "$(cat "${DB_MODE_FILE}" 2>/dev/null)" = "postgres" ] && [ -f "${PG_CRED_FILE}" ]; then
+        PG_PW="$(grep '^PASSWORD=' "${PG_CRED_FILE}" | head -n1 | cut -d= -f2-)"
+        PG_PORT="$(grep '^PORT=' "${PG_CRED_FILE}" | head -n1 | cut -d= -f2-)"
+        PG_PORT="${PG_PORT:-54329}"
+        if [ -n "${PG_PW}" ]; then
+            DB_DRIVER="postgres"
+            DB_DSN="host=127.0.0.1 port=${PG_PORT} user=laerp password=${PG_PW} dbname=la_erp sslmode=disable TimeZone=Asia/Shanghai"
+        else
+            log_msg "警告: pg_credentials 缺少密码, 回退 SQLite"
+        fi
+    fi
+
+    cat > "${CONFIG_FILE}" <<EOF
+server:
+  port: ${PORT}
+  mode: release
+database:
+  driver: ${DB_DRIVER}
+  dsn: '${DB_DSN}'
+jwt:
+  secret: '${SECRET}'
+  access_token_ttl: 7200
+  refresh_token_ttl: 604800
+log:
+  level: info
+  path: '${DATA_DIR}/logs'
+upload:
+  path: '${UPLOADS_DIR}'
+  max_size: 10
+license:
+  enabled: true
+  file: '${DATA_DIR}/license.key'
+  trial_days: 30
+EOF
+    chmod 600 "${CONFIG_FILE}"
+    log_msg "已生成配置文件: ${CONFIG_FILE} (数据库: ${DB_DRIVER})"
+}
+
+# 记录/刷新本包版本（平台在生命周期脚本中注入 TRIM_APPVER）
+# 消费者: 运维/SSH 直接读 @appdata/<app>/build_stamp，核对「部署包版本 vs 工作树」
+# （2026-09-23 ARM 真机检查：设备上原本无任何版本痕迹，只能靠前端指纹反推）。
+# 启动时 TRIM_APPVER 可能为空 → 保留已有 version，不写成 unknown。
+record_build_stamp() {
+    local STAMP="${DATA_DIR}/build_stamp"
+    local prev_ver="" prev_inst="" prev_old=""
+    if [ -r "${STAMP}" ]; then
+        prev_ver="$(grep '^version=' "${STAMP}" 2>/dev/null | head -n1 | cut -d= -f2-)"
+        prev_inst="$(grep '^installed_at=' "${STAMP}" 2>/dev/null | head -n1 | cut -d= -f2-)"
+        prev_old="$(grep '^old_version=' "${STAMP}" 2>/dev/null | head -n1 | cut -d= -f2-)"
+    fi
+    local ver="${TRIM_APPVER:-}"
+    [ -n "${ver}" ] || ver="${prev_ver:-unknown}"
+    [ -n "${prev_inst}" ] || prev_inst="$(date '+%Y-%m-%d %H:%M:%S')"
+    # old_version 仅在升级回调有值；普通 start 为空 → 沿用上次记录，不得覆写为空
+    local old="${TRIM_OLD_APPVER:-}"
+    [ -n "${old}" ] || old="${prev_old:-}"
+    {
+        echo "version=${ver}"
+        echo "old_version=${old}"
+        echo "action=${TRIM_APP_STATUS:-START}"
+        echo "arch=${TRIM_SYS_ARCH:-unknown}"
+        echo "installed_at=${prev_inst}"
+        echo "last_started_at=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "binary_size=$(stat -c %s "${BINARY}" 2>/dev/null || echo unknown)"
+    } > "${STAMP}" 2>>"${LOG_FILE}"
+    chmod 644 "${STAMP}" 2>/dev/null || true
+    log_msg "包版本: ${ver} (arch=${TRIM_SYS_ARCH:-?}) -> ${STAMP}"
+}
+
+# PG 模式：启动服务前确保 PostgreSQL 容器在运行且已就绪（重启/故障后自愈）
+ensure_pg_running() {
+    [ "$(cat "${DB_MODE_FILE}" 2>/dev/null)" = "postgres" ] || return 0
+
+    DOCKER_BIN=""
+    if command -v docker >/dev/null 2>&1; then
+        DOCKER_BIN="$(command -v docker)"
+    elif [ -x /usr/bin/docker ]; then
+        DOCKER_BIN=/usr/bin/docker
+    fi
+    if [ -z "${DOCKER_BIN}" ]; then
+        log_msg "警告: PostgreSQL 模式但未找到 docker，服务可能无法连接数据库"
+        return 0
+    fi
+    if ! "${DOCKER_BIN}" info >/dev/null 2>&1; then
+        log_msg "警告: docker 服务不可用，跳过 PostgreSQL 容器检查"
+        return 0
+    fi
+
+    STATE="$("${DOCKER_BIN}" inspect -f '{{.State.Running}}' "${PG_CONTAINER}" 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "${STATE}" ]; then
+        # 容器**不存在**（被卸载钩子/平台清理误删，2026-09-23 真机实测）→ 调 pg-setup.sh 重建。
+        # 只 start 不重建 = 容器被删后永远起不来，而平台仍显示 running（静默不可用）。
+        PG_SETUP="${APP_DIR}/scripts/pg-setup.sh"
+        if [ -f "${PG_SETUP}" ]; then
+            log_msg "PostgreSQL 容器不存在，尝试自动重建: ${PG_CONTAINER}"
+            bash "${PG_SETUP}" >> "${LOG_FILE}" 2>&1 || true
+            STATE="$("${DOCKER_BIN}" inspect -f '{{.State.Running}}' "${PG_CONTAINER}" 2>/dev/null | tr -d '[:space:]')"
+        else
+            log_msg "警告: PostgreSQL 模式但容器不存在且未找到 pg-setup.sh"
+        fi
+    fi
+    if [ "${STATE}" != "true" ]; then
+        log_msg "PostgreSQL 容器未运行，尝试启动..."
+        "${DOCKER_BIN}" start "${PG_CONTAINER}" >> "${LOG_FILE}" 2>&1 || true
+    fi
+    i=0
+    while [ "$i" -lt 60 ]; do
+        if "${DOCKER_BIN}" exec "${PG_CONTAINER}" pg_isready -U laerp -d la_erp >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    log_msg "警告: PostgreSQL 容器未就绪(pg_isready 超时 60s)，请检查 docker logs ${PG_CONTAINER}"
+}
+
+start_process() {
+    if status; then
+        return 0
+    fi
+
+    log_msg "Starting la-erp-server on port ${PORT}..."
+
+    # 检查二进制是否存在
+    if [ ! -f "${BINARY}" ]; then
+        log_msg "二进制不存在: ${BINARY}"
+        echo "应用二进制缺失: ${BINARY}" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    fi
+
+    # fnpack 打包/解压可能丢失 Unix 权限位, 确保可执行
+    chmod -R a+rX "${APP_DIR}" 2>/dev/null || true
+    chmod +x "${BINARY}" 2>/dev/null || true
+
+    if [ ! -x "${BINARY}" ]; then
+        log_msg "二进制不可执行: ${BINARY}"
+        echo "应用二进制不可执行: ${BINARY}" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    fi
+
+    # 确保数据/上传目录存在并生成配置
+    if [ -z "${UPLOADS_DIR}" ]; then
+        UPLOADS_DIR="${DATA_DIR}/uploads"
+    fi
+    mkdir -p "${DATA_DIR}/data" "${DATA_DIR}/logs" "${UPLOADS_DIR}"
+    ensure_config
+    record_build_stamp
+    ensure_pg_running
+
+    # 启动服务: 必须 cd 到 server 目录, 便于 findDistDir 探测 ./dist 前端产物
+    cd "${APP_DIR}"
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    "${BINARY}" -c "${CONFIG_FILE}" >> "${LOG_FILE}" 2>&1 &
+
+    # 写入 PID
+    printf "%s" "$!" > "${PID_FILE}"
+
+    log_msg "la-erp-server started, pid=$!"
+    return 0
+}
+
+stop_process() {
+    log_msg "Stopping la-erp-server..."
+
+    if [ ! -r "${PID_FILE}" ]; then
+        return 0
+    fi
+
+    pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+
+    if ! check_process "$pid"; then
+        rm -f "${PID_FILE}"
+        return 0
+    fi
+
+    log_msg "send TERM signal to PID:${pid}..."
+    kill -TERM "$pid" >> "${LOG_FILE}" 2>&1
+
+    local count=0
+    while check_process "$pid" && [ $count -lt 15 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if check_process "$pid"; then
+        log_msg "send KILL signal to PID:${pid}..."
+        kill -KILL "$pid"
+    fi
+
+    rm -f "${PID_FILE}"
+    return 0
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        if check_process "$pid"; then
+            return 0
+        fi
+        rm -f "${PID_FILE}"
+    fi
+    return 1
+}
+
+case $1 in
+start)
+    start_process
+    ;;
+stop)
+    stop_process
+    ;;
+status)
+    if status; then
+        exit 0
+    else
+        exit 3
+    fi
+    ;;
+*)
+    echo "Unknown command: $1" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+    ;;
+esac

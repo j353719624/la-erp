@@ -1,0 +1,9 @@
+{
+    "defaults":
+    {
+        "run-as": "package"
+    },
+    "username": "laerp",
+    "groupname": "laerp",
+    "join-groups": ["docker"]
+}

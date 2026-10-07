@@ -1,0 +1,45 @@
+name: Validate recovery
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - run: npm test
+      - run: go test ./...
+        working-directory: backend
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+  original-runtime:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download original sample from this private repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p runtime
+          gh release download recovery-1.4.51 --pattern 'la-erp_1.4.51-repack_x86_64.fpk' --dir runtime
+          tar -xzf runtime/la-erp_1.4.51-repack_x86_64.fpk -C runtime app.tgz
+          tar -xzf runtime/app.tgz -C runtime server/la-erp-server
+          chmod +x runtime/server/la-erp-server
+      - run: node tests/original-server-smoke.mjs runtime/server/la-erp-server
