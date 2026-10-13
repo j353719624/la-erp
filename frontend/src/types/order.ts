@@ -1,0 +1,336 @@
+// Reconstructed type declarations; original type-only files were erased by compilation.
+// Schema evidence: evidence/go-structs.json.gz; assignments refined from frontend usage.
+import type { Product, Unit } from '@/types/product';
+import type { APInvoice, ARInvoice, PaymentPayment, PaymentReceipt } from '@/types/finance';
+
+export interface Customer {
+  "id": string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "code"?: string;
+  "status"?: string;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "category_id"?: string;
+  "name"?: string;
+  "contact"?: string;
+  "phone"?: string;
+  "email"?: string;
+  "address"?: string;
+  "credit_limit"?: string;
+  "credit_balance"?: string;
+  "tax_no"?: string;
+  "bank_account"?: string;
+  "payment_term"?: number;
+  "department_id"?: string;
+  "login_account"?: string;
+  "last_login_at"?: string;
+  "portal_enabled"?: boolean;
+  "token_version"?: number;
+  "edges"?: { "category"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "code"?: string; "status"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "parent_id"?: string; "entity_code"?: string; "name"?: string; "tree_path"?: string; "level"?: number; "sort_order"?: number; "edges"?: { "parent"?: string; "children"?: (string)[]; "products"?: (Product)[]; "customers"?: (Customer)[]; "suppliers"?: (string)[] } }; "sales_orders"?: (SalesOrder)[]; "sales_returns"?: (SalesReturn)[]; "ar_invoices"?: (ARInvoice)[]; "payment_receipts"?: (PaymentReceipt)[]; "sales_quotations"?: ({ "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "quotation_no"?: string; "customer_id"?: string; "customer_name"?: string; "salesperson_id"?: string; "quotation_date"?: string; "valid_until"?: string; "status"?: string; "total_qty"?: string; "total_amount"?: string; "discount_amount"?: string; "tax_amount"?: string; "currency"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "department_id"?: string; "edges"?: string })[] };
+  "category_name"?: string;
+  "[e.target.name]"?: string;
+}
+
+export interface PurchaseOrder {
+  "id": string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_no"?: string;
+  "warehouse_id"?: string;
+  "status"?: string;
+  "order_date"?: string;
+  "expected_date"?: string;
+  "confirmed_at"?: string;
+  "approved_at"?: string;
+  "approved_by"?: string;
+  "total_amount"?: number;
+  "total_qty"?: number;
+  "discount_amount"?: number | string;
+  "tax_amount"?: number;
+  "paid_amount"?: number;
+  "currency"?: string;
+  "payment_status"?: string;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "supplier_id"?: string;
+  "supplier_name"?: string;
+  "department_id"?: string;
+  "contract_id"?: string;
+  "edges"?: { "lines"?: PurchaseOrderLine[]; "supplier"?: Supplier; "contract"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "department_id"?: string; "contract_no"?: string; "supplier_id"?: string; "supplier_name"?: string; "contract_date"?: string; "start_date"?: string; "end_date"?: string; "total_amount"?: string; "status"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "edges"?: { "purchase_orders"?: (PurchaseOrder)[] } } };
+  "delivery_date"?: string;
+  "warehouse_name"?: string;
+  "lines"?: PurchaseOrderLine[];
+  "reason"?: string;
+  "supplier"?: Supplier;
+}
+
+export interface PurchaseOrderLine {
+  "id"?: string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "quotation_id"?: string;
+  "line_no"?: number;
+  "product_id": string;
+  "unit_id"?: string;
+  "product_name"?: string;
+  "product_code"?: string;
+  "spec"?: string;
+  "qty"?: number;
+  "price"?: number;
+  "discount"?: number;
+  "tax_rate"?: number;
+  "amount"?: number;
+  "tax_amount"?: number;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "edges"?: { "quotation"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "quotation_no"?: string; "customer_id"?: string; "customer_name"?: string; "salesperson_id"?: string; "quotation_date"?: string; "valid_until"?: string; "status"?: string; "total_qty"?: string; "total_amount"?: string; "discount_amount"?: string; "tax_amount"?: string; "currency"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "department_id"?: string; "edges"?: { "lines"?: (PurchaseReturnLine)[]; "customer"?: Customer } }; "product"?: Product };
+  "quantity"?: number;
+  "unit_rate"?: number;
+  "unit_name"?: string;
+  "price_auto"?: boolean;
+  "ext_fields"?: Record<string, unknown>;
+}
+
+export interface PurchaseReturn {
+  "id": string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_no"?: string;
+  "warehouse_id"?: string;
+  "status"?: string;
+  "order_date"?: string;
+  "expected_date"?: string;
+  "confirmed_at"?: string;
+  "approved_at"?: string;
+  "approved_by"?: string;
+  "total_amount"?: number;
+  "total_qty"?: number;
+  "discount_amount"?: number;
+  "tax_amount"?: number;
+  "paid_amount"?: number;
+  "currency"?: string;
+  "payment_status"?: string;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "department_id"?: string;
+  "supplier_id"?: string;
+  "supplier_name"?: string;
+  "purchase_order_id"?: string;
+  "purchase_order_no"?: string;
+  "edges"?: { "lines"?: PurchaseReturnLine[]; "supplier"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "code"?: string; "status"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "category_id"?: string; "name"?: string; "contact"?: string; "phone"?: string; "email"?: string; "address"?: string; "tax_no"?: string; "bank_account"?: string; "payment_term"?: number; "rating"?: string; "department_id"?: string; "edges"?: { "category"?: string; "purchase_orders"?: (PurchaseOrder)[]; "purchase_returns"?: (PurchaseReturn)[]; "ap_invoices"?: (APInvoice)[]; "payment_payments"?: (PaymentPayment)[] } } };
+  "return_date"?: string;
+  "reason"?: string;
+  "lines"?: PurchaseReturnLine[];
+}
+
+export interface PurchaseReturnLine {
+  "id"?: string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "quotation_id"?: string;
+  "line_no"?: number;
+  "product_id": string;
+  "unit_id"?: string;
+  "product_name"?: string;
+  "product_code"?: string;
+  "spec"?: string;
+  "qty"?: number;
+  "price"?: number;
+  "discount"?: number;
+  "tax_rate"?: number;
+  "amount"?: number;
+  "tax_amount"?: number;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "edges"?: { "quotation"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "quotation_no"?: string; "customer_id"?: string; "customer_name"?: string; "salesperson_id"?: string; "quotation_date"?: string; "valid_until"?: string; "status"?: string; "total_qty"?: string; "total_amount"?: string; "discount_amount"?: string; "tax_amount"?: string; "currency"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "department_id"?: string; "edges"?: { "lines"?: (PurchaseReturnLine)[]; "customer"?: Customer } }; "product"?: Product };
+  "quantity"?: number;
+  "ext_fields"?: Record<string, unknown>;
+}
+
+export interface SalesOrder {
+  "id": string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_no"?: string;
+  "warehouse_id"?: string;
+  "status"?: string;
+  "order_date"?: string;
+  "expected_date"?: string;
+  "confirmed_at"?: string;
+  "approved_at"?: string;
+  "approved_by"?: string;
+  "total_amount"?: number;
+  "total_qty"?: number;
+  "discount_amount"?: number | string;
+  "tax_amount"?: number;
+  "paid_amount"?: number;
+  "currency"?: string;
+  "payment_status"?: string;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "customer_id"?: string;
+  "customer_name"?: string;
+  "salesperson_id"?: string;
+  "department_id"?: string;
+  "stock_locked"?: boolean;
+  "lock_remark"?: string;
+  "customer_progress"?: string;
+  "tracking_no"?: string;
+  "shipped_at"?: string;
+  "source"?: string;
+  "sales_contract_id"?: string;
+  "customer_contract_no"?: string;
+  "edges"?: { "lines"?: SalesOrderLine[]; "customer"?: Customer; "contract"?: { "id"?: string; "created_at"?: string; "updated_at"?: string; "deleted_at"?: string; "department_id"?: string; "contract_no"?: string; "customer_id"?: string; "customer_name"?: string; "customer_contract_no"?: string; "contract_date"?: string; "start_date"?: string; "end_date"?: string; "total_amount"?: string; "status"?: string; "remark"?: string; "ext"?: Record<string, unknown>; "tenant_id"?: string; "created_by"?: string; "updated_by"?: string; "edges"?: { "sales_orders"?: (SalesOrder)[] } } };
+  "delivery_date"?: string;
+  "warehouse_name"?: string;
+  "lines"?: SalesOrderLine[];
+  "reason"?: string;
+  "customer"?: Customer;
+}
+
+export interface SalesOrderLine {
+  "id"?: string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_id"?: string;
+  "line_no"?: number;
+  "product_id": string;
+  "unit_id"?: string;
+  "product_name"?: string;
+  "product_code"?: string;
+  "spec"?: string;
+  "qty"?: number;
+  "delivered_qty"?: number;
+  "returned_qty"?: number;
+  "price"?: number;
+  "discount"?: number;
+  "tax_rate"?: number;
+  "amount"?: number;
+  "tax_amount"?: number;
+  "remark"?: string;
+  "is_gift"?: boolean;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "edges"?: { "order"?: PurchaseOrder; "product"?: Product; "unit"?: Unit };
+  "quantity"?: number;
+  "unit_rate"?: number;
+  "unit_name"?: string;
+  "price_auto"?: boolean;
+  "ext_fields"?: Record<string, unknown>;
+}
+
+export interface SalesReturn {
+  "id": string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_no"?: string;
+  "warehouse_id"?: string;
+  "status"?: string;
+  "order_date"?: string;
+  "expected_date"?: string;
+  "confirmed_at"?: string;
+  "approved_at"?: string;
+  "approved_by"?: string;
+  "total_amount"?: number;
+  "total_qty"?: number;
+  "discount_amount"?: number;
+  "tax_amount"?: number;
+  "paid_amount"?: number;
+  "currency"?: string;
+  "payment_status"?: string;
+  "remark"?: string;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "customer_id"?: string;
+  "customer_name"?: string;
+  "sales_order_id"?: string;
+  "sales_order_no"?: string;
+  "return_reason"?: string;
+  "department_id"?: string;
+  "edges"?: { "lines"?: SalesReturnLine[]; "customer"?: Customer };
+  "return_date"?: string;
+  "reason"?: string;
+  "lines"?: SalesReturnLine[];
+  "return_no"?: string;
+}
+
+export interface SalesReturnLine {
+  "id"?: string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "deleted_at"?: string;
+  "order_id"?: string;
+  "line_no"?: number;
+  "product_id": string;
+  "unit_id"?: string;
+  "product_name"?: string;
+  "product_code"?: string;
+  "spec"?: string;
+  "qty"?: number;
+  "delivered_qty"?: number;
+  "returned_qty"?: number;
+  "price"?: number;
+  "discount"?: number;
+  "tax_rate"?: number;
+  "amount"?: number;
+  "tax_amount"?: number;
+  "remark"?: string;
+  "is_gift"?: boolean;
+  "ext"?: Record<string, unknown>;
+  "tenant_id"?: string;
+  "created_by"?: string;
+  "updated_by"?: string;
+  "expand_to_components"?: boolean;
+  "edges"?: { "order"?: SalesReturn; "product"?: Product; "unit"?: Unit };
+  "quantity"?: number;
+  "ext_fields"?: Record<string, unknown>;
+}
+
+export interface Supplier {
+  "id": string;
+  "code"?: string;
+  "name": string;
+  "category_id"?: string;
+  "category_name"?: string;
+  "contact"?: string;
+  "phone"?: string;
+  "email"?: string;
+  "address"?: string;
+  "tax_no"?: string;
+  "bank_account"?: string;
+  "payment_term"?: number;
+  "rating"?: string;
+  "status"?: string;
+  "remark"?: string;
+  "created_at"?: string;
+  "updated_at"?: string;
+  "ext"?: Record<string, unknown>;
+  "[e.target.name]"?: string;
+}

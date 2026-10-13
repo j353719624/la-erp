@@ -1,0 +1,17 @@
+LA-ERP Windows 授权生成器
+
+解压整个文件夹后，双击 LA-ERP授权生成器.exe。不要只复制 exe，程序需要旁边的 node.exe 和 tools 文件夹。无需另行安装 Node.js；Windows 需带 .NET Framework 4.x。
+
+为当前恢复安装包签发授权：
+1. 点击“选择私钥”，选择本次恢复生成的 private.pem。
+2. 若显示“此私钥与已上传的恢复安装包匹配”，可以直接签发。
+3. 从飞牛 ERP 授权页面复制机器码，选择永久授权或到期时间，按需填备注。
+4. 点击“生成并保存授权文件”，保存 license.key；程序会先完成签名校验。
+5. 在飞牛 ERP 授权页面上传 license.key。
+
+新建密钥：
+点击“新建密钥”，选择一个没有密钥文件的目录。保存 private.pem 和 public.key。新密钥不能直接给旧公钥的安装包签发授权，需要使用 tools/repack_fpk.py 与新 public.key 重新生成恢复安装包。
+
+生成器不覆盖已有密钥或已有授权文件。私钥只在本机读取，不上传、不联网。请离线备份私钥；只有 public.key 无法签发授权。
+
+程序包不包含私钥。此次恢复电脑上的私钥在 outputs/la-erp-recovery/keys/private.pem。

@@ -1,0 +1,77 @@
+#!/bin/bash
+
+### This script is called after the user uninstalls the application.
+### 支持"全部卸载": 用户在卸载向导选择"删除所有数据"时, 清理 @appdata 数据目录。
+
+DATA_ACTION="${wizard_data_action:-keep}"
+
+CONFIG_FILES=(
+    "$TRIM_PKGVAR/uninstall_config.json"
+    "$HOME/.la-erp/uninstall_config.json"
+)
+
+for FILE in "${CONFIG_FILES[@]}"; do
+    if [ -f "$FILE" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            CONFIG_ACTION=$(jq -r '.data_action' "$FILE" 2>/dev/null)
+            if [ "$CONFIG_ACTION" = "delete" ]; then
+                DATA_ACTION="delete"
+                break
+            fi
+        else
+            if grep -q '"data_action": "delete"' "$FILE" 2>/dev/null; then
+                DATA_ACTION="delete"
+                break
+            fi
+        fi
+    fi
+done
+
+# 如存在 PostgreSQL 容器：先停止并移除（数据在 TRIM_PKGVAR/pgdata，随下方选项保留/删除）
+DOCKER_BIN=""
+if command -v docker >/dev/null 2>&1; then DOCKER_BIN="$(command -v docker)"; fi
+# PG 容器名按**应用**派生（2026-09-23 真机 P1：硬编码同名时，专业版升级触发的卸载钩子
+# 会删掉 Lite 的 PG 容器 → Lite 连不上库且平台仍显示 running）。只删**自己的**容器。
+PG_CONTAINER="${LAERP_PG_CONTAINER:-$(basename "${TRIM_PKGVAR}")-pg}"
+PGDATA_DIR="${TRIM_PKGVAR}/pgdata"
+if [ -n "${DOCKER_BIN}" ] && "${DOCKER_BIN}" inspect "${PG_CONTAINER}" >/dev/null 2>&1; then
+    "${DOCKER_BIN}" rm -f "${PG_CONTAINER}" >/dev/null 2>&1 || true
+    echo "PostgreSQL 容器已移除（镜像保留）"
+fi
+# 存量兼容：旧版本容器名可能与当前派生名不同 → 再按**数据卷归属**兜底清理，
+# 但**只删挂载本应用 pgdata 的容器**（绝不碰其它应用的容器）。
+if [ -n "${DOCKER_BIN}" ]; then
+    for EXISTING in $("${DOCKER_BIN}" ps -a --format '{{.Names}}' 2>/dev/null); do
+        if "${DOCKER_BIN}" inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$EXISTING" 2>/dev/null \
+                | grep -Fxq "${PGDATA_DIR}"; then
+            if "${DOCKER_BIN}" rm -f "$EXISTING" >/dev/null 2>&1; then
+                echo "PostgreSQL 容器已移除（$EXISTING，按数据目录归属识别；镜像保留）"
+            fi
+        fi
+    done
+fi
+
+echo "卸载数据处理选项: $DATA_ACTION"
+
+if [ "$DATA_ACTION" = "delete" ]; then
+    # 删除 @appdata 数据目录(数据库/配置/日志/备份) - TRIM_PKGVAR
+    # ⚠️ 应用用户通常**无权删除 @appdata 下的顶层目录**（父目录属 root）：
+    #    实测（2026-09-23 x86 真机）`rm -rf "$TRIM_PKGVAR"` 报
+    #    `rm: cannot remove '...': Permission denied`，但内容已清空。
+    #    因此：先清空内容 → 再尝试删目录 → **如实报告**（严禁无条件打印“已删除”）。
+    if [ -n "$TRIM_PKGVAR" ] && [ -d "$TRIM_PKGVAR" ]; then
+        find "$TRIM_PKGVAR" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+        if rmdir "$TRIM_PKGVAR" 2>/dev/null; then
+            echo "应用数据目录已删除: $TRIM_PKGVAR"
+        elif [ -z "$(ls -A "$TRIM_PKGVAR" 2>/dev/null)" ]; then
+            echo "应用数据已清空（数据库/配置/日志/备份均已删除）; 空目录保留: $TRIM_PKGVAR"
+            echo "  原因: 应用用户无权删除 @appdata 下的顶层目录（父目录属 root），不影响重装"
+        else
+            echo "警告: 应用数据目录未能完全删除: $TRIM_PKGVAR"
+            ls -A "$TRIM_PKGVAR" 2>/dev/null | head -20 | sed 's/^/  残留: /'
+            echo "  请以管理员执行: sudo rm -rf \"$TRIM_PKGVAR\""
+        fi
+    fi
+fi
+
+exit 0

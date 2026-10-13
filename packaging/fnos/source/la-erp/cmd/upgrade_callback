@@ -1,0 +1,74 @@
+#!/bin/bash
+# 升级后处理 - LA-ERP 专业版 (2026-09-12 完善)
+# 目标:
+#   1) 恢复二进制可执行权限(升级包覆盖 target 后可能丢失 Unix 权限位)
+#   2) 确保数据/日志目录存在
+#   3) 校验数据库文件完整性(文件头/大小), 异常时提示可回滚的备份位置
+#   4) 清理过期升级前备份(保留最近 5 份)
+
+LOG_FILE="${TRIM_PKGVAR}/upgrade.log"
+BINARY="${TRIM_APPDEST}/server/la-erp-server"
+DB_FILE="${TRIM_PKGVAR}/data/la-erp.db"
+BACKUP_DIR="${TRIM_PKGVAR}/backups"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [upgrade_callback] $1" >> "${LOG_FILE}"
+}
+
+log_msg "=== 升级后处理开始 ==="
+
+# 1. 可执行权限
+if [ -f "${BINARY}" ]; then
+    chmod +x "${BINARY}" >> "${LOG_FILE}" 2>&1
+    log_msg "二进制已就绪: ${BINARY} ($(stat -c %s "${BINARY}" 2>/dev/null) 字节)"
+else
+    log_msg "警告: 升级后二进制不存在: ${BINARY}"
+fi
+
+# 2. 数据目录
+mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/logs" >> "${LOG_FILE}" 2>&1
+
+# 3. 数据库完整性校验(SQLite 文件头; PostgreSQL 模式跳过)
+if [ "$(cat "${TRIM_PKGVAR}/db_mode" 2>/dev/null)" = "postgres" ]; then
+    log_msg "PostgreSQL 模式: 跳过 SQLite 文件校验(容器与数据目录不受升级影响)"
+    # PG 容器名按**应用**派生（2026-09-23 真机 P1：硬编码同名会被同机另一应用的卸载
+    # 钩子误删；且只 start 不重建 → 容器被删后永远起不来、而平台仍显示 running）。
+    PG_CONTAINER="${LAERP_PG_CONTAINER:-$(basename "${TRIM_PKGVAR}")-pg}"
+    DOCKER_BIN="$(command -v docker 2>/dev/null || true)"
+    if [ -n "${DOCKER_BIN}" ]; then
+        STATE="$("${DOCKER_BIN}" inspect -f '{{.State.Running}}' "${PG_CONTAINER}" 2>/dev/null | tr -d '[:space:]')"
+        if [ -z "${STATE}" ]; then
+            log_msg "PostgreSQL 容器不存在（${PG_CONTAINER}），尝试调用 pg-setup.sh 重建"
+            PG_SETUP="${TRIM_APPDEST}/scripts/pg-setup.sh"
+            if [ -f "${PG_SETUP}" ]; then
+                bash "${PG_SETUP}" >> "${LOG_FILE}" 2>&1 || true
+                STATE="$("${DOCKER_BIN}" inspect -f '{{.State.Running}}' "${PG_CONTAINER}" 2>/dev/null | tr -d '[:space:]')"
+            else
+                log_msg "警告: 未找到 ${PG_SETUP}，无法自动重建容器"
+            fi
+        fi
+        if [ "${STATE}" = "true" ]; then
+            log_msg "PostgreSQL 容器已就绪（${PG_CONTAINER}）"
+        else
+            log_msg "警告: PostgreSQL 容器未运行（${PG_CONTAINER}），应用启动时将再次尝试自动拉起"
+        fi
+    fi
+elif [ -f "${DB_FILE}" ]; then
+    SIZE="$(stat -c %s "${DB_FILE}" 2>/dev/null || echo 0)"
+    HEAD="$(head -c 15 "${DB_FILE}" 2>/dev/null)"
+    if [ "${SIZE}" -gt 0 ] && [ "${HEAD}" = "SQLite format 3" ]; then
+        log_msg "数据库校验通过 (${SIZE} 字节)"
+    else
+        log_msg "警告: 数据库文件异常(大小=${SIZE}); 如需回滚可使用: ${BACKUP_DIR}/pre-upgrade-*.db"
+    fi
+else
+    log_msg "数据库文件不存在, 首次启动将自动创建"
+fi
+
+# 4. 清理过期升级前备份
+ls -1t "${BACKUP_DIR}"/pre-upgrade-*.db 2>/dev/null | tail -n +6 | while read -r old; do
+    rm -f "${old}" && log_msg "清理过期升级前备份: $(basename "${old}")"
+done
+
+log_msg "=== 升级后处理完成 ==="
+exit 0

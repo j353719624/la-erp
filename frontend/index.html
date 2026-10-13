@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- [移动端修复] theme-color 由近黑 #0A0B0D 改为品牌蓝，避免手机浏览器外壳一片黑导致整体暗淡 -->
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="description" content="LA-ERP 企业资源计划系统：采购/销售/库存/生产/财务/审批全链路" />
+    <!-- [PWA 修复 2026-09-14] 鸿蒙/华为浏览器读非 apple 前缀的判定；iOS 读 apple- 前缀；两者都保留 -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="LA-ERP 专业版" />
+    <!-- [PWA 修复 2026-09-14] apple-touch-icon 必须 PNG（iOS 不支持 SVG）；180×180 为 iOS 标准尺寸 -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180x180.png" />
+    <title>LA-ERP 专业版</title>
+    <script type="module" src="/src/main.tsx"></script>
+  <link rel="manifest" href="/manifest.webmanifest"></head>
+  <body>
+    <div id="root"></div>
+    <!-- [PWA 升级自愈 2026-09-17] 旧 SW/缓存导致入口 JS 加载失败（白屏）时自动注销 SW 并刷新一次。
+         ⚠️ 必须外链：CSP script-src 'self' 拦截内联脚本（internal/api/middleware/security_headers.go）；
+         不带 ?v=（永远走网络拿最新，且不在 SW 预缓存清单）。计数由 main.tsx 成功启动时清除。 -->
+    <script src="/boot-guard.js"></script>
+    <!-- 客服通 kefu-widget 共享组件（全局脚本，先于 React module 加载；?v= 防缓存：身份昵称防死锁 v1.1.3） -->
+    <script src="/kefu-widget.js?v=20260905d"></script>
+  </body>
+</html>

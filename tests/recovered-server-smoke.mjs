@@ -1,0 +1,174 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, access, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import assert from 'node:assert/strict';
+
+const binary = resolve(process.argv[2] || 'backend/la-erp-server');
+await access(binary);
+const dir = await mkdtemp(join(tmpdir(), 'la-erp-source-smoke-'));
+const uploadDir=join(dir,'photo-storage');const configFile=join(dir,'upload.yaml');
+await writeFile(configFile,`upload:\n  path: '${uploadDir.replaceAll('\\','/').replaceAll("'","''")}'\n  max_size: 10\n`);
+const listener = createServer();
+await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
+const port = listener.address().port;
+await new Promise(resolve => listener.close(resolve));
+const base = `http://127.0.0.1:${port}`;
+let child, output = '', token;
+async function start() {
+  child = spawn(binary, ['-dev','-c',configFile, '-listen', `127.0.0.1:${port}`, '-db', join(dir, 'test.db')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  for (let i = 0; i < 100; i++) {
+    if (child.exitCode !== null) throw Error(`Source server exited: ${output}`);
+    try { const r = await fetch(base + '/health'); if (r.ok) return; } catch {}
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw Error('Source server did not start: ' + output);
+}
+async function stop() {
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise(resolve => child.once('exit', resolve));
+  child.kill(); await exited;
+}
+async function request(method, path, body, expected = 200) {
+  const res = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const json = await res.json(); assert.equal(res.status, expected, JSON.stringify(json));
+  if (expected === 200) assert.equal(json.code, 0, JSON.stringify(json));
+  return json.data;
+}
+try {
+  await start();
+  const login = await request('POST', '/api/v1/auth/login', { username: 'admin', password: 'admin123' }); token = login.access_token;
+  const product = (await request('GET', '/api/v1/products')).list[0];
+  const warehouse = (await request('GET', '/api/v1/warehouses')).list[0];
+  const incoming = await request('POST', '/api/v1/stock-ins', { warehouse_id: warehouse.id, lines: [{ product_id: product.id, qty: 10, unit_cost: '12.5' }] });
+  assert.equal(incoming.total_amount, '125');
+  await request('POST', `/api/v1/stock-ins/${incoming.id}/confirm`, {});
+  const balance = (await request('GET', `/api/v1/inventory-balances?product_id=${product.id}`)).list[0];
+  assert.equal(balance.qty_available, '10'); assert.equal(balance.avg_cost, '12.5');
+  const customer = await request('POST', '/api/v1/customers', { code: 'SMOKE-CUSTOMER', name: 'Source process test customer' });
+  const order = await request('POST', '/api/v1/sales-orders', { customer_id: customer.id, warehouse_id: warehouse.id, lines: [{ product_id: product.id, qty: 2, price: 30, tax_rate: 13 }] });
+  await request('POST', `/api/v1/sales-orders/${order.id}/confirm`, {});
+  await request('POST', `/api/v1/sales-orders/${order.id}/approve`, {});
+  const outgoing = await request('POST', '/api/v1/stock-outs', { warehouse_id: warehouse.id, source_id: order.id, source_no: order.order_no, lines: [{ product_id: product.id, qty: 1, unit_cost: 0, serial_nos: [] }] });
+  await request('POST', `/api/v1/stock-outs/${outgoing.id}/confirm`, {});
+  const delivered = await request('GET', `/api/v1/sales-orders/${order.id}`);
+  assert.equal(delivered.edges.lines[0].delivered_qty, '1');
+  const reserved = (await request('GET', `/api/v1/inventory-balances?product_id=${product.id}`)).list[0];
+  assert.equal(reserved.qty_available, '8'); assert.equal(reserved.qty_locked, '1');
+  const date = new Date().toISOString();
+  const cash = (await request('GET','/api/v1/accounts?page_size=1000')).list.find(x=>x.code==='1001');
+  const invoice = await request('POST','/api/v1/ar-invoices',{customer_id:customer.id,invoice_date:date,total_amount:50});
+  const receipt = await request('POST','/api/v1/payment-receipts',{customer_id:customer.id,receipt_date:date,amount:20,receipt_type:'normal',currency_code:'CNY',cash_account_id:cash.id,cash_account_code:cash.code,cash_account_name:cash.name,lines:[{ar_invoice_id:invoice.id,amount:20}]});
+  await request('POST',`/api/v1/payment-receipts/${receipt.id}/confirm`,{});
+  const partial = await request('GET',`/api/v1/ar-invoices/${invoice.id}`);assert.equal(partial.received_amount,'20');assert.equal(partial.balance,'30');
+  const statement=await request('GET',`/api/v1/reports/finance/statement/customer?customer_id=${customer.id}`);
+  assert.equal(statement.length,1);assert.equal(statement[0].period_in,'50');assert.equal(statement[0].period_out,'20');assert.equal(statement[0].end_balance,'30');assert.equal(statement[0].lines[0].balance,'30');assert.equal(statement[0].lines[1].type,'receipt');
+  await request('POST',`/api/v1/payment-receipts/${receipt.id}/cancel`,{});
+  const cashBalance = await request('GET',`/api/v1/accounts/${cash.id}/balance`);assert.equal(cashBalance.debit_amount,'20');assert.equal(cashBalance.credit_amount,'20');assert.equal(cashBalance.end_balance,'0');
+  const component = (await request('GET','/api/v1/products')).list.find(x=>x.id!==product.id);
+  const materialStock = await request('POST','/api/v1/stock-ins',{warehouse_id:warehouse.id,lines:[{product_id:component.id,qty:20,unit_cost:3}]});
+  await request('POST',`/api/v1/stock-ins/${materialStock.id}/confirm`,{});
+  const bom = await request('POST','/api/v1/boms',{product_id:product.id,items:[{product_id:component.id,unit_id:component.unit_id,qty:3,scrap_rate:0}]});
+  const workOrder = await request('POST','/api/v1/work-orders',{product_id:product.id,qty:2,bom_id:bom.id,warehouse_id:warehouse.id});
+  await request('POST',`/api/v1/work-orders/${workOrder.id}/confirm`,{});await request('POST',`/api/v1/work-orders/${workOrder.id}/approve`,{});
+  const picking = await request('POST','/api/v1/production-pickings',{work_order_id:workOrder.id,warehouse_id:warehouse.id,picking_date:date,lines:[{product_id:component.id,qty:6,unit_cost:3}]});
+  await request('POST',`/api/v1/production-pickings/${picking.id}/confirm`,{});
+  const productionReceipt = await request('POST','/api/v1/production-receipts',{work_order_id:workOrder.id,warehouse_id:warehouse.id,receipt_date:date,lines:[{product_id:product.id,qty:2,unit_cost:0}]});
+  await request('POST',`/api/v1/production-receipts/${productionReceipt.id}/confirm`,{});
+  const finishedBalance = (await request('GET',`/api/v1/inventory-balances?product_id=${product.id}`)).list[0];assert.equal(finishedBalance.qty_available,'10');assert.equal(finishedBalance.avg_cost,'11.8');
+  const completed = await request('POST',`/api/v1/work-orders/${workOrder.id}/complete`,{});assert.equal(completed.material_cost,'18');assert.equal(completed.status,'completed');
+  const center=await request('POST','/api/v1/work-centers',{code:'SMOKE-WC',name:'Assembly',cost_rate:12,capacity:8});
+  const routing=await request('POST','/api/v1/routings',{product_id:product.id,steps:[{process_code:'ASSY',process_name:'Assembly',standard_time:2,work_center_id:center.id,work_center:'Assembly'}]});
+  const routed=await request('POST','/api/v1/work-orders',{product_id:product.id,routing_id:routing.id,warehouse_id:warehouse.id,qty:2});
+  const process=routed.edges.processes[0];assert.equal(process.status,'pending');
+  await request('POST',`/api/v1/work-orders/${routed.id}/confirm`,{});await request('POST',`/api/v1/work-orders/${routed.id}/approve`,{});
+  await request('POST',`/api/v1/work-order-processes/${process.id}/start`,{operator_name:'Smoke operator'});
+  const reported=await request('POST',`/api/v1/work-order-processes/${process.id}/complete`,{operator_name:'Smoke operator',qty_good:2,qty_bad:0,actual_time:30,labor_rate:12});assert.equal(reported.edges.work_order.labor_cost,'360');
+  const reverted=await request('POST',`/api/v1/work-order-processes/${process.id}/revert`,{});assert.equal(reverted.edges.work_order.labor_cost,'0');
+  await request('POST',`/api/v1/work-order-processes/${process.id}/complete`,{qty_good:1,qty_bad:1,actual_time:60,labor_rate:12});
+  const routeCompleted=await request('POST',`/api/v1/work-orders/${routed.id}/complete`,{});assert.equal(routeCompleted.labor_cost,'720');assert.equal(routeCompleted.status,'completed');
+  const target=await request('POST','/api/v1/warehouses',{name:'Smoke transfer target',code:'SMOKE-TARGET'});
+  const transfer=await request('POST','/api/v1/stock-transfers',{from_warehouse_id:warehouse.id,to_warehouse_id:target.id,lines:[{product_id:component.id,qty:3,cost_price:99}]});
+  await request('POST',`/api/v1/stock-transfers/${transfer.id}/dispatch`,{});
+  const transit=(await request('GET',`/api/v1/inventory-balances?product_id=${component.id}&warehouse_id=${target.id}`)).list[0];assert.equal(transit.qty_available,'0');assert.equal(transit.qty_in_transit,'3');
+  await request('POST',`/api/v1/stock-transfers/${transfer.id}/complete`,{});
+  const adjustment=await request('POST','/api/v1/inventory-adjusts',{warehouse_id:target.id,adjust_type:'loss',lines:[{product_id:component.id,qty:1,unit_cost:11}]});
+  await request('POST',`/api/v1/inventory-adjusts/${adjustment.id}/confirm`,{});
+  const check=await request('POST','/api/v1/inventory-checks',{warehouse_id:target.id,lines:[{product_id:component.id,actual_qty:5}]});
+  const checking=await request('POST',`/api/v1/inventory-checks/${check.id}/start`,{});assert.equal(checking.edges.lines[0].book_qty,'2');
+  await request('PUT',`/api/v1/inventory-checks/${check.id}`,{warehouse_id:target.id,lines:[{product_id:component.id,actual_qty:5}]});
+  const checked=await request('POST',`/api/v1/inventory-checks/${check.id}/complete`,{});assert.equal(checked.profit_amount,'9');
+  const trial=await request('GET','/api/v1/reports/finance/trial-balance');assert.equal(trial.total_debit,trial.total_credit);assert.ok(trial.rows.length>0);
+  const inventoryReport=await request('GET',`/api/v1/reports/inventory/balance?warehouse_id=${target.id}`);assert.equal(inventoryReport[0].qty_available,'5');assert.equal(inventoryReport[0].total_value,'15');
+  const replenishment=await request('GET','/api/v1/reports/inventory/reorder-suggestions');assert.ok(Array.isArray(replenishment));
+  for(const item of replenishment){assert.ok(Number(item.suggested_qty)>0);assert.equal(Number(item.suggested_qty),Number(item.safety_stock)+Number(item.committed)-Number(item.available)-Number(item.on_order));}
+  const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=','base64');
+  const form=new FormData();form.append('file',new Blob([imageBytes],{type:'image/png'}),'source-photo.PNG');
+  const uploadedResponse=await fetch(base+'/api/v1/upload/image',{method:'POST',headers:{Authorization:'Bearer '+token},body:form});assert.equal(uploadedResponse.status,200);const uploaded=await uploadedResponse.json();assert.equal(uploaded.code,0);const imageURL=uploaded.data.url;assert.match(imageURL,/^\/uploads\/images\/[0-9a-f-]+\.png$/);
+  await access(join(uploadDir,'images',imageURL.split('/').at(-1)));
+  const imageResponse=await fetch(base+imageURL);assert.equal(imageResponse.status,200);assert.equal(imageResponse.headers.get('content-type'),'image/png');assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()),imageBytes);
+  const photos=await request('POST',`/api/v1/stock-ins/${incoming.id}/photos`,{photos:[{url:imageURL,remark:'After receipt confirmation'}]});
+  await request('PUT',`/api/v1/stock-ins/${incoming.id}/photos/${photos[0].id}`,{remark:'Updated photo record',url:'/uploads/ignored-edit.jpg'});
+  const accountParent=await request('POST','/api/v1/accounts',{code:'SMOKE-ACCOUNT',name:'Smoke account parent',category:'asset',is_leaf:false,is_enabled:true,currency:'CNY'});
+  const accountChild=await request('POST','/api/v1/accounts',{code:'SMOKE-ACCOUNT-01',name:'Smoke account child',category:'asset',is_leaf:true,is_enabled:true,parent_id:accountParent.id,currency:'CNY'});
+  const accountTree=await request('GET','/api/v1/accounts/tree');assert.equal(accountTree.find(x=>x.id===accountParent.id).edges.children[0].id,accountChild.id);
+  await request('PUT',`/api/v1/accounts/${accountChild.id}`,{code:'IGNORED-NEW-CODE',name:'Updated account',is_enabled:false});const changedAccount=await request('GET',`/api/v1/accounts/${accountChild.id}`);assert.equal(changedAccount.code,'SMOKE-ACCOUNT-01');assert.equal(changedAccount.is_enabled,undefined);assert.equal(changedAccount.parent_id,accountParent.id);
+  await request('DELETE',`/api/v1/accounts/${accountParent.id}`,undefined,400);await request('DELETE',`/api/v1/accounts/${accountChild.id}`);await request('DELETE',`/api/v1/accounts/${accountChild.id}`);await request('DELETE',`/api/v1/accounts/${accountParent.id}`);
+  const reusedAccount=await request('POST','/api/v1/accounts',{code:'SMOKE-ACCOUNT',name:'Reused account code',category:'asset',is_leaf:true,is_enabled:true});assert.notEqual(reusedAccount.id,accountParent.id);
+  await request('POST', '/api/v1/work-orders/unknown/finish', {}, 501);
+  const mappingAccount=await request('POST','/api/v1/accounts',{code:'SMOKE-MAPPING',name:'Mapping expense',category:'expense',is_leaf:true,is_enabled:true});
+  const mapped=await request('PUT','/api/v1/account-mappings',{items:{expense:mappingAccount.id}});assert.equal(mapped.items.expense.account_id,mappingAccount.id);assert.equal(mapped.items.expense.is_default,false);
+  const invalidMapping=await fetch(base+'/api/v1/account-mappings',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({items:{salary:mappingAccount.id,expense:'00000000-0000-0000-0000-000000000001'}})});assert.equal((await invalidMapping.json()).code,10000);
+  assert.equal((await request('GET','/api/v1/account-mappings')).items.expense.account_id,mappingAccount.id);
+  const currency=await request('POST','/api/v1/currencies',{code:'SMOKE-CURRENCY',name:'Smoke currency',exchange_rate:'7.12345678',is_base:true});assert.equal(currency.exchange_rate,'7.12345678');
+  const baseDelete=await fetch(base+'/api/v1/currencies/'+currency.id,{method:'DELETE',headers:{Authorization:'Bearer '+token}});assert.equal((await baseDelete.json()).code,10000);
+  const currencyUpdate=await request('PUT','/api/v1/currencies/'+currency.id,{code:'IGNORED',exchange_rate:0});assert.equal(currencyUpdate.code,'SMOKE-CURRENCY');assert.equal(currencyUpdate.exchange_rate,'7.12345678');
+  const bankAccount=await request('POST','/api/v1/bank/accounts',{account_no:'SMOKE-BANK',opening_balance:'100.25',bank_name:'Smoke bank'});
+  const bankCustomer=await request('POST','/api/v1/customers',{code:'SMOKE-BANK-CUSTOMER',name:'Bank customer'});const bankLedger=(await request('GET','/api/v1/accounts?page_size=1000')).list.find(x=>x.code==='1002');
+  const bankInvoice=await request('POST','/api/v1/ar-invoices',{customer_id:bankCustomer.id,invoice_date:date,total_amount:'321.25'});
+  const bankReceipt=await request('POST','/api/v1/payment-receipts',{customer_id:bankCustomer.id,receipt_date:date,amount:'321.25',receipt_type:'normal',currency_code:'CNY',cash_account_id:bankLedger.id,cash_account_code:bankLedger.code,cash_account_name:bankLedger.name,lines:[{ar_invoice_id:bankInvoice.id,amount:'321.25'}]});
+  const bankLine=await request('POST','/api/v1/bank/statements',{account_id:bankAccount.id,statement_date:'2026-01-01T12:00:00+08:00',amount:'321.25',balance_after:'421.5'});
+  assert.equal((await request('POST','/api/v1/bank/reconcile?account_id='+bankAccount.id,{})).matched,0);await request('POST','/api/v1/payment-receipts/'+bankReceipt.id+'/confirm',{});assert.equal((await request('POST','/api/v1/bank/reconcile?account_id='+bankAccount.id,{})).matched,1);
+  const bankSummary=await request('GET','/api/v1/bank/reconcile-summary?account_id='+bankAccount.id);assert.equal(bankSummary.reconciled_count,1);assert.equal(bankSummary.reconciled_amount,'321.25');assert.equal(bankSummary.unreconciled_amount,'0');
+  await request('PUT','/api/v1/settings',{settings:{company:{name:'Seven stage smoke',currency:'CNY'},inventory:{batch_strategy:'fefo'},personal_mode:{enabled:false},data_isolation:{mode:'sales'}}});
+  const outputs=[];
+  for (const code of ['SMOKE-OUTPUT-A','SMOKE-OUTPUT-B']) outputs.push(await request('POST','/api/v1/products',{code,name:code}));
+  const multiWork=await request('POST','/api/v1/work-orders',{product_id:outputs[0].id,warehouse_id:warehouse.id,qty:2});
+  await request('POST',`/api/v1/work-orders/${multiWork.id}/confirm`,{});
+  const multiReceipt=await request('POST','/api/v1/production-receipts',{work_order_id:multiWork.id,warehouse_id:warehouse.id,receipt_date:date,lines:[{product_id:outputs[0].id,qty:1,unit_cost:11},{product_id:outputs[1].id,qty:1,unit_cost:3}]});
+  const multiConfirmed=await request('POST',`/api/v1/production-receipts/${multiReceipt.id}/confirm`,{});
+  assert.equal(multiConfirmed.total_cost,'14');
+  for (const [i,p] of outputs.entries()) {const b=(await request('GET','/api/v1/inventory-balances?product_id='+p.id)).list[0];assert.equal(b.qty_available,'1');assert.equal(b.avg_cost,i===0?'11':'3');}
+  await stop(); await start();
+  const persistedSettings=await request('GET','/api/v1/settings');assert.equal(persistedSettings.company.name,'Seven stage smoke');assert.equal(persistedSettings.inventory.batch_strategy,'fefo');assert.equal(persistedSettings.data_isolation.mode,'sales');
+  assert.equal((await request('GET',`/api/v1/production-receipts/${multiReceipt.id}`)).status,'confirmed');
+  // JWT secret and independently created business data survive a real restart.
+  const persistedBank=(await request('GET','/api/v1/bank/statements?account_id='+bankAccount.id)).list[0];assert.equal(persistedBank.id,bankLine.id);assert.equal(persistedBank.reconciled,true);assert.equal(persistedBank.matched_ref,bankReceipt.receipt_no);
+  await request('POST','/api/v1/payment-receipts/'+bankReceipt.id+'/cancel',{});assert.equal((await request('GET','/api/v1/bank/reconcile-summary?account_id='+bankAccount.id)).reconciled_count,1);
+  const bankDeleteBlocked=await fetch(base+'/api/v1/bank/accounts/'+bankAccount.id,{method:'DELETE',headers:{Authorization:'Bearer '+token}});assert.equal((await bankDeleteBlocked.json()).code,10000);await request('DELETE','/api/v1/bank/statements/'+bankLine.id);await request('DELETE','/api/v1/bank/accounts/'+bankAccount.id);await request('POST','/api/v1/bank/accounts',{account_no:'SMOKE-BANK'},500);
+  const persistedCurrencies=await request('GET','/api/v1/currencies');assert.equal(persistedCurrencies.find(x=>x.id===currency.id).exchange_rate,'7.12345678');
+  await request('PUT','/api/v1/currencies/'+currency.id,{is_base:false});await request('DELETE','/api/v1/currencies/'+currency.id);const reusedCurrency=await request('POST','/api/v1/currencies',{code:'SMOKE-CURRENCY',exchange_rate:0});assert.equal(reusedCurrency.exchange_rate,'1');assert.notEqual(reusedCurrency.id,currency.id);
+  const persistedMapping=await request('GET','/api/v1/account-mappings');assert.equal(persistedMapping.items.expense.account_id,mappingAccount.id);assert.equal(persistedMapping.items.salary.is_default,true);
+  await request('DELETE',`/api/v1/accounts/${mappingAccount.id}`);const fallbackMapping=await request('GET','/api/v1/account-mappings');assert.equal(fallbackMapping.items.expense.account_code,'6602');assert.equal(fallbackMapping.items.expense.is_default,true);assert.equal(fallbackMapping.items.expense.missing,true);
+  const resetMapping=await request('PUT','/api/v1/account-mappings',{});assert.equal(resetMapping.items.expense.missing,false);
+
+  const after = await request('GET', `/api/v1/stock-ins/${incoming.id}`);
+  assert.equal(after.status, 'confirmed'); assert.equal(after.total_amount, '125');
+  assert.equal(after.edges.photos[0].url,imageURL);assert.equal(after.edges.photos[0].remark,'Updated photo record');
+  await request('DELETE',`/api/v1/stock-ins/${incoming.id}/photos/${photos[0].id}`);
+  const deletedPhoto=await request('GET',`/api/v1/stock-ins/${incoming.id}`);assert.equal(deletedPhoto.edges.photos?.length||0,0);
+  const retainedImage=await fetch(base+imageURL);assert.equal(retainedImage.status,200);assert.deepEqual(Buffer.from(await retainedImage.arrayBuffer()),imageBytes);
+  await request('GET',`/api/v1/accounts/${accountChild.id}`,undefined,404);const persistedAccount=await request('GET',`/api/v1/accounts/${reusedAccount.id}`);assert.equal(persistedAccount.code,'SMOKE-ACCOUNT');
+  const persisted = await request('GET', `/api/v1/sales-orders/${order.id}`);
+  assert.equal(persisted.edges.lines[0].delivered_qty, '1');
+  const persistedInvoice = await request('GET',`/api/v1/ar-invoices/${invoice.id}`);assert.equal(persistedInvoice.received_amount,'0');assert.equal(persistedInvoice.balance,'50');
+  const persistedStatement=await request('GET',`/api/v1/reports/finance/statement/customer?customer_id=${customer.id}`);assert.equal(persistedStatement[0].end_balance,'50');assert.equal(persistedStatement[0].period_out,'0');assert.equal(persistedStatement[0].lines.length,1);
+  const persistedWorkOrder = await request('GET',`/api/v1/work-orders/${workOrder.id}`);assert.equal(persistedWorkOrder.material_cost,'18');assert.equal(persistedWorkOrder.status,'completed');
+  const persistedRouting=await request('GET',`/api/v1/work-orders/${routed.id}`);assert.equal(persistedRouting.labor_cost,'720');assert.equal(persistedRouting.edges.processes[0].qty_bad,'1');
+  const persistedCheck=await request('GET',`/api/v1/inventory-checks/${check.id}`);assert.equal(persistedCheck.status,'completed');assert.equal(persistedCheck.profit_amount,'9');
+  const persistedTransfer=await request('GET',`/api/v1/stock-transfers/${transfer.id}`);assert.equal(persistedTransfer.status,'completed');
+  console.log('Standalone source server smoke passed: login, stock, linked shipment, financial allocation/reversal, BOM production, process reporting/reversal/labor, warehouse transfer/transit, adjustment, stocktake differences, reports, multipart image upload/configured storage/public byte retrieval/photo linkage, account tree/edits/soft deletion/code reuse, mapping replacement/rollback/deletion fallback/restart, currencies/rates/base guards/soft deletion, bank statements/matching/summary/cancellation/retained references, 501 boundary, persisted files/database/JWT across restart.');
+} finally { await stop(); console.log('Retained smoke data: '+dir); }

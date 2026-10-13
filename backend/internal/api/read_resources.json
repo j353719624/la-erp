@@ -1,0 +1,485 @@
+[
+  {
+    "route": "crm-opportunities",
+    "table": "crm_opportunities",
+    "permission": "*",
+    "original_endpoint": "/api/v1/crm-opportunities",
+    "original_total": 0
+  },
+  {
+    "route": "crm-activities",
+    "table": "crm_activities",
+    "permission": "*",
+    "original_endpoint": "/api/v1/crm-activities",
+    "original_total": 0
+  },
+  {
+    "route": "accounts",
+    "table": "accounts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/accounts",
+    "original_total": 40
+  },
+  {
+    "route": "vouchers",
+    "table": "vouchers",
+    "permission": "*",
+    "original_endpoint": "/api/v1/vouchers",
+    "original_total": 0
+  },
+  {
+    "route": "accounting-periods",
+    "table": "accounting_periods",
+    "permission": "*",
+    "original_endpoint": "/api/v1/accounting-periods",
+    "original_total": 0
+  },
+  {
+    "route": "expense-claims",
+    "table": "expense_claims",
+    "permission": "*",
+    "original_endpoint": "/api/v1/expense-claims",
+    "original_total": 0
+  },
+  {
+    "route": "fixed-assets",
+    "table": "fixed_assets",
+    "permission": "*",
+    "original_endpoint": "/api/v1/fixed-assets",
+    "original_total": 0
+  },
+  {
+    "route": "bank/statements",
+    "table": "bank_statements",
+    "permission": "*",
+    "original_endpoint": "/api/v1/bank/statements",
+    "original_total": 0
+  },
+  {
+    "route": "payrolls",
+    "table": "payroll_batches",
+    "permission": "*",
+    "original_endpoint": "/api/v1/payrolls",
+    "original_total": 0
+  },
+  {
+    "route": "payment-plans",
+    "table": "payment_plans",
+    "permission": "*",
+    "original_endpoint": "/api/v1/payment-plans",
+    "original_total": 0
+  },
+  {
+    "route": "tax-accruals",
+    "table": "tax_accruals",
+    "permission": "*",
+    "original_endpoint": "/api/v1/tax-accruals",
+    "original_total": 0
+  },
+  {
+    "route": "shareholders",
+    "table": "shareholders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/shareholders",
+    "original_total": 0
+  },
+  {
+    "route": "employees",
+    "table": "employees",
+    "permission": "*",
+    "original_endpoint": "/api/v1/employees",
+    "original_total": 0
+  },
+  {
+    "route": "labor-contracts",
+    "table": "labor_contracts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/labor-contracts",
+    "original_total": 0
+  },
+  {
+    "route": "attendance-requests",
+    "table": "attendance_requests",
+    "permission": "*",
+    "original_endpoint": "/api/v1/attendance-requests",
+    "original_total": 0
+  },
+  {
+    "route": "employee-changes",
+    "table": "employee_changes",
+    "permission": "*",
+    "original_endpoint": "/api/v1/employee-changes",
+    "original_total": 0
+  },
+  {
+    "route": "recruitment-positions",
+    "table": "recruitment_positions",
+    "permission": "*",
+    "original_endpoint": "/api/v1/recruitment-positions",
+    "original_total": 0
+  },
+  {
+    "route": "recruitment-candidates",
+    "table": "recruitment_candidates",
+    "permission": "*",
+    "original_endpoint": "/api/v1/recruitment-candidates",
+    "original_total": 0
+  },
+  {
+    "route": "training-records",
+    "table": "training_records",
+    "permission": "*",
+    "original_endpoint": "/api/v1/training-records",
+    "original_total": 0
+  },
+  {
+    "route": "perf-templates",
+    "table": "perf_templates",
+    "permission": "*",
+    "original_endpoint": "/api/v1/perf-templates",
+    "original_total": 0
+  },
+  {
+    "route": "perf-assessments",
+    "table": "perf_assessments",
+    "permission": "*",
+    "original_endpoint": "/api/v1/perf-assessments",
+    "original_total": 0
+  },
+  {
+    "route": "piecework-rates",
+    "table": "piece_rates",
+    "permission": "*",
+    "original_endpoint": "/api/v1/piecework-rates",
+    "original_total": 0
+  },
+  {
+    "route": "piecework-records",
+    "table": "piecework_records",
+    "permission": "*",
+    "original_endpoint": "/api/v1/piecework-records",
+    "original_total": 0
+  },
+  {
+    "route": "inventory-balances",
+    "table": "inventory_balances",
+    "permission": "*",
+    "original_endpoint": "/api/v1/inventory-balances",
+    "original_total": 0
+  },
+  {
+    "route": "stock-movements",
+    "table": "stock_movements",
+    "permission": "*",
+    "original_endpoint": "/api/v1/stock-movements",
+    "original_total": 0
+  },
+  {
+    "route": "inventory-checks",
+    "table": "inventory_checks",
+    "permission": "*",
+    "original_endpoint": "/api/v1/inventory-checks",
+    "original_total": 0
+  },
+  {
+    "route": "stock-transfers",
+    "table": "stock_transfers",
+    "permission": "*",
+    "original_endpoint": "/api/v1/stock-transfers",
+    "original_total": 0
+  },
+  {
+    "route": "inventory-adjusts",
+    "table": "stock_adjusts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/inventory-adjusts",
+    "original_total": 0
+  },
+  {
+    "route": "stock-ins",
+    "table": "stock_ins",
+    "permission": "stock_in",
+    "original_endpoint": "/api/v1/stock-ins",
+    "original_total": 0
+  },
+  {
+    "route": "stock-outs",
+    "table": "stock_outs",
+    "permission": "stock_out",
+    "original_endpoint": "/api/v1/stock-outs",
+    "original_total": 0
+  },
+  {
+    "route": "loan-orders",
+    "table": "loan_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/loan-orders",
+    "original_total": 0
+  },
+  {
+    "route": "consignments",
+    "table": "consignment_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/consignments",
+    "original_total": 0
+  },
+  {
+    "route": "metadata/entities",
+    "table": "entity_defs",
+    "permission": "*",
+    "original_endpoint": "/api/v1/metadata/entities",
+    "original_total": 6
+  },
+  {
+    "route": "sales-orders",
+    "table": "sales_orders",
+    "permission": "sales_order_list",
+    "original_endpoint": "/api/v1/sales-orders",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-orders",
+    "table": "purchase_orders",
+    "permission": "purchase_order_list",
+    "original_endpoint": "/api/v1/purchase-orders",
+    "original_total": 0
+  },
+  {
+    "route": "sales-returns",
+    "table": "sales_returns",
+    "permission": "*",
+    "original_endpoint": "/api/v1/sales-returns",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-returns",
+    "table": "purchase_returns",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-returns",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-requisitions",
+    "table": "purchase_requisitions",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-requisitions",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-rfqs",
+    "table": "purchase_rf_qs",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-rfqs",
+    "original_total": 0
+  },
+  {
+    "route": "sales-quotations",
+    "table": "sales_quotations",
+    "permission": "*",
+    "original_endpoint": "/api/v1/sales-quotations",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-contracts",
+    "table": "purchase_contracts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-contracts",
+    "original_total": 0
+  },
+  {
+    "route": "sales-contracts",
+    "table": "sales_contracts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/sales-contracts",
+    "original_total": 0
+  },
+  {
+    "route": "sales-commissions/settlements",
+    "table": "commission_settlements",
+    "permission": "*",
+    "original_endpoint": "/api/v1/sales-commissions/settlements",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-reconciliations",
+    "table": "purchase_reconciliations",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-reconciliations",
+    "original_total": 0
+  },
+  {
+    "route": "spus",
+    "table": "product_spus",
+    "permission": "*",
+    "original_endpoint": "/api/v1/spus",
+    "original_total": 0
+  },
+  {
+    "route": "price-lists",
+    "table": "price_lists",
+    "permission": "*",
+    "original_endpoint": "/api/v1/price-lists",
+    "original_total": 0
+  },
+  {
+    "route": "assemblies",
+    "table": "assembly_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/assemblies",
+    "original_total": 0
+  },
+  {
+    "route": "work-orders",
+    "table": "work_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/work-orders",
+    "original_total": 0
+  },
+  {
+    "route": "rework-orders",
+    "table": "rework_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/rework-orders",
+    "original_total": 0
+  },
+  {
+    "route": "subcontract-orders",
+    "table": "subcontract_orders",
+    "permission": "*",
+    "original_endpoint": "/api/v1/subcontract-orders",
+    "original_total": 0
+  },
+  {
+    "route": "serial-numbers",
+    "table": "serial_numbers",
+    "permission": "*",
+    "original_endpoint": "/api/v1/serial-numbers",
+    "original_total": 0
+  },
+  {
+    "route": "mps-plans",
+    "table": "mps_plans",
+    "permission": "*",
+    "original_endpoint": "/api/v1/mps-plans",
+    "original_total": 0
+  },
+  {
+    "route": "production-pickings",
+    "table": "production_pickings",
+    "permission": "*",
+    "original_endpoint": "/api/v1/production-pickings",
+    "original_total": 0
+  },
+  {
+    "route": "production-receipts",
+    "table": "production_receipts",
+    "permission": "*",
+    "original_endpoint": "/api/v1/production-receipts",
+    "original_total": 0
+  },
+  {
+    "route": "production-returns",
+    "table": "production_returns",
+    "permission": "*",
+    "original_endpoint": "/api/v1/production-returns",
+    "original_total": 0
+  },
+  {
+    "route": "mrp/requirements",
+    "table": "material_requirements",
+    "permission": "*",
+    "original_endpoint": "/api/v1/mrp/requirements",
+    "original_total": 0
+  },
+  {
+    "route": "purchase-suggestions",
+    "table": "purchase_suggestions",
+    "permission": "*",
+    "original_endpoint": "/api/v1/purchase-suggestions",
+    "original_total": 0
+  },
+  {
+    "route": "boms",
+    "table": "bo_ms",
+    "permission": "*",
+    "original_endpoint": "/api/v1/boms",
+    "original_total": 0
+  },
+  {
+    "route": "routings",
+    "table": "routings",
+    "permission": "*",
+    "original_endpoint": "/api/v1/routings",
+    "original_total": 0
+  },
+  {
+    "route": "work-centers",
+    "table": "work_centers",
+    "permission": "*",
+    "original_endpoint": "/api/v1/work-centers",
+    "original_total": 0
+  },
+  {
+    "route": "production-equipments",
+    "table": "production_equipments",
+    "permission": "*",
+    "original_endpoint": "/api/v1/production-equipments",
+    "original_total": 0
+  },
+  {
+    "route": "equipment-maintenances",
+    "table": "equipment_maintenances",
+    "permission": "*",
+    "original_endpoint": "/api/v1/equipment-maintenances",
+    "original_total": 0
+  },
+  {
+    "route": "toolings",
+    "table": "toolings",
+    "permission": "*",
+    "original_endpoint": "/api/v1/toolings",
+    "original_total": 0
+  },
+  {
+    "route": "production-teams",
+    "table": "production_teams",
+    "permission": "*",
+    "original_endpoint": "/api/v1/production-teams",
+    "original_total": 0
+  },
+  {
+    "route": "product-documents",
+    "table": "product_documents",
+    "permission": "*",
+    "original_endpoint": "/api/v1/product-documents",
+    "original_total": 0
+  },
+  {
+    "route": "work-order-processes",
+    "table": "work_order_processes",
+    "permission": "*",
+    "original_endpoint": "/api/v1/work-order-processes",
+    "original_total": 0
+  },
+  {
+    "route": "custom-reports",
+    "table": "report_definitions",
+    "permission": "*",
+    "original_endpoint": "/api/v1/custom-reports",
+    "original_total": 0
+  },
+  {
+    "route": "notifications",
+    "table": "notifications",
+    "permission": "*",
+    "original_endpoint": "/api/v1/notifications",
+    "original_total": 0
+  },
+  {
+    "route": "leads",
+    "table": "leads",
+    "permission": "*",
+    "original_endpoint": "/api/v1/leads",
+    "original_total": 0
+  }
+]

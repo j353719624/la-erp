@@ -1,0 +1,10 @@
+{
+  "name": "la-erp-recovered",
+  "version": "1.4.51",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "license": "node tools/license.mjs"
+  }
+}

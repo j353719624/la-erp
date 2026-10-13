@@ -1,0 +1,95 @@
+package business
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"la-erp-recovered/backend/internal/database"
+)
+
+func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (map[string]any, error) {
+	raw, ok := input["serial_nos"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil, errors.New("序列号不能为空")
+	}
+	names := []string{}
+	seen := map[string]bool{}
+	for _, v := range raw {
+		no, ok := v.(string)
+		if !ok {
+			return nil, ErrUnsupported
+		}
+		if no == "" {
+			continue
+		}
+		if seen[no] {
+			return nil, fmt.Errorf("序列号 %s 在本次提交中重复", no)
+		}
+		seen[no] = true
+		names = append(names, no)
+	}
+	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		for _, no := range names {
+			var n int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM serial_numbers WHERE serial_no=? AND deleted_at IS NULL", no).Scan(&n); err != nil {
+				return err
+			}
+			if n > 0 {
+				return fmt.Errorf("序列号 %s 已存在", no)
+			}
+		}
+		registered := now()
+		for _, no := range names {
+			row := s.base("serial_numbers")
+			row["serial_no"], row["status"], row["registered_at"] = no, "in_stock", registered
+			for _, key := range []string{"product_id", "product_code", "product_name", "warehouse_id", "warehouse_name", "source_type", "source_no", "remark"} {
+				if input[key] != nil {
+					row[key] = input[key]
+				}
+			}
+			if err := s.Store.InsertWith(ctx, tx, "serial_numbers", row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"registered": len(names)}, nil
+}
+func (s *Service) SerialAction(ctx context.Context, id, action string) (map[string]any, error) {
+	var result map[string]any
+	err := s.transaction(ctx, func(tx *sql.Tx) error {
+		row, err := s.Store.GetWith(ctx, tx, "serial_numbers", id)
+		if errors.Is(err, database.ErrNotFound) {
+			return errors.New("序列号不存在")
+		}
+		if err != nil {
+			return err
+		}
+		verb, status := "出库", "out"
+		if action == "scrap" {
+			verb, status = "报废", "scrapped"
+		}
+		if value(row, "status") != "in_stock" {
+			return errors.New("只有待出库状态（在库）的序列号才能" + verb)
+		}
+		changes := map[string]any{"status": status, "updated_at": now()}
+		if action == "out" {
+			changes["out_at"] = now()
+		}
+		if err := s.Store.UpdateWith(ctx, tx, "serial_numbers", id, changes); err != nil {
+			return err
+		}
+		row, err = s.Store.GetWith(ctx, tx, "serial_numbers", id)
+		if err != nil {
+			return err
+		}
+		result = s.Store.Public("serial_numbers", row)
+		delete(result, "edges")
+		return nil
+	})
+	return result, err
+}

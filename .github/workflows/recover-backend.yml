@@ -1,0 +1,31 @@
+name: Capture backend recovery evidence
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download original private sample
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir runtime
+          gh release download recovery-1.4.51 --pattern 'la-erp_1.4.51-repack_x86_64.fpk' --dir runtime
+          tar -xzf runtime/la-erp_1.4.51-repack_x86_64.fpk -C runtime app.tgz
+          tar -xzf runtime/app.tgz -C runtime server/la-erp-server
+          chmod +x runtime/server/la-erp-server
+      - run: node tools/capture-backend.mjs runtime/server/la-erp-server capture
+        env:
+          CAPTURE_BUSINESS_CONTRACTS: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-recovery-evidence
+          path: capture/
+          retention-days: 14

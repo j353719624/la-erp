@@ -1,0 +1,79 @@
+[
+  {
+    "key": "expense",
+    "label": "期间费用（费用报销）",
+    "usage": "费用报销审批通过时借方；细分可挂 6602.01/6602.02",
+    "default_code": "6602",
+    "default_name": "管理费用"
+  },
+  {
+    "key": "salary",
+    "label": "工资计提",
+    "usage": "工资批次计提凭证借方",
+    "default_code": "6602",
+    "default_name": "管理费用"
+  },
+  {
+    "key": "depreciation",
+    "label": "折旧计提",
+    "usage": "固定资产折旧计提凭证借方",
+    "default_code": "6602",
+    "default_name": "管理费用"
+  },
+  {
+    "key": "tax_surcharge",
+    "label": "税金及附加",
+    "usage": "附加税/印花税计提凭证借方",
+    "default_code": "6403",
+    "default_name": "税金及附加"
+  },
+  {
+    "key": "income_tax_expense",
+    "label": "所得税费用",
+    "usage": "企业所得税计提凭证借方",
+    "default_code": "6801",
+    "default_name": "所得税费用"
+  },
+  {
+    "key": "profit_distribution",
+    "label": "利润分配（分红）",
+    "usage": "股东分红宣告凭证借方",
+    "default_code": "4104",
+    "default_name": "利润分配"
+  },
+  {
+    "key": "vat_input",
+    "label": "进项税额",
+    "usage": "增值税月末结转：贷方（转出）",
+    "default_code": "2221.01.01",
+    "default_name": "应交税费-进项税额"
+  },
+  {
+    "key": "vat_output",
+    "label": "销项税额",
+    "usage": "增值税月末结转：借方（转出）",
+    "default_code": "2221.01.02",
+    "default_name": "应交税费-销项税额"
+  },
+  {
+    "key": "vat_payable",
+    "label": "应交增值税（未交）",
+    "usage": "增值税月末结转差额对方科目",
+    "default_code": "2221.01",
+    "default_name": "应交税费-应交增值税"
+  },
+  {
+    "key": "cash",
+    "label": "现金",
+    "usage": "未指定付款方式时的默认付款科目；记「现金」",
+    "default_code": "1001",
+    "default_name": "库存现金"
+  },
+  {
+    "key": "bank",
+    "label": "银行存款",
+    "usage": "默认付款科目（缴税/报销付款等）",
+    "default_code": "1002",
+    "default_name": "银行存款"
+  }
+]

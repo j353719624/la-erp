@@ -1,0 +1,10 @@
+#!/bin/bash
+# 安装前检查 - 此阶段应用文件尚未解压到 TRIM_APPDEST
+# Go 静态二进制版: 无需任何运行时, 只做最基本的目录检查
+
+LOG_FILE="${TRIM_PKGVAR}/install.log"
+
+mkdir -p "${TRIM_PKGVAR}"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - install_init 通过(Go 静态二进制模式, 无需系统运行时)" >> "${LOG_FILE}"
+
+exit 0
