@@ -256,7 +256,7 @@ var accountingPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 //     就是零值，故 {"period":"2026-10"} 能 200 成功；而带了 "2026-10-01" 这种非
 //     RFC3339 的值则先被 time.Parse 拒掉，**早于** period 校验 —— 这就是第 4 条实测
 //     报 Go parse 错、而不是「期间不能为空」的原因。校验顺序不可颠倒。
-func prepareAccountingPeriod(w http.ResponseWriter, data map[string]any) bool {
+func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request, data map[string]any) bool {
 	for _, field := range []string{"start_date", "end_date"} {
 		raw := text(data, field)
 		if raw == "" {
@@ -277,6 +277,15 @@ func prepareAccountingPeriod(w http.ResponseWriter, data map[string]any) bool {
 		verbatimFailure(w, verbatim{text: "期间格式错误，应为 YYYY-MM"})
 		return false
 	}
+	// 期间重叠检查（2026-10-15 二次实测补充，首版 4 条未覆盖）：
+	// 完全重叠 / 部分重叠（两种方向）/ 同起始日 / 新区间起点 == 基准终点
+	// → 200 + code 10000「该期间与已存在的会计期间重叠」；
+	// 新区间终点 == 基准起点 / 基准终点次日 / 完全不重叠 / 缺日期 → 200 success。
+	// 判据是 **[start_date, end_date] 闭区间相交**，详见 accountingPeriodOverlaps。
+	if s.accountingPeriodOverlaps(r, text(data, "period"), text(data, "start_date"), text(data, "end_date")) {
+		verbatimFailure(w, verbatim{text: "该期间与已存在的会计期间重叠"})
+		return false
+	}
 	// 原版 start_date / end_date 缺省时落 Go 零值时间；schema 里这两列 NOT NULL 且无默认值，
 	// 故显式补零值，否则 INSERT 会因 NOT NULL 约束失败（与 bank.go:72 同一约定）。
 	for _, field := range []string{"start_date", "end_date"} {
@@ -285,6 +294,82 @@ func prepareAccountingPeriod(w http.ResponseWriter, data map[string]any) bool {
 		}
 	}
 	return true
+}
+
+// accountingPeriodOverlaps 判断新区间是否与任一已有会计期间相交。
+//
+// 取证与已知缺口详见 docs/UNSUPPORTED-AUDIT-LOG.md 37.7。
+//
+// 注意：**边界的精确开闭（< 还是 <=）目前证据不足** —— 原版没有 DELETE 路由，
+// 历次回放残数据使不同年份基准下测得的结果不自洽（见 37.7「尚未确认的部分」）。
+// 当前按「左开右闭 (start, end]」实现，待原版数据清理后重测再定，
+// **不要在未取证的情况下把这里的 <= / >= 当成既定事实**。
+//
+// 已确认的部分（原版多次独立复现）：
+//
+//	period 相同 / period 不同但日期相交 → 重叠；日期不相交或缺日期 → 放行。
+//
+// 逐点探测观察到的现象：
+//
+//	新区间完全在基准之前（06-14 全天）      → 不重叠
+//	新区间终点 == 基准起点（…06-15T00:00）   → **重叠**（D：+1 秒仍重叠）
+//	新区间起点 == 基准终点（06-15T00:00 起） → **不重叠**（C）
+//	新区间终点 == 基准起点+1 秒              → 重叠
+//	新区间起点 == 基准终点-1 秒              → 重叠
+//	缺 start_date/end_date（零值）            → 不重叠
+//
+// 宽区间验证（基准 2030-01-01T00:00 .. 01-31T00:00）同样符合：
+// 完全落在区间内 / 晚始早终 / 早始晚终 / 同起始日 → 全部重叠；
+// 终点 == 基准起点 → 不重叠；终点次日 / 完全不重叠 → 不重叠。
+//
+// 故相交条件为：newEnd >= oldStart 且 newStart < oldEnd。
+func (s *Server) accountingPeriodOverlaps(r *http.Request, period, start, end string) bool {
+	rows, err := s.Store.Rows(r.Context(),
+		"SELECT start_date, end_date FROM accounting_periods WHERE deleted_at IS NULL AND period<>?",
+		period)
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	newStart, newEnd := parseBoundary(start), parseBoundary(end)
+	// 缺 start_date / end_date 时原版落 Go 零值时间（year 1），实测判为**不重叠**。
+	// 零值区间若参与比较会与所有真实区间「相交」，故显式短路。
+	if newStart.IsZero() || newEnd.IsZero() {
+		return false
+	}
+	for _, row := range rows {
+		// 注意传原始值而非 text()：datetime 列在 Store.Rows 里是 time.Time，
+		// text() 会把它格式化成空格分隔的字符串，导致 RFC3339 解析失败。
+		oldStart, oldEnd := parseBoundary(row["start_date"]), parseBoundary(row["end_date"])
+		// 左开右闭 (start, end]：新区间终点达到旧区间起点即算重叠，
+		// 而新区间起点必须**早于**旧区间终点（相等则不重叠）。
+		if !newEnd.Before(oldStart) && newStart.Before(oldEnd) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseBoundary 解析会计期间边界时间；无法解析时回落到零值时间。
+//
+// **不做「结束日补到 23:59:59」的处理** —— 实测表明原版的 end_date 本身就是
+// 闭区间端点：新区间起点等于基准终点（01-31T00:00）时判**重叠**，
+// 而非「不重叠」。若把 end 推到当日末尾会把这个 case 误判为不重叠。
+func parseBoundary(value any) time.Time {
+	switch v := value.(type) {
+	case time.Time:
+		// SQLite 驱动把 datetime 列直接返回 time.Time（实测形如
+		// "2050-01-01 00:00:00 +0800 CST"），不能走字符串解析路径 ——
+		// 早期实现只接受 string，导致解析失败回落到零值，重叠判定恒为 false。
+		return v
+	case string:
+		parsed, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return time.Time{}
+		}
+		return parsed
+	default:
+		return time.Time{}
+	}
 }
 
 func (s *Server) registerHRReports() {
@@ -2155,7 +2240,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		return
 	}
 	if res.Table == "accounting_periods" {
-		if ok := prepareAccountingPeriod(w, data); !ok {
+		if ok := s.prepareAccountingPeriod(w, r, data); !ok {
 			return
 		}
 	}
