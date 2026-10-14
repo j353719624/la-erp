@@ -94,6 +94,10 @@ func (s *Service) CreateBankStatement(ctx context.Context, input map[string]any)
 	return s.Store.Public("bank_statements", row), nil
 }
 func (s *Service) DeleteBankRecord(ctx context.Context, table, id string) error {
+	// 批次 X（2026-10-14）：table 由**路由层硬编码**（internal/api/bank.go:110-113
+	// `table := "bank_statements"; if account { table = "bank_accounts" }`），
+	// 不存在其它取值 → 本守卫**永不可达**，属防御性断言。
+	// 保留 ErrUnsupported 作兜底，不自造文案。
 	if table != "bank_accounts" && table != "bank_statements" {
 		return ErrUnsupported
 	}

@@ -8,6 +8,10 @@ import (
 )
 
 func (s *Service) DeleteProductionMaster(ctx context.Context, table, id string) error {
+	// 批次 X（2026-10-14）：table 由**路由层硬编码**（internal/api/production.go:101-104
+	// `table := "routings"; if route == "work-centers" { table = "work_centers" }`），
+	// route 又只来自 []string{"work-centers","routings"} → 不存在其它取值，
+	// 本守卫**永不可达**，属防御性断言。保留 ErrUnsupported 作兜底，不自造文案。
 	if table != "routings" && table != "work_centers" {
 		return ErrUnsupported
 	}

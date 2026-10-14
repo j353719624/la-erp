@@ -72,6 +72,13 @@ const DB_COLUMN_GUARDS = new Set([
   "transfers.go:WriteTransfer",
 ]);
 
+// 批次 X（2026-10-14）：table 由路由层硬编码字面量赋值（不来自请求参数），
+// 故 `if table != "a" && table != "b"` 守卫永不可达。
+const ROUTED_TABLE_GUARDS = new Set([
+  "bank.go:DeleteBankRecord",
+  "productionmasters.go:DeleteProductionMaster",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -106,6 +113,10 @@ for (const f of files) {
     if (DB_COLUMN_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
       if (tail.includes("Store.Has")) unreachable = true;
+    }
+    if (ROUTED_TABLE_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
+      if (/table != "(\w+)" && table != "(\w+)"/.test(tail)) unreachable = true;
     }
     rows.push({
       file: f,

@@ -107,3 +107,59 @@ const dump = (title, arr) => {
 dump("静态判定：UNIQUE 索引保证 → 死代码", findings.deadUnique);
 dump("静态判定：schema 必有列 → 死代码", findings.deadColumn);
 dump("仍需原版回放", findings.needsReplay);
+// ---------- 第二类死代码：路由层硬编码表名（批次 X） ----------
+//
+// 形如 `func (s *Service) DeleteXxx(ctx, table, id)` 且开头有
+//   if table != "a" && table != "b" { return ErrUnsupported }
+// 的守卫。若唯一调用点在 API 层把 table 用**字面量**赋值
+//   table := "a"; if cond { table = "b" }
+// 则 table 永不可能取其它值 → 守卫不可达。
+//
+// 识别方式：查 API 层对该函数的调用点，确认调用点所在行之前的 10 行内
+// 出现 `table := "..."` 字面量赋值，且没有来自请求参数（PathValue / r.URL）。
+export function findRoutedTableGuards() {
+  const apiDir = join(ROOT, "backend/internal/api");
+  const apiFiles = walk(apiDir).filter((f) => !f.endsWith("_test.go"));
+  const apiSrc = new Map(apiFiles.map((f) => [f, readFileSync(f, "utf8")]));
+
+  const out = [];
+  for (const file of walk(BIZ)) {
+    const src = readFileSync(file, "utf8");
+    const lines = src.split("\n");
+    lines.forEach((line, i) => {
+      const m = line.match(/^func \(s \*Service\) (\w+)\(ctx context\.Context, table, id string\)/);
+      if (!m) return;
+      // 函数体内前 12 行内是否有 table 白名单守卫
+      const body = lines.slice(i, i + 14).join("\n");
+      if (!/if table != "(\w+)" && table != "(\w+)"/.test(body)) return;
+      // 找 API 层调用点
+      for (const [af, asrc] of apiSrc) {
+        const call = new RegExp(`business\\(\\)\\.${m[1]}\\(`, "g");
+        let cm;
+        while ((cm = call.exec(asrc)) !== null) {
+          const before = asrc.slice(Math.max(0, cm.index - 500), cm.index);
+          const assigns = [...before.matchAll(/table\s*:?=\s*"(\w+)"/g)];
+          if (assigns.length === 0) continue;
+          // 若 500 字窗口内出现来自请求的 table（PathValue("table") / r.URL），则不可静态判定
+          if (/PathValue\("table"\)|r\.URL\.Query\(\)/.test(before)) continue;
+          const literals = new Set(assigns.map((x) => x[1]));
+          const guardCols = [...body.matchAll(/table != "(\w+)"/g)].map((x) => x[1]);
+          const covered = guardCols.every((c) => literals.has(c));
+          if (covered) {
+            out.push({
+              file: file.replace(/.*business[\\/]/, ""),
+              line: i + 1,
+              fn: m[1],
+              caller: af.replace(/.*api[\\/]/, ""),
+              literals: [...literals].join(","),
+            });
+          }
+        }
+      }
+    });
+  }
+  return out;
+}
+
+const routed = findRoutedTableGuards();
+dump("静态判定：路由层硬编码表名 → 死代码", routed);
