@@ -228,20 +228,25 @@ func (s *Service) GenerateMRPWorkOrders(ctx context.Context, id, user string) ([
 			if err != nil {
 				return err
 			}
+			// 批次 AA（2026-10-14，evidence/backend-runtime/audit-batch-aa-20261014.json）：
+			// **永不可达** —— 批次 Q 已证明原版建仓传 is_default=true 不抢占默认位、
+			// 默认仓数量恒为 1（原版库实测也是 1），恢复端亦已加
+			// enforceSingleDefaultWarehouse 保证同一。
+			// 属防御性断言，保留 ErrUnsupported 作兜底，不自造文案。
 			if len(warehouses) != 1 {
-				// 原版该分支未取证（构造多个 is_default 仓库的副作用较大，未执行）。
-				// 保留守卫与 ErrUnsupported，不自造中文文案。
 				return ErrUnsupported
 			}
 			boms, err := database.QueryRows(ctx, tx, "SELECT * FROM bo_ms WHERE product_id=? AND deleted_at IS NULL AND status='active' ORDER BY created_at DESC LIMIT 1", line["product_id"])
 			if err != nil {
 				return err
 			}
+			// 批次 AA 实测（2026-10-14，evidence/backend-runtime/audit-batch-aa-20261014.json）：
+			// 原版对一个**有 15 张 active BOM** 的商品（C79795FIFO）跑
+			// POST /mrp/requirements/{id}/generate-work-orders → **code:0 成功**，
+			// 生成的工单 bom_id 正是 `created_at` 最新的一张（4dae8092），
+			// 即「按 created_at DESC 取最新一张，不报错」。
+			// 查询已带 ORDER BY ... LIMIT 1，故本守卫永不可达（len 恒为 0 或 1）。
 			if len(boms) != 1 {
-				// 原版回放 CC9b（2026-10-14）：同一产品多张 active BOM 时按
-				// created_at DESC 取最新一张，不报错。查询已带 ORDER BY ... LIMIT 1，
-				// 此分支实际不可达（len 恒为 0 或 1），原版文案无从取证，
-				// 保留 ErrUnsupported 作为防御性断言。
 				return ErrUnsupported
 			}
 			product, err := s.plainProduct(ctx, tx, value(line, "product_id"))

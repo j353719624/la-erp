@@ -87,6 +87,12 @@ const STOCK_GATED_GUARDS = new Set([
   "fulfillment.go:Approve",
 ]);
 
+// 批次 AA（2026-10-14）：多 active BOM 时原版按 created_at DESC 取最新一张（实测通过），
+// 查询自带 ORDER BY ... LIMIT 1 → len 恒为 0 或 1；默认仓数量恒为 1（批次 Q 已证）。
+const MRP_GATED_GUARDS = new Set([
+  "mrp.go:GenerateMRPWorkOrders",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -129,6 +135,10 @@ for (const f of files) {
     if (STOCK_GATED_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 3), i).join(" ");
       if (/if!?\s*d\.Stock/.test(tail)) unreachable = true;
+    }
+    if (MRP_GATED_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 8), i).join(" ");
+      if (/len\((warehouses|boms)\) != 1/.test(tail)) unreachable = true;
     }
     rows.push({
       file: f,
