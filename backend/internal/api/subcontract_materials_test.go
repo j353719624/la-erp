@@ -80,8 +80,14 @@ func TestSubcontractCancelAfterIssueRejectsWithoutInventoryChange(t *testing.T) 
 	line := c.ok("GET", "/api/v1/subcontract-orders/"+id, nil).(map[string]any)["edges"].(map[string]any)["material_lines"].([]any)[0].(map[string]any)
 	c.ok("POST", "/api/v1/subcontract-orders/"+id+"/issue", []any{map[string]any{"material_line_id": line["id"], "qty": 1}})
 	status, body := c.request("POST", "/api/v1/subcontract-orders/"+id+"/cancel", nil)
-	if status != 501 || body["code"] == float64(0) {
+	// 原版回放（2026-10-13，证据 evidence/backend-runtime/audit-subcontract-with-material-20261013.json）：
+	// 带料外协发料后取消返回业务错误 code=10000「外协单已发料，请先退回多余材料后再取消」，
+	// 而非未恢复分支的 501。断言对齐原版实际响应，并核对库存未被取消动作改变。
+	if status != 200 || body["code"] == float64(0) {
 		t.Fatalf("issued subcontract cancellation unexpectedly succeeded: %d %#v", status, body)
+	}
+	if body["message"] != "外协单已发料，请先退回多余材料后再取消" {
+		t.Fatalf("unexpected cancel error message: %#v", body["message"])
 	}
 	var available string
 	if err := s.Store.DB.QueryRow("SELECT CAST(qty_available AS TEXT) FROM inventory_balances WHERE product_id=? AND warehouse_id=?", product["id"], warehouse["id"]).Scan(&available); err != nil {

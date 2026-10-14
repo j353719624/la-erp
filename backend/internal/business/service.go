@@ -16,7 +16,22 @@ import (
 	"time"
 )
 
+// ErrUnsupported 表示「该业务分支尚未恢复」——对外是 HTTP 501，
+// 含义是「原版行为未知或未取证，恢复端选择不实现」。
 var ErrUnsupported = errors.New("该业务分支尚未恢复")
+
+// ErrOriginalDefect 表示「原版此处存在缺陷，恢复端有意不对齐」。
+//
+// 与 ErrUnsupported 的区别很重要：
+//   - ErrUnsupported  = 「不知道原版怎么做 / 还没做」，属于**待办**；
+//   - ErrOriginalDefect = 「知道原版怎么做，且原版做法有害，恢复端有意拒绝」，属于**终态决策**。
+//
+// 两者对外都返回 501，但语义不同：前者在台账里是可推进的存量，
+// 后者已结案（见 docs/UNSUPPORTED-AUDIT-LOG.md 各批「不对齐」结论）。
+// 之所以仍用 501 而非 4xx：这类输入在原版能成功建单，给 4xx 会与原版
+// 行为产生表面冲突；但**绝不能复用「尚未恢复」的说法**，否则把终态决策
+// 混进待办存量，反复审计也推不动。
+var ErrOriginalDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
 var decimalSyntax = regexp.MustCompile(`^-?[0-9]{1,20}(\.[0-9]{1,12})?$`)
 
 type Service struct{ Store *database.Store }
@@ -107,18 +122,51 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 	if err != nil {
 		return nil, errors.New("商品不存在")
 	}
-	if method := value(p, "cost_method"); method != "" && method != "weighted_avg" && !(method == "fifo" && len(stock) > 0 && stock[0]) {
-		return nil, ErrUnsupported
-	}
-	for _, k := range []string{"is_combo", "is_batch", "is_serial", "batch_enabled", "serial_enabled", "enable_batch", "enable_serial", "track_batch", "track_serial"} {
-		if k == "is_batch" && len(stock) > 0 && stock[0] {
-			continue
-		}
+	// 原版对 cost_method 不作任何限制，且实测 fifo 商品仍按加权平均计价
+	// （2026-10-13 回放：10 件@100 + 10 件@200 入库后 avg_cost=150，出库 unit_cost=150，
+	// 出库后 avg_cost 仍为 150）——cost_method 与订单 discount_amount 同属
+	// 「落库但不接线」字段，故恢复端不按成本方法拒绝单据。
+	// is_batch / is_serial 商品在原版出入库与订单中全部可用
+	// （P1/P2/P3 与 Q1-Q6 回放：批次商品可无批次出库，序列号商品受台账约束），
+	// 原先的整类拒绝属未经证据的错误拒绝，已移除。
+	// is_combo 无法经商品接口构造（创建时被原版忽略，P4 回放），保留拒绝并标注无法取证。
+	for _, k := range []string{"is_combo"} {
 		if p[k] == int64(1) || p[k] == true {
 			return nil, ErrUnsupported
 		}
 	}
 	return p, nil
+}
+
+// advancedHeaderFields 对「高级字段」按表结构分流（2026-10-13 回放取证，
+// 2026-10-14 批次 O 补充）：
+//
+// 表有列且原版接受落库的：
+//   - stock_ins/stock_outs 的 location_id / rack_id（R7/S3）
+//   - sales_orders 的 sales_contract_id（S4；批次 O 用真实合同 id 验证确实落库并回读一致）
+//
+// 表无对应列的——订单的 location_id / rack_id / batch_no / serial_nos / production_date、
+// 库存单与退货单的 sales_contract_id / contract_id——原版**一律静默忽略**：
+//   批次 O 实测销售订单带 location_id / rack_id / batch_no / serial_nos / production_date
+//   全部 code:0 建单成功；入库单带 sales_contract_id / contract_id 也 code:0。
+//
+// 原实现对这些字段 return ErrUnsupported（501），把原版的「静默忽略」变成了「拒绝」，
+// 属系统性误拒。已移除守卫：表有列则落库，表无列则按原版忽略。
+func (s *Service) advancedHeaderFields(table string, input map[string]any) (map[string]any, error) {
+	out := map[string]any{}
+	for _, k := range []string{"location_id", "rack_id", "batch_no", "serial_nos", "production_date", "expiry_date", "sales_contract_id", "contract_id"} {
+		if list, ok := input[k].([]any); ok && len(list) == 0 {
+			continue
+		}
+		if input[k] == nil || fmt.Sprint(input[k]) == "" {
+			continue
+		}
+		if s.Store.Has(table, k) {
+			out[k] = input[k]
+		}
+		// 表无此列 → 原版静默忽略，不返回错误（批次 O 实测 code:0）。
+	}
+	return out, nil
 }
 func rejectAdvancedDocumentLine(input map[string]any, dates ...bool) error {
 	for _, k := range []string{"location_id", "rack_id", "production_date", "expiry_date", "sales_contract_id", "contract_id"} {
@@ -161,26 +209,38 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 		}
 		return nil, errors.New("单据明细不能为空")
 	}
+	// 原版回放 FF6（2026-10-14）：1001 行订单原版 code:0 且 1001 行全部落库，
+	// 即原版没有明细行数上限。恢复端保留 1000 行上限作为资源保护
+	// （不复制「无上限」这一潜在资源耗尽风险），但记录该差异以免误判为等价。
 	if len(raw) > 1000 {
 		return nil, errors.New("明细过多")
 	}
-	if err := rejectAdvanced(input); err != nil {
+	advanced, err := s.advancedHeaderFields(d.Table, input)
+	if err != nil {
 		return nil, err
 	}
-	if !d.Stock && (value(input, "source_id") != "" || value(input, "source_no") != "") {
-		return nil, ErrUnsupported
-	}
-	for _, k := range []string{"discount_amount", "discount", "discount_rate"} {
-		d, err := Number(input[k])
+	// 原版回放 JJ1/JJ5（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）：
+	//   订单传 source_id + source_no → code:0，回读两字段 undefined（表无这两列）
+	//   订单传 source = manual/sales/purchase/garbage/空 → 全部 code:0，
+	//     且回读**一律是 manual**（连 manual 之外的值也被归一为 manual）
+	// 即原版对订单的这两个字段**一律静默忽略**。
+	// 原恢复端 return ErrUnsupported 把「静默忽略」变成「拒绝」，与原版不符，已移除。
+	// 库存单同样接受 source_id/source_no（原版 code:0），该路径本就未被本守卫覆盖。
+	// 原版订单表有 discount_amount 列：接受并落库，但不参与 total_amount 计算
+	// （2026-10-13 B2 回放：discount_amount=50 落库、total_amount 仍为 100）；
+	// 行级 discount 计入金额（R5：2×100-20 → amount=180），恢复端行级逻辑已一致。
+	// discount / discount_rate 在原版无对应列，保持显式拒绝。
+	for _, k := range []string{"discount", "discount_rate"} {
+		v, err := Number(input[k])
 		if err != nil {
 			return nil, err
 		}
-		if !d.IsZero() {
+		if !v.IsZero() {
 			return nil, ErrUnsupported
 		}
 	}
 	id := ""
-	err := s.transaction(ctx, func(tx *sql.Tx) error {
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		wh := value(input, "warehouse_id")
 		if existingID != "" && wh == "" {
 			old, err := s.Store.GetWith(ctx, tx, d.Table, existingID)
@@ -207,14 +267,15 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				return stateError(d, "修改")
 			}
 			h = old
-			if !d.Stock && value(h, "currency") != "CNY" {
-				return ErrUnsupported
-			}
+			// 原版允许编辑外币订单（2026-10-13 R2：USD 订单创建/确认/审批全通过），
+			// 不再按币种拒绝。paid_amount 守卫保留——原版没有订单收款路由
+			// （A3：pay/receive/payment/settle/receipt 五个动作端点全部 404），
+			// 已收金额恒为 0，该分支在原版不可达，属恢复端防御性校验。
 			if !readDecimal(h, "paid_amount").IsZero() {
 				return ErrUnsupported
 			}
 			h["updated_at"] = now()
-			if err := rejectAdvanced(h); err != nil {
+			if _, err := s.advancedHeaderFields(d.Table, h); err != nil {
 				return err
 			}
 		} else {
@@ -257,14 +318,22 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					h[k] = v
 				}
 			}
-			if _, err := s.source(ctx, tx, d, h); err != nil {
+			// 原版回放 JJ6（2026-10-14）：source_id 为非法 UUID 时原版在**建单期**
+			// 即返回 400「invalid UUID length: 10」——即 UUID 格式在建单期校验，
+			// 而「来源订单是否存在」不在建单期校验（格式合法但订单不存在时建单通过）。
+			if raw := value(input, "source_id"); raw != "" {
+				if _, err := uuid.Parse(raw); err != nil {
+					return err
+				}
+			}
+			if _, err := s.source(ctx, tx, d, h, false); err != nil {
 				return err
 			}
 			h["type"] = ""
+			// 原版不校验单据类型（2026-10-13 R3 回放：stock-ins/stock-outs 的
+			// type=sales/purchase/garbage 全部落库；S5：type=other 与 source 可共存），
+			// 传入值原样持久化。
 			if t := value(input, "type"); t != "" {
-				if !(d.Incoming && t == "purchase") && !(!d.Incoming && t == "sales") && !(t == "other" && value(h, "source_id") == "" && value(h, "source_no") == "") {
-					return ErrUnsupported
-				}
 				h["type"] = t
 			}
 		}
@@ -288,11 +357,21 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					h[d.Party+"_name"] = name
 				}
 			}
+			// 原版接受并落库任意币种，金额不作折算（2026-10-13 B1/R2/S6 回放：
+			// USD 销售/采购订单创建、确认、审批全部通过，currency=USD 持久化）。
 			h["currency"] = "CNY"
-			if value(input, "currency") != "" && value(input, "currency") != "CNY" {
-				return ErrUnsupported
+			if v := value(input, "currency"); v != "" {
+				h["currency"] = v
 			}
 			h["payment_status"] = "unpaid"
+			// 原版接受头部 discount_amount 并落库，但不计入 total_amount（B2 回放）。
+			if input["discount_amount"] != nil {
+				v, err := Number(input["discount_amount"])
+				if err != nil {
+					return err
+				}
+				h["discount_amount"] = v.String()
+			}
 			if isReturn(d) {
 				for _, k := range []string{"sales_order_id", "sales_order_no", "purchase_order_id", "purchase_order_no"} {
 					if s.Store.Has(d.Table, k) && input[k] != nil {
@@ -300,6 +379,9 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					}
 				}
 			}
+		}
+		for k, v := range advanced {
+			h[k] = v
 		}
 		lines := []map[string]any{}
 		totalQty, totalAmount, totalTax := decimal.Zero, decimal.Zero, decimal.Zero
@@ -315,18 +397,27 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			} else if err := rejectOrderLine(line, isReturn(d)); err != nil {
 				return err
 			}
-			if line["is_gift"] == true {
-				return ErrUnsupported
-			}
-			if rate := line["unit_rate"]; rate != nil {
-				n, err := Number(rate)
-				if err != nil {
-					return err
+			// 原版支持赠品行，但要求单价为 0（2026-10-13 B3/R1 回放：
+			// price=100 + is_gift → 10000「赠品行单价必须为 0」；
+			// price=0 + is_gift → code:0，行 amount=0、is_gift 落库、total 不含赠品金额）。
+			// 仅对有 is_gift 列的明细表生效（订单/退货行有，库存行无）。
+			gift := false
+			if s.Store.Has(d.Lines, "is_gift") {
+				switch v := line["is_gift"].(type) {
+				case bool:
+					gift = v
+				case string:
+					gift = v == "true" || v == "1"
+				case float64:
+					gift = v == 1
 				}
-				if !n.Equal(decimal.NewFromInt(1)) {
-					return ErrUnsupported
-				}
 			}
+			// 原版回放 FF7（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
+			// 明细传 unit_rate=2 与 unit_rate=0 原版均 code:0，且金额计算完全不受影响
+			// （qty=3 × price=10 → amount=30），回读也不暴露该字段——原版彻底忽略 unit_rate。
+			// 原恢复端对 ≠1 返回 ErrUnsupported，属误拒，已移除。
+			// 非数字值原版无实测证据（未能构造出与「忽略」相区分的观测），故一并放行，
+			// 不自造文案。若后续取证到原版确实拒绝，再补原文案。
 			product, err := s.plainProduct(ctx, tx, value(line, "product_id"), d.Stock || d.Table == "sales_orders" || isReturn(d))
 			if err != nil {
 				return err
@@ -349,6 +440,9 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			if cost.IsNegative() {
 				return errors.New("价格不能为负数")
 			}
+			if gift && !cost.IsZero() {
+				return errors.New("赠品行单价必须为 0")
+			}
 			l := s.base(d.Lines)
 			l[d.ForeignKey] = id
 			l["line_no"] = i + 1
@@ -363,6 +457,9 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			}
 			l["qty"] = qty.String()
 			l[costField] = cost.String()
+			if gift {
+				l["is_gift"] = true
+			}
 			amount := qty.Mul(cost)
 			l["amount"] = amount.String()
 			for _, key := range []string{"batch_no", "serial_nos", "production_date", "expiry_date"} {
@@ -498,6 +595,9 @@ func (s *Service) trackingBalance(ctx context.Context, tx *sql.Tx, product, ware
 	if err != nil {
 		return nil, err
 	}
+	// 同键余额行应唯一，原版无「多行时如何取舍」的可用证据
+	// （2026-10-14 DUP-A/DUP-B 实测：无批次出库只认无批次行，qty=0 时报「库存不足」，
+	//  不跨批次取用）。无原版文案证据，保留 ErrUnsupported，不自造中文。
 	if len(rows) > 1 {
 		return nil, ErrUnsupported
 	}
@@ -520,6 +620,7 @@ func (s *Service) balance(ctx context.Context, tx *sql.Tx, product, warehouse st
 		return nil, err
 	}
 	if len(rows) > 1 {
+		// 同 trackingBalance：无原版取舍证据，保留 ErrUnsupported，不自造中文。
 		return nil, ErrUnsupported
 	}
 	if len(rows) == 1 {
@@ -576,17 +677,9 @@ func (s *Service) Lock(ctx context.Context, id string, input map[string]any, unl
 }
 func (s *Service) Transition(ctx context.Context, d Document, id, user string, cancel bool) (map[string]any, error) {
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		var approvalCount int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM approval_flows WHERE is_active=1 AND deleted_at IS NULL").Scan(&approvalCount); err != nil {
-			return err
-		}
-		personal, err := s.personalMode(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if approvalCount > 0 && !personal {
-			return ErrUnsupported
-		}
+		// 原版确认/取消不受活动审批流影响（2026-10-13 A2 回放：启用 sales_order
+		// 活动流后订单 confirm+approve 均 code:0），与退货/工单路径的既有结论一致，
+		// 此处不再统计审批流后拒绝。
 		h, err := s.Store.GetWith(ctx, tx, d.Table, id)
 		if err != nil {
 			return err
@@ -607,7 +700,15 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 			return fmt.Errorf("只有草稿状态的%s订单才能确认", label)
 		}
 		if cancel && d.Stock {
-			return ErrUnsupported
+			// 原版仅允许取消草稿状态的库存单据；已确认的取消返回
+			// 「出库单/入库单不存在或状态不允许取消」（2026-10-13 X1/X2/X3 回放）。
+			if status != "draft" {
+				label := "出库单"
+				if d.Incoming {
+					label = "入库单"
+				}
+				return errors.New(label + "不存在或状态不允许取消")
+			}
 		}
 		if cancel && status != "draft" && status != "confirmed" {
 			label := "销售"
@@ -616,7 +717,7 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 			}
 			return fmt.Errorf("只有草稿或已确认的%s订单才能取消", label)
 		}
-		if err := rejectAdvanced(h); err != nil {
+		if _, err := s.advancedHeaderFields(d.Table, h); err != nil {
 			return err
 		}
 		lines, err := database.QueryRows(ctx, tx, "SELECT * FROM "+database.Quote(d.Lines)+" WHERE "+database.Quote(d.ForeignKey)+"=? AND deleted_at IS NULL ORDER BY line_no", id)
@@ -626,21 +727,23 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 		if len(lines) == 0 && d.Stock {
 			return errors.New("单据明细不能为空")
 		}
-		if cancel {
-			for _, line := range lines {
-				if readDecimal(line, "delivered_qty").IsPositive() {
-					return ErrUnsupported
-				}
-			}
-		}
+		// 原版允许取消已发货/已收货的订单（2026-10-13 W6/X4 回放：部分发货的销售订单、
+		// 部分收货的采购订单取消均 code:0，delivered_qty 不回滚），此处不再拒绝。
 		changes := map[string]any{"updated_at": now(), "status": "confirmed"}
 		if cancel {
 			changes["status"] = "cancelled"
 		} else {
 			changes["confirmed_at"] = now()
 		}
+		if d.Stock && cancel {
+			// 草稿库存单取消只改状态，不触碰库存、台账与来源订单
+			// （2026-10-13 CA3-CA5 回放：取消后 status=cancelled；再次取消与 confirm
+			// 分别返回「入库单/出库单不存在或状态不允许取消/确认」；确认过的出库单取消
+			// 同样被拒）。此处提前返回，避免落入确认分支误记流水与回写 delivered_qty。
+			return s.Store.UpdateWith(ctx, tx, d.Table, id, changes)
+		}
 		if d.Stock {
-			order, err := s.source(ctx, tx, d, h)
+			order, err := s.source(ctx, tx, d, h, true)
 			if err != nil {
 				return err
 			}
@@ -655,9 +758,9 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 					return err
 				}
 				if !d.Incoming && order == nil && value(l, "batch_no") == "" && (product["is_batch"] == int64(1) || product["is_batch"] == true) {
-					if order != nil {
-						return ErrUnsupported
-					}
+					// 批次商品无批次号的出库走自动批次分配。原实现此处还有一层
+					// `if order != nil { return ErrUnsupported }`，但外层条件已要求
+					// order == nil，分支恒不可达，属死代码（对账脚本亦无此路径证据），已删除。
 					strategy := "fifo"
 					settings, e := database.QueryRows(ctx, tx, "SELECT value FROM system_settings WHERE key='inventory'")
 					if e != nil {
@@ -678,11 +781,28 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 					total = total.Add(readDecimal(l, "qty").Mul(readDecimal(l, "unit_cost")))
 					continue
 				}
+				personal, err := s.personalMode(ctx, tx)
+				if err != nil {
+					return err
+				}
 				b, err := s.trackingBalance(ctx, tx, value(l, "product_id"), value(h, "warehouse_id"), value(l, "batch_no"), d.Incoming || personal)
 				if err != nil {
 					return err
 				}
-				if err := validateSerialLine(l); err != nil {
+				// 序列号商品出入库必须填写序列号（2026-10-13 T5/Q8 回放：
+				// 入库缺号 → 「商品 [name] 为序列号管理，必须填写序列号」；
+				// 出库缺号 → 「商品 [name] 为序列号管理，出库必须填写序列号」）。
+				// 库存校验先于序列号校验（U3：异仓无库存时先报「库存不足」）。
+				if product["is_serial"] == int64(1) || product["is_serial"] == true {
+					if len(serialNosOf(l)) == 0 {
+						verb := "必须填写序列号"
+						if !d.Incoming {
+							verb = "出库必须填写序列号"
+						}
+						return fmt.Errorf("商品 [%s] 为序列号管理，%s", value(l, "product_name"), verb)
+					}
+				}
+				if err := validateSerialLine(l, d.Incoming); err != nil {
 					return err
 				}
 				if err := s.applySerialTransition(ctx, tx, l, h, d.Incoming); err != nil {
@@ -715,10 +835,6 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 							return err
 						}
 					} else {
-						personal, err := s.personalMode(ctx, tx)
-						if err != nil {
-							return err
-						}
 						if available.LessThan(qty) && !personal {
 							return errors.New("库存不足")
 						}
@@ -779,6 +895,10 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 				}
 			}
 		} else if d.Table == "sales_orders" && value(h, "warehouse_id") != "" {
+			personal, err := s.personalMode(ctx, tx)
+			if err != nil {
+				return err
+			}
 			locked := h["stock_locked"] == int64(1) || h["stock_locked"] == true
 			if !cancel || locked {
 				for _, l := range lines {
@@ -809,29 +929,46 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 	return s.Get(ctx, d, id)
 }
 
-func (s *Service) applySerialTransition(ctx context.Context, tx *sql.Tx, line, header map[string]any, incoming bool) error {
-	raw, ok := line["serial_nos"].([]any)
-	if !ok {
-		if encoded, yes := line["serial_nos"].(string); yes && encoded != "" {
-			_ = json.Unmarshal([]byte(encoded), &raw)
+// serialNosOf 取出明细行的序列号列表（兼容数组与 JSON 字符串两种编码）。
+func serialNosOf(line map[string]any) []any {
+	switch v := line["serial_nos"].(type) {
+	case []any:
+		return v
+	case string:
+		if v != "" {
+			var raw []any
+			if json.Unmarshal([]byte(v), &raw) == nil {
+				return raw
+			}
 		}
 	}
+	return nil
+}
+func (s *Service) applySerialTransition(ctx context.Context, tx *sql.Tx, line, header map[string]any, incoming bool) error {
+	raw := serialNosOf(line)
 	if len(raw) == 0 {
 		return nil
 	}
 	for _, item := range raw {
-		serial := item.(string)
+		serial, ok := item.(string)
+		if !ok || serial == "" {
+			return errors.New("序列号格式错误")
+		}
 		if incoming {
 			existing, err := database.QueryRows(ctx, tx, "SELECT id FROM serial_numbers WHERE serial_no=? AND deleted_at IS NULL", serial)
 			if err != nil {
 				return err
 			}
 			if len(existing) > 0 {
-				return fmt.Errorf("序列号 %s 已存在", serial)
+				return fmt.Errorf("序列号 %s 已在台账中存在", serial)
 			}
 			row := s.base("serial_numbers")
-			row["product_id"], row["warehouse_id"], row["serial_no"] = line["product_id"], header["warehouse_id"], serial
+			row["product_id"], row["product_code"], row["product_name"] = line["product_id"], line["product_code"], line["product_name"]
+			row["warehouse_id"], row["serial_no"] = header["warehouse_id"], serial
 			row["status"], row["registered_at"] = "in_stock", now()
+			// 原版台账行记录来源单据（2026-10-13 U2 回放：source_type=stock_in、
+			// source_no=入库单号），出库时覆写为 stock_out/出库单号（T2-A 回放）。
+			row["source_type"], row["source_no"] = "stock_in", value(header, "stock_in_no")
 			if err := s.Store.InsertWith(ctx, tx, "serial_numbers", row); err != nil {
 				return err
 			}
@@ -841,26 +978,27 @@ func (s *Service) applySerialTransition(ctx context.Context, tx *sql.Tx, line, h
 		if err != nil {
 			return err
 		}
-		if len(rows) != 1 || value(rows[0], "status") != "in_stock" || value(rows[0], "product_id") != value(line, "product_id") {
-			return errors.New("序列号不存在或不在库")
+		if len(rows) == 0 {
+			return fmt.Errorf("序列号 %s 不存在于台账", serial)
 		}
-		if err := s.Store.UpdateWith(ctx, tx, "serial_numbers", value(rows[0], "id"), map[string]any{"status": "out", "warehouse_id": header["warehouse_id"], "out_at": now(), "updated_at": now()}); err != nil {
+		if value(rows[0], "product_id") != value(line, "product_id") {
+			return fmt.Errorf("序列号 %s 不属于该商品", serial)
+		}
+		if value(rows[0], "status") != "in_stock" {
+			return fmt.Errorf("序列号 %s 当前状态为 %s，不能出库", serial, value(rows[0], "status"))
+		}
+		if err := s.Store.UpdateWith(ctx, tx, "serial_numbers", value(rows[0], "id"), map[string]any{
+			"status": "out", "out_at": now(), "updated_at": now(),
+			"source_type": "stock_out", "source_no": value(header, "stock_out_no"),
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateSerialLine(line map[string]any) error {
-	var raw []any
-	switch v := line["serial_nos"].(type) {
-	case []any:
-		raw = v
-	case string:
-		if v != "" {
-			_ = json.Unmarshal([]byte(v), &raw)
-		}
-	}
+func validateSerialLine(line map[string]any, incoming bool) error {
+	raw := serialNosOf(line)
 	if len(raw) == 0 {
 		return nil
 	}
@@ -871,12 +1009,16 @@ func validateSerialLine(line map[string]any) error {
 			return errors.New("序列号格式错误")
 		}
 		if seen[no] {
-			return fmt.Errorf("序列号 %s 重复", no)
+			return fmt.Errorf("序列号 %s 在本单内重复", no)
 		}
 		seen[no] = true
 	}
+	verb := "出库"
+	if incoming {
+		verb = "入库"
+	}
 	if !readDecimal(line, "qty").Equal(decimal.NewFromInt(int64(len(raw)))) {
-		return errors.New("序列号数量必须与明细数量一致")
+		return fmt.Errorf("序列号数量(%d)与%s数量(%s)不一致", len(raw), verb, readDecimal(line, "qty").String())
 	}
 	return nil
 }

@@ -15,7 +15,22 @@ func sourceDocument(d Document) Document {
 	}
 	return Documents["sales-orders"]
 }
-func (s *Service) source(ctx context.Context, tx *sql.Tx, d Document, h map[string]any) (map[string]any, error) {
+
+// source 解析库存单据的来源订单。
+//
+// 原版回放 JJ6（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）：
+//
+//	source_id 为**非法 UUID**（"not-a-uuid"）→ 建单期即 400「invalid UUID length: 10」
+//	  —— 即 UUID **格式**在建单期校验。
+//	source_id 为格式合法但不存在的 UUID（全零）→ 建单 code:0，**confirm 也 code:0 成功**，
+//	  即来源订单是否存在**原版完全不校验**（恢复端确认期仍报「来源订单不存在」，
+//	  与原版不同，但该文案是恢复端基线文案且无原版反证，保留并在此记录差异）。
+//
+// 原版只按 source_id 关联来源订单（2026-10-13 回放取证）：
+//
+//	V3 —— source_no 传错仍正常回写 delivered_qty，编号仅作信息落库不校验一致性；
+//	V5 —— 出库仓库与来源订单仓库不一致同样放行。故恢复端不复刻这两项校验。
+func (s *Service) source(ctx context.Context, tx *sql.Tx, d Document, h map[string]any, validate bool) (map[string]any, error) {
 	id := value(h, "source_id")
 	if id == "" {
 		return nil, nil
@@ -25,13 +40,10 @@ func (s *Service) source(ctx context.Context, tx *sql.Tx, d Document, h map[stri
 	}
 	order, err := s.Store.GetWith(ctx, tx, sourceDocument(d).Table, id)
 	if err != nil {
+		if !validate {
+			return nil, nil
+		}
 		return nil, errors.New("来源订单不存在")
-	}
-	if value(order, "warehouse_id") != "" && value(order, "warehouse_id") != value(h, "warehouse_id") {
-		return nil, errors.New("来源订单仓库与出入库仓库不一致")
-	}
-	if no := value(h, "source_no"); no != "" && no != value(order, "order_no") {
-		return nil, errors.New("来源订单编号不一致")
 	}
 	return order, nil
 }
@@ -39,35 +51,59 @@ func (s *Service) deliverLine(ctx context.Context, tx *sql.Tx, d Document, order
 	if order == nil {
 		return nil
 	}
-	status := value(order, "status")
-	if status != "confirmed" && status != "approved" {
-		return errors.New("来源订单状态不允许收发货")
+	// 原版状态文案用完整动词（发货/收货），超发文案用短形式（剩余可发/剩余可收），
+	// 故此处分别保留 verb 与 short（2026-10-13 V4/Z1/Z2/Z3/Z4/Y1-Y3 回放逐字核对）。
+	kind, label, verb, short, act := "发", "销售", "发货", "发", "出库"
+	if d.Incoming {
+		kind, label, verb, short, act = "收", "采购", "收货", "收", "入库"
+	}
+	no := value(order, "order_no")
+	switch value(order, "status") {
+	case "draft":
+		return fmt.Errorf("%s订单 %s 未确认，不能%s（请先确认订单）", label, no, verb)
+	case "cancelled":
+		return fmt.Errorf("%s订单 %s 已取消，不能%s", label, no, verb)
+	case "closed":
+		return fmt.Errorf("%s订单 %s 已关闭，不能继续%s", label, no, verb)
 	}
 	src := sourceDocument(d)
-	matches, err := database.QueryRows(ctx, tx, "SELECT * FROM "+database.Quote(src.Lines)+" WHERE order_id=? AND product_id=? AND deleted_at IS NULL", order["id"], line["product_id"])
+	// 原版允许来源订单同商品多行，并按 line_no 顺序跨行分配（2026-10-13 回放取证）：
+	// V1 —— 两行（2/3）发 1 件记入第 1 行；Y1 —— 行满后自动落到下一行；
+	// Y2/Y3 —— 一次发 5/4 件拆成 L1=2、L2=3/2；超额按聚合剩余量拒绝（Z1：剩余可发 5.00）。
+	matches, err := database.QueryRows(ctx, tx, "SELECT * FROM "+database.Quote(src.Lines)+" WHERE order_id=? AND product_id=? AND deleted_at IS NULL ORDER BY line_no", order["id"], line["product_id"])
 	if err != nil {
 		return err
 	}
 	if len(matches) == 0 {
-		return errors.New("商品不在来源订单中")
+		return fmt.Errorf("商品 %s 不在%s订单 %s 明细中，无法%s", value(line, "product_name"), label, no, act)
 	}
-	if len(matches) != 1 {
-		return ErrUnsupported
-	}
-	l := matches[0]
-	remaining := readDecimal(l, "qty").Sub(readDecimal(l, "delivered_qty"))
 	qty := readDecimal(line, "qty")
+	remaining := decimal.Zero
+	for _, l := range matches {
+		remaining = remaining.Add(readDecimal(l, "qty").Sub(readDecimal(l, "delivered_qty")))
+	}
 	if qty.GreaterThan(remaining) {
-		kind, label, verb := "发", "销售", "发"
-		if d.Incoming {
-			kind, label, verb = "收", "采购", "收"
+		return fmt.Errorf("商品 %s 超%s：%s订单 %s 剩余可%s %s，本次 %s", value(line, "product_name"), kind, label, no, short, remaining.StringFixed(2), qty.StringFixed(2))
+	}
+	// 原版不校验明细单位与来源订单行单位的一致性（V6：异单位发货成功且正常回写）。
+	left := qty
+	for _, l := range matches {
+		if !left.IsPositive() {
+			break
 		}
-		return fmt.Errorf("商品 %s 超%s：%s订单 %s 剩余可%s %s，本次 %s", value(line, "product_name"), kind, label, value(order, "order_no"), verb, remaining.StringFixed(2), qty.StringFixed(2))
+		open := readDecimal(l, "qty").Sub(readDecimal(l, "delivered_qty"))
+		if open.IsNegative() {
+			open = decimal.Zero
+		}
+		take := decimal.Min(open, left)
+		if take.IsPositive() {
+			if err := s.Store.UpdateWith(ctx, tx, src.Lines, value(l, "id"), map[string]any{"delivered_qty": readDecimal(l, "delivered_qty").Add(take).String(), "updated_at": now()}); err != nil {
+				return err
+			}
+			left = left.Sub(take)
+		}
 	}
-	if unit := value(l, "unit_id"); unit != "" && value(line, "unit_id") != "" && unit != value(line, "unit_id") {
-		return ErrUnsupported
-	}
-	return s.Store.UpdateWith(ctx, tx, src.Lines, value(l, "id"), map[string]any{"delivered_qty": readDecimal(l, "delivered_qty").Add(qty).String(), "updated_at": now()})
+	return nil
 }
 func (s *Service) closeDelivered(ctx context.Context, tx *sql.Tx, d Document, order map[string]any) error {
 	if order == nil {
@@ -101,30 +137,25 @@ func (s *Service) Approve(ctx context.Context, d Document, id, user string) (map
 	if isReturn(d) {
 		return s.approveReturn(ctx, d, id, user)
 	}
+	// 原版没有 stock 单据的审批路由（2026-10-13 A4 回放：POST /stock-ins/{id}/approve → 404
+	// 「路由不存在」），恢复端同样不支持该动作，返回 ErrUnsupported。
 	if d.Stock {
 		return nil, ErrUnsupported
 	}
+	// 原版审批不受活动审批流影响（2026-10-13 A2 回放：启用 sales_order 活动流后
+	// confirm 与 approve 均 code:0，状态正常转为 approved），也不校验币种与已收金额
+	// （R2：USD 订单 confirm+approve 均通过；A3：原版无订单收款路由，paid_amount 恒为 0）。
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		var configured int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM approval_flows WHERE is_active=1 AND deleted_at IS NULL").Scan(&configured); err != nil {
-			return err
-		}
-		personal, err := s.personalMode(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if configured > 0 && !personal {
-			return ErrUnsupported
-		}
 		h, err := s.Store.GetWith(ctx, tx, d.Table, id)
 		if err != nil {
 			return err
 		}
 		if value(h, "status") != "confirmed" {
-			return errors.New("只有已确认的订单才能审核")
-		}
-		if value(h, "currency") != "CNY" || !readDecimal(h, "paid_amount").IsZero() {
-			return ErrUnsupported
+			label := "销售"
+			if d.Party == "supplier" {
+				label = "采购"
+			}
+			return fmt.Errorf("只有已确认的%s订单才能审批", label)
 		}
 		return s.Store.UpdateWith(ctx, tx, d.Table, id, map[string]any{"status": "approved", "approved_by": user, "approved_at": now(), "updated_at": now()})
 	})

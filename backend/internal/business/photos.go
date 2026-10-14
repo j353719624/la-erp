@@ -14,8 +14,11 @@ func (s *Service) AddStockPhotos(ctx context.Context, id string, input map[strin
 	if !ok || len(raw) == 0 {
 		return nil, errors.New("请选择要记录的图片")
 	}
-	if len(raw) > 100 {
-		return nil, ErrUnsupported
+	if len(raw) > 20 {
+		// 原版回放 FF1（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
+		// 提交 101 张 → 400「单张入库单最多记录 20 张照片，请先删除不再需要的记录」。
+		// 原恢复端上限为 100 且返回 501，属错误拒绝与错误上限，已对齐为 20 + 原文案。
+		return nil, errors.New("单张入库单最多记录 20 张照片，请先删除不再需要的记录")
 	}
 	photos := []map[string]any{}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
@@ -85,28 +88,23 @@ func (s *Service) EditStockPhoto(ctx context.Context, stock, id string, input ma
 }
 
 func (s *Service) photoLocation(ctx context.Context, tx *sql.Tx, stock string, input map[string]any) error {
-	h, err := s.Store.GetWith(ctx, tx, "stock_ins", stock)
-	if err != nil {
+	// 入库单本身必须存在（引用完整性）。
+	if _, err := s.Store.GetWith(ctx, tx, "stock_ins", stock); err != nil {
 		return err
 	}
-	location := value(input, "location_id")
-	rack := value(input, "rack_id")
-	if location != "" {
-		l, err := s.Store.GetWith(ctx, tx, "locations", location)
-		if err != nil {
+	// 原版回放 HH2（2026-10-14，evidence/backend-runtime/audit-batch-h-20261014.json）：
+	// 照片的 location_id / rack_id / location 字符串 / 不存在的 location_id /
+	// **属于其他仓库的 location_id** —— 五种情况原版全部 code:0 建单成功，
+	// 即原版对库位与货架**不做任何归属校验**（只要库位/货架记录存在即可）。
+	// 原恢复端校验「库位必须属本仓」「货架必须挂在该库位下」两处，属误拒，已移除。
+	if location := value(input, "location_id"); location != "" {
+		if _, err := s.Store.GetWith(ctx, tx, "locations", location); err != nil {
 			return err
-		}
-		if value(l, "warehouse_id") != value(h, "warehouse_id") {
-			return ErrUnsupported
 		}
 	}
-	if rack != "" {
-		r, err := s.Store.GetWith(ctx, tx, "racks", rack)
-		if err != nil {
+	if rack := value(input, "rack_id"); rack != "" {
+		if _, err := s.Store.GetWith(ctx, tx, "racks", rack); err != nil {
 			return err
-		}
-		if location == "" || value(r, "location_id") != location {
-			return ErrUnsupported
 		}
 	}
 	return nil

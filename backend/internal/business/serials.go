@@ -10,6 +10,9 @@ import (
 
 func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (map[string]any, error) {
 	raw, ok := input["serial_nos"].([]any)
+	// 原版回放 FF3（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
+	// serial_nos 缺失或为空数组 → 10000「序列号不能为空」（逐字一致，见下方）；
+	// 元素为数字/对象 → HTTP 400 无业务文案；含空串元素 → code:0 并跳过。
 	if !ok || len(raw) == 0 {
 		return nil, errors.New("序列号不能为空")
 	}
@@ -18,6 +21,8 @@ func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (ma
 	for _, v := range raw {
 		no, ok := v.(string)
 		if !ok {
+			// 原版 FF3：非字符串元素 → HTTP 400 且**无业务文案**（原版未做类型转换，
+			// 由框架解析失败直接返回 500/400）。不自造中文，保留 ErrUnsupported。
 			return nil, ErrUnsupported
 		}
 		if no == "" {

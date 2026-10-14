@@ -149,6 +149,8 @@ func (s *Service) ReworkAction(ctx context.Context, id, action string) (map[stri
 				return errors.New("已完成的返工单不能取消")
 			}
 			changes["status"] = "cancelled"
+		// 原版 NN6 实测动作集只有 confirm / complete / cancel；delete 为 HTTP DELETE 形态。
+		// 与恢复端白名单一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

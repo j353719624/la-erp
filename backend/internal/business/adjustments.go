@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/shopspring/decimal"
 	"la-erp-recovered/backend/internal/database"
+	"strings"
 	"time"
 )
 
@@ -43,11 +44,10 @@ func (s *Service) WriteAdjustment(ctx context.Context, id string, input map[stri
 			return err
 		}
 		kind := value(input, "adjust_type")
-		switch kind {
-		case "increase", "decrease", "gain", "loss", "profit", "cost":
-		default:
-			return ErrUnsupported
-		}
+		// 原版回放 BB5/BB5b（2026-10-14）：adjust_type 不校验白名单——"garbage"
+		// 原样落库并可 confirm；不传时该列落库为空串。原恢复端返回 ErrUnsupported，
+		// 属误拒，已移除。成本型（cost）单独在下方按 qty 归零处理。
+		kind = strings.ToLower(kind)
 		wh := value(input, "warehouse_id")
 		if _, err := s.Store.GetWith(ctx, tx, "warehouses", wh); err != nil {
 			return errors.New("仓库不存在")
@@ -85,7 +85,6 @@ func (s *Service) WriteAdjustment(ctx context.Context, id string, input map[stri
 		}
 		total := decimal.Zero
 		lines := []map[string]any{}
-		seen := map[string]bool{}
 		for i, v := range raw {
 			in, ok := v.(map[string]any)
 			if !ok {
@@ -95,20 +94,27 @@ func (s *Service) WriteAdjustment(ctx context.Context, id string, input map[stri
 				return err
 			}
 			pid := value(in, "product_id")
-			if seen[pid] {
-				return ErrUnsupported
-			}
-			seen[pid] = true
-			p, err := s.plainProduct(ctx, tx, pid)
-			if err != nil {
+			// 原版回放 V1（2026-10-13，内联取证）：库存调整单提交**同一商品两行**
+			// （qty 1 与 qty 2）创建 code:0、confirm code:0，**两行都保留**（明细行数=2）。
+			// 原实现对重复 product_id 返回 ErrUnsupported，属未经证据的错误拒绝，已移除。
+
+			// 明细仍需校验商品存在且不是无法取证的组合商品。
+			if _, err := s.plainProduct(ctx, tx, pid); err != nil {
 				return err
 			}
 			qty, err := Number(in["qty"])
 			if err != nil || (kind != "cost" && !qty.IsPositive()) {
 				return errors.New("调整数量必须大于0")
 			}
-			if kind == "cost" && !qty.IsZero() {
-				return ErrUnsupported
+			// 原版回放 BB5/BB5b/KK10（2026-10-14）：cost 型传入 qty=3/5 时原版 code:0，
+			// 且**只有表头 total_qty 落库为 0**——成本调整不携带数量，
+			// 故汇总时忽略传入的数量；但**明细行的 qty 原样保留**（回读为 5）。
+			// 原恢复端两处不合：一是直接拒绝非零 qty（误拒，已移除）；
+			// 二是把明细也归零（与原版不符，此处修正为只归零汇总值）。
+			// 成本调整的数量校验：非 cost 型要求 qty>0；cost 型不限（沿用原版放行）。
+			summed := qty
+			if kind == "cost" {
+				summed = decimal.Zero
 			}
 			cost, err := Number(in["unit_cost"])
 			if err != nil || cost.IsNegative() {
@@ -121,13 +127,14 @@ func (s *Service) WriteAdjustment(ctx context.Context, id string, input map[stri
 					l[k] = in[k]
 				}
 			}
+			// 原版回放 UA1/UC1/UT1（2026-10-13）：明细 unit_id 与商品主数据 unit_id
+			// 不一致时，调整/盘点/调拨三处均 code:0 创建+动作成功，且明细 unit_id
+			// 按传入值原样落库（V6 已对通用单据路径证明同一结论）。原实现的
+			// 一致性拒绝属系统性误拒，已移除。
 			if value(in, "unit_id") != "" {
-				if value(in, "unit_id") != value(p, "unit_id") {
-					return ErrUnsupported
-				}
 				l["unit_id"] = in["unit_id"]
 			}
-			total = total.Add(qty)
+			total = total.Add(summed)
 			lines = append(lines, l)
 		}
 		h["total_qty"] = total.String()
@@ -174,12 +181,9 @@ func (s *Service) AdjustmentAction(ctx context.Context, id, action, user string)
 		case "cancel":
 			update["status"] = "cancelled"
 		case "confirm":
-			kind := value(h, "adjust_type")
-			switch kind {
-			case "increase", "decrease", "gain", "loss", "profit", "cost":
-			default:
-				return ErrUnsupported
-			}
+			kind := strings.ToLower(value(h, "adjust_type"))
+			// 原版回放 BB5/BB5b（2026-10-14）：adjust_type 不校验白名单，
+			// "garbage" 类型也能 confirm 成功。原恢复端在确认期再拒一次，属误拒，已移除。
 			lines, err := database.QueryRows(ctx, tx, "SELECT * FROM stock_adjust_lines WHERE adjust_id=? AND deleted_at IS NULL ORDER BY line_no", id)
 			if err != nil {
 				return err
@@ -192,9 +196,13 @@ func (s *Service) AdjustmentAction(ctx context.Context, id, action, user string)
 				}
 				qty, cost := readDecimal(l, "qty"), readDecimal(l, "unit_cost")
 				if kind == "cost" {
-					if !qty.IsZero() {
-						return ErrUnsupported
-					}
+					// 原版回放 KK10（2026-10-14，evidence/backend-runtime/audit-batch-m-20261014.json）：
+					// cost 型调整传 qty=5 时原版 **code:0 建单成功且 confirm 成功**，
+					// 明细行 qty 原样保留为 5，只有表头 total_qty 被强制归 0。
+					// 即原版**不拒绝非零数量，只在汇总时忽略它**。
+					// 原恢复端 return ErrUnsupported 属误拒：正常的「按金额调成本、顺手填了数量」
+					// 会被整个拒掉。已移除该守卫，成本调整本身不受数量影响（下方 movement 的 qty 恒为 0）。
+					_ = qty
 					if err := s.Store.UpdateWith(ctx, tx, "inventory_balances", value(b, "id"), map[string]any{"avg_cost": cost.String(), "updated_at": now()}); err != nil {
 						return err
 					}
@@ -241,6 +249,9 @@ func (s *Service) AdjustmentAction(ctx context.Context, id, action, user string)
 				}
 			}
 			update["status"], update["confirmed_at"], update["confirmed_by"] = "confirmed", now(), user
+		// 原版 NN11 实测动作集只有 confirm / cancel；delete 为 HTTP DELETE 形态。
+		// API 层 registerAdjustments 用 []string{"confirm","cancel","delete"} 限定，
+		// 故本 default 分支**不可达**，无原文案可对齐，保留 ErrUnsupported 作兜底。
 		default:
 			return ErrUnsupported
 		}

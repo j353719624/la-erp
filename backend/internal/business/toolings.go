@@ -55,6 +55,8 @@ func (s *Service) ToolingAction(ctx context.Context, id, action string, input ma
 			}
 		case "scrap":
 			changes["status"] = "scrapped"
+		// 原版 NN2 实测动作集为 use / maintain / scrap，与恢复端白名单逐项一致，
+		// 本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

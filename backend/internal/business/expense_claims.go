@@ -102,6 +102,8 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 				return errors.New("当前状态不能取消")
 			}
 			changes["status"] = "cancelled"
+		// 原版 NN1 实测动作集为 submit / approve / paid / reject / cancel，
+		// 与恢复端白名单逐项一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

@@ -52,8 +52,10 @@ func (s *Service) RunMRP(ctx context.Context) (map[string]any, error) {
 			}
 			for _, item := range items {
 				scrap := readDecimal(item, "scrap_rate")
+				// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
+				// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
 				if scrap.IsNegative() {
-					return ErrUnsupported
+					return ErrOriginalDefect
 				}
 				quantity := readDecimal(order, "qty").Mul(readDecimal(item, "qty")).Mul(decimal.NewFromInt(1).Add(scrap))
 				if err = s.explodeMRP(ctx, tx, value(item, "product_id"), quantity, 1, map[string]bool{value(order, "product_id"): true}, add); err != nil {
@@ -227,6 +229,8 @@ func (s *Service) GenerateMRPWorkOrders(ctx context.Context, id, user string) ([
 				return err
 			}
 			if len(warehouses) != 1 {
+				// 原版该分支未取证（构造多个 is_default 仓库的副作用较大，未执行）。
+				// 保留守卫与 ErrUnsupported，不自造中文文案。
 				return ErrUnsupported
 			}
 			boms, err := database.QueryRows(ctx, tx, "SELECT * FROM bo_ms WHERE product_id=? AND deleted_at IS NULL AND status='active' ORDER BY created_at DESC LIMIT 1", line["product_id"])
@@ -234,6 +238,10 @@ func (s *Service) GenerateMRPWorkOrders(ctx context.Context, id, user string) ([
 				return err
 			}
 			if len(boms) != 1 {
+				// 原版回放 CC9b（2026-10-14）：同一产品多张 active BOM 时按
+				// created_at DESC 取最新一张，不报错。查询已带 ORDER BY ... LIMIT 1，
+				// 此分支实际不可达（len 恒为 0 或 1），原版文案无从取证，
+				// 保留 ErrUnsupported 作为防御性断言。
 				return ErrUnsupported
 			}
 			product, err := s.plainProduct(ctx, tx, value(line, "product_id"))
@@ -273,9 +281,9 @@ func (s *Service) explodeMRP(ctx context.Context, tx *sql.Tx, productID string, 
 	if err != nil {
 		return err
 	}
-	if len(boms) > 1 {
-		return ErrUnsupported
-	}
+	// 原版回放 CC9b（2026-10-14）：同一产品多张 active BOM 时按 created_at DESC
+	// 取最新一张。原实现保留了 `len(boms) > 1 → ErrUnsupported`，但该查询带
+	// LIMIT 1，分支恒不可达，属死代码，已删除。
 	if len(boms) == 0 {
 		return nil
 	}
@@ -285,8 +293,10 @@ func (s *Service) explodeMRP(ctx context.Context, tx *sql.Tx, productID string, 
 	}
 	for _, item := range items {
 		scrap := readDecimal(item, "scrap_rate")
+		// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
+		// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
 		if scrap.IsNegative() {
-			return ErrUnsupported
+			return ErrOriginalDefect
 		}
 		amount := qty.Mul(readDecimal(item, "qty")).Mul(decimal.NewFromInt(1).Add(scrap))
 		if err = s.explodeMRP(ctx, tx, value(item, "product_id"), amount, depth+1, path, add); err != nil {

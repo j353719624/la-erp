@@ -3,7 +3,9 @@ package business
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"github.com/shopspring/decimal"
 )
 
 func (s *Service) WriteWorkCenter(ctx context.Context, id string, input map[string]any) (map[string]any, error) {
@@ -24,9 +26,10 @@ func (s *Service) WriteWorkCenter(ctx context.Context, id string, input map[stri
 			if err != nil {
 				return err
 			}
-			if value(input, "code") != "" && value(input, "code") != value(h, "code") {
-				return ErrUnsupported
-			}
+			// 原版回放 CC3b（2026-10-14）：工作中心编辑时传入新 code 原版 code:0，
+			// 但**回读 code 仍是建单时的原值**（C2-WC1 不变），name/capacity/cost_rate
+			// 均正常更新。即 code 不可改、也不拒绝，只是静默沿用旧值。
+			// 原恢复端在 code 不同时返回 ErrUnsupported，属误拒，已移除。
 			h["updated_at"] = now()
 		}
 		for _, k := range []string{"name", "manager", "remark", "status"} {
@@ -110,12 +113,15 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			if err != nil {
 				return err
 			}
+			// 原版回放 CC4（2026-10-14）：工艺已被工单关联后执行删除，原版返回
+			// 10000「工艺路线不存在」——即删除**按不存在处理**，而恢复端返回 501
+			// ErrUnsupported。原版语义等价于「有关联时不可删」，恢复端改为原文案。
 			var linked int
 			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM work_orders WHERE routing_id=? AND deleted_at IS NULL", id).Scan(&linked); err != nil {
 				return err
 			}
 			if linked > 0 {
-				return ErrUnsupported
+				return errors.New("工艺路线不存在")
 			}
 			h["updated_at"] = now()
 		}
@@ -145,12 +151,30 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 				return errors.New("工序编码和名称不能为空")
 			}
 			row := s.base("routing_steps")
-			sequence, err := Number(l["sequence"])
-			if err != nil {
-				return err
-			}
-			if !sequence.IsInteger() {
-				return ErrUnsupported
+			// 原版回放 HH7 + rework/linked-contracts.json case 93：
+			//   sequence 不传        → code:0，落库为 0（TestOmittedRoutingSequence…）
+			//   sequence = 1.5（小数）→ HTTP 400「系统内部错误」
+			//   sequence = "2"（字符串）→ HTTP 400（Go 强类型绑定失败）
+			//   sequence = -1（负整数）→ code:0 放行
+			// 即：原版要求 sequence **要么不传，要么是 JSON 整数**。
+			// 原恢复端用 Number() 会把 "2" 转成 2 放行，与原版不符（该拒没拒），已修正。
+			// 注意 api 层 decode 用 UseNumber()，故数字是 json.Number 而非 float64。
+			sequence := decimal.Zero
+			if raw := l["sequence"]; raw != nil {
+				number, isNumeric := raw.(json.Number)
+				if !isNumeric {
+					// 原版此处是 Go 结构体绑定失败，400 且无业务文案；不自造中文。
+					return ErrUnsupported
+				}
+				parsed, err := decimal.NewFromString(number.String())
+				if err != nil {
+					return err
+				}
+				if !parsed.IsInteger() {
+					// 原版小数同样是 400 无文案，保留 ErrUnsupported。
+					return ErrUnsupported
+				}
+				sequence = parsed
 			}
 			row["routing_id"], row["sequence"], row["process_code"], row["process_name"], row["standard_time_unit"] = id, sequence.IntPart(), l["process_code"], l["process_name"], "minute"
 			for _, k := range []string{"work_center", "remark", "standard_time_unit"} {

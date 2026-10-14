@@ -1539,7 +1539,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "subcontract_orders" {
 		data, err := s.business().GetSubcontract(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1549,7 +1549,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "rework_orders" {
 		data, err := s.business().GetRework(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1567,7 +1567,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "inventory_checks" {
 		data, err := s.business().GetCheck(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1576,7 +1576,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "stock_adjusts" {
 		data, err := s.business().GetAdjustment(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1585,7 +1585,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "stock_transfers" {
 		data, err := s.business().GetTransfer(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1598,7 +1598,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 				fail(w, 404, "工艺路线不存在")
 				return
 			}
-			businessFailure(w, err, false)
+			businessFailureLabeled(w, err, false, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1610,7 +1610,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 			if errors.Is(err, database.ErrNotFound) {
 				businessFailure(w, errors.New("工作中心不存在"), false)
 			} else {
-				businessFailure(w, err, false)
+				businessFailureLabeled(w, err, false, res.Label)
 			}
 			return
 		}
@@ -1625,7 +1625,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 					write(w, 200, map[string]any{"code": 10000, "message": "生产退料单不存在", "data": nil})
 					return
 				}
-				businessFailure(w, err, false)
+				businessFailureLabeled(w, err, false, res.Label)
 				return
 			}
 			respond(w, 200, data)
@@ -1646,7 +1646,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 			} else if res.Table == "work_orders" && errors.Is(err, database.ErrNotFound) {
 				fail(w, 404, "工单不存在")
 			} else {
-				businessFailure(w, err, false)
+				businessFailureLabeled(w, err, false, res.Label)
 			}
 			return
 		}
@@ -1656,7 +1656,8 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "vouchers" {
 		data, err := s.business().GetVoucher(r.Context(), r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, true)
+			// 原版回放 JJ3：凭证不存在返回 404「凭证不存在」。
+			businessFailureLabeled(w, err, true, res.Label)
 			return
 		}
 		respond(w, 200, data)
@@ -1666,7 +1667,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 		if d.Table == res.Table {
 			data, err := s.business().GetPayment(r.Context(), d, r.PathValue("id"))
 			if err != nil {
-				businessFailure(w, err, false)
+				businessFailureLabeled(w, err, false, res.Label)
 				return
 			}
 			respond(w, 200, data)

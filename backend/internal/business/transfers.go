@@ -49,13 +49,27 @@ func (s *Service) GetTransfer(ctx context.Context, id string) (map[string]any, e
 func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string]any, user string) (map[string]any, error) {
 	creating := id == ""
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		if err := rejectAdvanced(input); err != nil {
-			return err
+		// 原版回放 UT2（2026-10-13）：提交 from_location_id/to_location_id 时原版返回
+		// code:0，且**两个字段都真实落库**（回读值与传入一致）。stock_transfers 表确有
+		// 这两列，故先摘出这两项再走通用守卫，有列的持久化、无列的显式拒绝。
+		// 早前记录的「静默忽略」结论来自另一模块的证据文件，属误判，已更正。
+		locations := map[string]any{}
+		header := map[string]any{}
+		for k, v := range input {
+			header[k] = v
 		}
 		for _, k := range []string{"from_location_id", "to_location_id"} {
-			if value(input, k) != "" {
+			if value(input, k) == "" {
+				continue
+			}
+			if !s.Store.Has("stock_transfers", k) {
 				return ErrUnsupported
 			}
+			locations[k] = input[k]
+			delete(header, k)
+		}
+		if err := rejectAdvanced(header); err != nil {
+			return err
 		}
 		h := s.base("stock_transfers")
 		if !creating {
@@ -86,6 +100,9 @@ func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string
 			return errors.New("调拨明细不能为空且不超过1000行")
 		}
 		h["remark"], h["updated_by"], h["updated_at"] = value(input, "remark"), user, now()
+		for k, v := range locations {
+			h[k] = v
+		}
 		if creating {
 			number, err := s.nextNumber(ctx, tx, "TR")
 			if err != nil {
@@ -123,12 +140,9 @@ func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string
 				return err
 			}
 			pid := value(in, "product_id")
-			if seen[pid] {
-				return ErrUnsupported
-			}
 			seen[pid] = true
-			p, err := s.plainProduct(ctx, tx, pid)
-			if err != nil {
+			// 明细仍需校验商品存在且不是无法取证的组合商品。
+			if _, err := s.plainProduct(ctx, tx, pid); err != nil {
 				return err
 			}
 			qty, err := Number(in["qty"])
@@ -146,10 +160,11 @@ func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string
 					l[k] = in[k]
 				}
 			}
+			// 原版回放 UA1/UC1/UT1（2026-10-13）：明细 unit_id 与商品主数据 unit_id
+			// 不一致时，调整/盘点/调拨三处均 code:0 创建+动作成功，且明细 unit_id
+			// 按传入值原样落库（V6 已对通用单据路径证明同一结论）。原实现的
+			// 一致性拒绝属系统性误拒，已移除。
 			if value(in, "unit_id") != "" {
-				if value(in, "unit_id") != value(p, "unit_id") {
-					return ErrUnsupported
-				}
 				l["unit_id"] = in["unit_id"]
 			}
 			if err := s.Store.InsertWith(ctx, tx, "stock_transfer_lines", l); err != nil {
@@ -189,6 +204,8 @@ func (s *Service) TransferAction(ctx context.Context, id, action, user string) (
 			if status != "draft" && status != "in_transit" {
 				return errors.New("只有草稿或运输中的调拨单才能取消")
 			}
+		// 原版 NN3 实测动作集只有 dispatch / complete / cancel；delete 为 HTTP DELETE 形态。
+		// 与恢复端白名单一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

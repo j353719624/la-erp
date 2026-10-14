@@ -11,7 +11,7 @@ import (
 )
 
 func bankFailure(w http.ResponseWriter, err error) {
-	if errors.Is(err, business.ErrUnsupported) {
+	if errors.Is(err, business.ErrUnsupported) || errors.Is(err, business.ErrOriginalDefect) {
 		fail(w, 501, err.Error())
 		return
 	}

@@ -28,25 +28,31 @@ func (s *Service) CashFlow(ctx context.Context, q url.Values) (any, error) {
 	type flow struct{ in, out decimal.Decimal }
 	totals := map[string]flow{}
 	for _, entries := range vouchers {
-		var cash map[string]any
+		// 原版回放 KK1-KK3（2026-10-14，evidence/backend-runtime/audit-batch-k-20261014.json）：
+		// 现金流量表对以下三种情况**全部 code:0 正常出数**，无一报错：
+		//   KK1  1001↔6401（对方科目在恢复端白名单之外）→ 归**经营**，Δ经营 +7
+		//   KK1b 1001↔6602（对方科目在白名单之外）      → 归**经营**，Δ经营 +9
+		//   KK2  同一凭证含 1001 与 1002 两个现金科目     → 归经营，Δ经营 +7（取 1001 那条）
+		//   KK3  现金凭证为四行（非两行）                → 归经营，Δ经营 +5
+		// 即原版语义是「白名单外归经营、多个现金科目取其一、非两行也照算」，
+		// 而恢复端原先三处均 return ErrUnsupported，会让**整张现金流量表失败**。
+		// 三个守卫均属误拒，已移除；无法确定「多个现金科目取哪一条」的原版规则，
+		// 此处沿用恢复端原有的「首个命中即采用」顺序（与 KK2 实测的 +7 一致）。
+		var cash []map[string]any
 		for _, e := range entries {
 			if value(e, "account_code") == "1001" || value(e, "account_code") == "1002" {
-				if cash != nil {
-					return nil, ErrUnsupported
-				}
-				cash = e
+				cash = append(cash, e)
 			}
 		}
-		if cash == nil {
+		if len(cash) == 0 {
 			continue
 		}
-		if len(entries) != 2 {
-			return nil, ErrUnsupported
-		}
-		var contra map[string]any
+		entry := cash[0]
+		contra := map[string]any{}
 		for _, e := range entries {
-			if value(e, "id") != value(cash, "id") {
+			if value(e, "id") != value(entry, "id") {
 				contra = e
+				break
 			}
 		}
 		category := "operating"
@@ -55,15 +61,13 @@ func (s *Service) CashFlow(ctx context.Context, q url.Values) (any, error) {
 			category = "investing"
 		case "2001":
 			category = "financing"
-		case "1122", "2202", "6001":
-		default:
-			return nil, ErrUnsupported
 		}
+		// 1122/2202/6001 与**任何其他科目**都归经营（KK1/KK1b 实测）。
 		f := totals[category]
-		if value(cash, "direction") == "debit" {
-			f.in = f.in.Add(readDecimal(cash, "amount"))
+		if value(entry, "direction") == "debit" {
+			f.in = f.in.Add(readDecimal(entry, "amount"))
 		} else {
-			f.out = f.out.Add(readDecimal(cash, "amount"))
+			f.out = f.out.Add(readDecimal(entry, "amount"))
 		}
 		totals[category] = f
 	}

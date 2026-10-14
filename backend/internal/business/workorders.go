@@ -65,15 +65,11 @@ func (s *Service) WriteWorkOrder(ctx context.Context, id, user string, input map
 func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user string, input map[string]any) (string, error) {
 	creating := id == ""
 	err := func() error {
-		if !creating {
-			var linked int
-			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM work_order_processes WHERE work_order_id=? AND deleted_at IS NULL", id).Scan(&linked); err != nil {
-				return err
-			}
-			if linked > 0 || value(input, "routing_id") != "" {
-				return ErrUnsupported
-			}
-		}
+		// 原版回放 T1/T2/T3（2026-10-13）：
+		//   T1 工艺绑定的 product_id 与工单商品**不一致**时，创建仍 code:0 允许（不做匹配校验）
+		//   T2 已关联工序(1条)的草稿工单改 product_id -> code:0，**工序被清空为 0**，routing_id 保留
+		//   T3 清空后再提交 routing_id -> code:0，**工序重新生成为 1 条**
+		// 原实现在此对「已关联工序 或 提交 routing_id」返回 ErrUnsupported，属错误的拒绝，已移除。
 		product, err := s.plainProduct(ctx, tx, value(input, "product_id"))
 		if err != nil {
 			return err
@@ -102,9 +98,10 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 			if err != nil {
 				return err
 			}
-			if value(h, "bom_id") != value(input, "bom_id") || value(h, "product_id") != value(input, "product_id") {
-				return ErrUnsupported
-			}
+			// 原版回放 T2（2026-10-13）：草稿态修改 product_id 返回 code:0 并生效，
+			// 同时已关联工序被清空（1→0）、routing_id 保留。
+			// 原实现对 bom_id/product_id 变更返回 ErrUnsupported，属错误的拒绝，已移除；
+			// 下方的「只有草稿状态的工单才能编辑」状态守卫经原版确认一致，予以保留。
 			if value(h, "status") != "draft" {
 				return errors.New("只有草稿状态的工单才能编辑")
 			}
@@ -143,12 +140,10 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 			h["bom_id"] = nil
 		}
 		if value(input, "routing_id") != "" {
-			routing, err := s.Store.GetWith(ctx, tx, "routings", value(input, "routing_id"))
-			if err != nil {
+			// 仍校验工艺存在（查不到应报错），但**不再校验 product_id 匹配**。
+			// 原版回放 T1：工艺绑定的 product_id 与工单商品不一致时仍允许关联（code:0）。
+			if _, err := s.Store.GetWith(ctx, tx, "routings", value(input, "routing_id")); err != nil {
 				return err
-			}
-			if value(routing, "product_id") != value(product, "id") || value(routing, "status") != "active" {
-				return ErrUnsupported
 			}
 			h["routing_id"] = input["routing_id"]
 		}
@@ -161,12 +156,21 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 				return err
 			}
 		}
-		if creating && value(h, "routing_id") != "" {
+		// 原版回放 T2/T3：
+		//   T2 改 product_id 后已关联工序被清空（1→0），routing_id 保留
+		//   T3 再次提交 routing_id 后工序重新生成（0→1）
+		// 因此工序生成不限于创建，且编辑期需先清理旧工序再按新工艺重建。
+		if value(h, "routing_id") != "" {
+			if !creating {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM work_order_processes WHERE work_order_id=?", id); err != nil {
+					return err
+				}
+			}
 			if err := s.createWorkOrderProcesses(ctx, tx, h); err != nil {
 				return err
 			}
 		}
-		existingMaterials, err := database.QueryRows(ctx, tx, "SELECT product_id FROM work_order_materials WHERE work_order_id=? AND deleted_at IS NULL", id)
+		existingMaterials, err := database.QueryRows(ctx, tx, "SELECT id, product_id, product_name, qty_issued FROM work_order_materials WHERE work_order_id=? AND deleted_at IS NULL", id)
 		if err != nil {
 			return err
 		}
@@ -174,11 +178,11 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 		for _, l := range items {
 			allowed[value(l, "product_id")] = true
 		}
-		for _, m := range existingMaterials {
-			if !allowed[value(m, "product_id")] {
-				return ErrUnsupported
-			}
-		}
+		// 原版回放 EE6（2026-10-14）：草稿工单把 bom_id 从「两材料」换成「单材料」后，
+		// 原版 code:0，且 `GET /work-orders/{id}/materials` **只返回新 BOM 的材料**
+		// （P1 行消失，仅剩 P2/70）——即原版会按新 BOM 重建材料行。
+		// 原恢复端对「新 BOM 不含的旧材料」返回 ErrUnsupported，属误拒，已移除：
+		// 下方按 allowed 集合清理不再需要的材料行。
 		for _, l := range items {
 			if readDecimal(l, "scrap_rate").IsNegative() {
 				return ErrUnsupported
@@ -207,19 +211,36 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 				}
 			}
 		}
+		// 原版 EE6：换 BOM 后新 BOM 不再包含的旧材料行会从 materials 视图消失。
+		// 已发出（qty_issued>0）的材料不能静默删除——那会让已领数量失去归属，
+		// 故只清理从未领用过的行；已领用的保留由下方完成守卫兜底。
+		for _, m := range existingMaterials {
+			pid := value(m, "product_id")
+			if allowed[pid] {
+				continue
+			}
+			if readDecimal(m, "qty_issued").IsPositive() {
+				// 已领用材料换 BOM 时原版的行为**未取证**（回放 EE6 只测了未领用场景）。
+				// 不自造中文，保留 ErrUnsupported。
+				return ErrUnsupported
+			}
+			// 必须用 UpdateWith 传入 tx：Store.Update 走 s.DB 会逃出当前事务。
+			if err := s.Store.UpdateWith(ctx, tx, "work_order_materials", value(m, "id"), map[string]any{"deleted_at": now()}); err != nil {
+				return err
+			}
+		}
 		return nil
 	}()
 	return id, err
 }
 func (s *Service) WorkOrderAction(ctx context.Context, id, user, action string) (map[string]any, error) {
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		var flows int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM approval_flows WHERE is_active=1 AND deleted_at IS NULL").Scan(&flows); err != nil {
-			return err
-		}
-		if flows > 0 {
-			return ErrUnsupported
-		}
+		// 原版回放（2026-10-13）：存在活动审批流 REC-PERSONAL-FLOW-1013(biz_type=sales_order) 时，
+		// 新建工单 confirm 返回 code:0 且状态正常转为 confirmed；
+		// 退货审批侧同样不因活动流阻断（见 returns.go approveReturn 注释与
+		// evidence/backend-runtime/audit-approval-biztype-20261013.json）。
+		// 原实现此处统计全部 is_active=1 的流程后返回 ErrUnsupported，
+		// 属未经证据的错误拒绝，已移除。
 		h, err := s.Store.GetWith(ctx, tx, "work_orders", id)
 		if err != nil {
 			return err
@@ -275,6 +296,8 @@ func (s *Service) WorkOrderAction(ctx context.Context, id, user, action string) 
 				}
 			}
 			changes["status"], changes["completed_qty"], changes["actual_end_date"] = "completed", h["qty"], now()
+		// 原版 NN8 实测动作集为 confirm / approve / complete / cancel，与恢复端白名单逐项一致，
+		// 本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

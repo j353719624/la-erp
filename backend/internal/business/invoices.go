@@ -60,14 +60,14 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 			if value(h, "status") != "draft" && value(h, "status") != "cancelled" {
 				return errors.New("已确认的收付款单不能删除")
 			}
-		case "ar_invoices":
-			if !readDecimal(h, "received_amount").IsZero() {
-				return ErrUnsupported
-			}
-		case "ap_invoices":
-			if !readDecimal(h, "paid_amount").IsZero() {
-				return ErrUnsupported
-			}
+		case "ar_invoices", "ap_invoices":
+			// 原版回放（2026-10-13，证据 evidence/backend-runtime/audit-finance-advanced-20261013.json
+			// 的 G4 与内联 P1 全额收款场景）：
+			//   G4  应收 130 → 部分收款 65（status=partial）→ DELETE code:0，单据真实消失
+			//   P1  应收  80 → 全额收款 80（status=paid）    → DELETE code:0，单据真实消失
+			//   两次删除后凭证总数均不变（63→63），已过账凭证与核销明细无悬挂。
+			// 原实现对 received_amount/paid_amount>0 返回 ErrUnsupported，
+			// 属未经证据的错误拒绝，已移除。
 		default:
 			return ErrUnsupported
 		}

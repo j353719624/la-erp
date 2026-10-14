@@ -37,7 +37,22 @@ func (s *Service) GetCheck(ctx context.Context, id string) (map[string]any, erro
 func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]any, user string) (map[string]any, error) {
 	creating := id == ""
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		if err := rejectAdvanced(input); err != nil {
+		// 原版回放 UC2（2026-10-13）：盘点单提交 location_id 原版 code:0，
+		// 且 inventory_checks 表确有 location_id 列，故先摘出该字段再走通用守卫，
+		// 其余无列的高级字段保持显式拒绝（不静默丢弃）。
+		location := map[string]any{}
+		header := map[string]any{}
+		for k, v := range input {
+			header[k] = v
+		}
+		if value(input, "location_id") != "" {
+			if !s.Store.Has("inventory_checks", "location_id") {
+				return ErrUnsupported
+			}
+			location["location_id"] = input["location_id"]
+			delete(header, "location_id")
+		}
+		if err := rejectAdvanced(header); err != nil {
 			return err
 		}
 		wh := value(input, "warehouse_id")
@@ -53,11 +68,11 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 				return err
 			}
 			if value(h, "status") != "draft" && value(h, "status") != "checking" {
-				return errors.New("只有草稿或盘点中的盘点单才能编辑")
+				return errors.New("只有草稿或盘点中状态的盘点单才能修改")
 			}
-			if wh != value(h, "warehouse_id") {
-				return ErrUnsupported
-			}
+			// 原版回放 CC1/CC1b（2026-10-14）：编辑期改仓库原版 code:0，
+			// 且表头 warehouse_id **真实改成新仓**；随后 start 时按新仓盘点
+			// （book_qty 取新仓余额）。原恢复端返回 ErrUnsupported，属误拒，已移除。
 			rows, err := database.QueryRows(ctx, tx, "SELECT * FROM inventory_check_lines WHERE check_id=? AND deleted_at IS NULL", id)
 			if err != nil {
 				return err
@@ -78,6 +93,9 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 			h["check_no"], h["status"], h["created_by"] = no, "draft", user
 		}
 		h["warehouse_id"], h["remark"], h["updated_by"], h["updated_at"], h["total_items"] = wh, value(input, "remark"), user, now(), len(raw)
+		for k, v := range location {
+			h[k] = v
+		}
 		if date := value(input, "check_date"); date != "" {
 			if _, err := time.Parse(time.RFC3339Nano, date); err != nil {
 				return errors.New("日期格式错误")
@@ -92,16 +110,28 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 			if !ok {
 				return errors.New("明细格式错误")
 			}
-			if err := rejectAdvanced(in); err != nil {
+			// 原版回放 CC2（2026-10-14）：盘点明细带 location_id/batch_no/serial_nos
+			// 原版 code:0 建单成功；回读时这些列不暴露（明细表无对应列），
+			// 属原版的静默忽略。恢复端按「有列才持久化、无列不报错」处理：
+			// 摘出这几项后再走通用守卫，避免把原版已接受的输入判为未恢复。
+			line := map[string]any{}
+			for key, val := range in {
+				line[key] = val
+			}
+			for _, k := range []string{"batch_no", "serial_nos", "location_id"} {
+				delete(line, k)
+			}
+			if err := rejectAdvanced(line); err != nil {
 				return err
 			}
 			pid := value(in, "product_id")
-			if seen[pid] {
-				return ErrUnsupported
-			}
+			// 原版回放 X1（2026-10-13，内联取证）：盘点单提交**同一商品两行**
+			// 创建/start/complete 全部 code:0，**两行都保留**（明细行数=2，
+			// 两行 book_qty 与 diff_qty 均独立计算）。
+			// 原实现对重复 product_id 返回 ErrUnsupported，属未经证据的错误拒绝，已移除。
 			seen[pid] = true
-			p, err := s.plainProduct(ctx, tx, pid)
-			if err != nil {
+			// 明细仍需校验商品存在且不是无法取证的组合商品。
+			if _, err := s.plainProduct(ctx, tx, pid); err != nil {
 				return err
 			}
 			actual, err := Number(in["actual_qty"])
@@ -110,17 +140,24 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 			}
 			book := decimal.Zero
 			if value(h, "status") == "checking" {
+				// 原版回放 KK9（2026-10-14，evidence/backend-runtime/audit-batch-m-20261014.json）：
+				// 盘点单 start 后账面被其它单据改动（本例 book_qty=103 → 实时余额 203），
+				// 再提交 actual_qty 时原版 **code:0 正常保存**，
+				// 且**继续按创建时的 book_qty(103) 计算差异**（actual=106 → diff=3 profit），
+				// complete 也正常通过（profit_items=1）。
+				// 即原版**不校验账面与实时余额是否一致**。
+				// 原恢复端两处 return ErrUnsupported（找不到旧行 / 账面不符实时余额）属误拒：
+				// 前者会让「新增明细行」失败，后者会让「盘点期间有出入库」的盘点单整个卡死。
+				//
+				// 批次 P 补充实测（2026-10-14）：提交**原单上没有的商品**时原版同样 code:0 ——
+				// 明细被整体替换为新行集，且新行的 book_qty 恒为 **0**：
+				//   实测把「实时库存 20 件」的商品替换进盘点单，回读 book_qty 仍是 0
+				//   （不是实时余额），actual=23 → diff=23 profit，complete 通过
+				// 即原版对「原单上没有的行」不查账面，直接按 0 起算（全盘盈）。
+				// 恢复端原先返回「盘点明细不存在」属误拒，已改为按原版取 0。
 				previous := old[pid]
-				if previous == nil {
-					return ErrUnsupported
-				}
-				book = readDecimal(previous, "book_qty")
-				b, err := s.balance(ctx, tx, pid, wh, false)
-				if err != nil {
-					return err
-				}
-				if !book.Equal(readDecimal(b, "qty_available")) {
-					return ErrUnsupported
+				if previous != nil {
+					book = readDecimal(previous, "book_qty")
 				}
 			}
 			diff := actual.Sub(book)
@@ -137,10 +174,11 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 					l[k] = in[k]
 				}
 			}
+			// 原版回放 UA1/UC1/UT1（2026-10-13）：明细 unit_id 与商品主数据 unit_id
+			// 不一致时，调整/盘点/调拨三处均 code:0 创建+动作成功，且明细 unit_id
+			// 按传入值原样落库（V6 已对通用单据路径证明同一结论）。原实现的
+			// 一致性拒绝属系统性误拒，已移除。
 			if value(in, "unit_id") != "" {
-				if value(in, "unit_id") != value(p, "unit_id") {
-					return ErrUnsupported
-				}
 				l["unit_id"] = in["unit_id"]
 			}
 			lines = append(lines, l)
@@ -262,6 +300,8 @@ func (s *Service) CheckAction(ctx context.Context, id, action, user string) (map
 			} else {
 				changes["status"], changes["completed_at"], changes["profit_items"], changes["loss_items"], changes["profit_amount"], changes["loss_amount"] = "completed", now(), profits, losses, profit.String(), loss.String()
 			}
+		// 原版 NN5 实测动作集只有 start / complete / cancel；delete 为 HTTP DELETE 形态。
+		// 与恢复端白名单一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

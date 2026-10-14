@@ -39,9 +39,12 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 		if !ok || len(raw) < 2 || len(raw) > 1000 {
 			return errors.New("凭证分录必须为2至1000行")
 		}
-		if value(input, "type") != "general" || value(input, "source_id") != "" || value(input, "source_type") != "" || value(input, "currency_code") != "" {
-			return ErrUnsupported
-		}
+		// 原版回放 KK5（2026-10-14，evidence/backend-runtime/audit-batch-k-20261014.json）：
+		// 凭证传 type="adjustment"、带 source_id/source_type、带 currency_code —— 三者
+		// 原版**全部 code:0 接受**，即这三个字段原版均不校验。
+		// 原恢复端 return ErrUnsupported 属误拒，已移除。
+		// 真正被原版拒绝的是：分录借贷不等（400「借方金额与贷方金额必须相等」）
+		// 与缺 account_name（400，Go 结构体绑定失败）——两者由下方逻辑自然覆盖。
 		lines := []map[string]any{}
 		debit, credit := decimal.Zero, decimal.Zero
 		for i, v := range raw {
@@ -77,7 +80,7 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 			lines = append(lines, row)
 		}
 		if !debit.Equal(credit) {
-			return errors.New("凭证借贷不平衡")
+			return errors.New("借方金额与贷方金额必须相等")
 		}
 		var h map[string]any
 		if id == "" {
@@ -165,7 +168,7 @@ func (s *Service) VoucherAction(ctx context.Context, id, user, action string) (m
 				entries = append(entries, Posting{value(l, "account_code"), direction, amount})
 			}
 			if len(entries) < 2 || !debit.Equal(credit) {
-				return errors.New("凭证借贷不平衡")
+				return errors.New("借方金额与贷方金额必须相等")
 			}
 			if err := s.postVoucherEntries(ctx, tx, h, entries, false); err != nil {
 				return err
@@ -182,6 +185,10 @@ func (s *Service) VoucherAction(ctx context.Context, id, user, action string) (m
 			}
 			changes["deleted_at"] = now()
 		default:
+			// 原版 KK6 实测的动作集只有 approve / post / cancel，
+			// 以及 HTTP DELETE（非 POST /{id}/delete，后者原版 404）。
+			// confirm / reverse / void / audit 在原版全部 404，
+			// 故该 default 分支在路由层已不可达；无原文案可对齐，保留 ErrUnsupported。
 			return ErrUnsupported
 		}
 		return s.Store.UpdateWith(ctx, tx, "vouchers", id, changes)

@@ -46,7 +46,9 @@ func TestConcurrentReceiptsCannotOverReceive(t *testing.T) {
 	}
 }
 
-func TestSourceMismatchAndRepeatedApprovalAreRejected(t *testing.T) {
+// 原版实测（2026-10-13 V3 回放）：来源单据只按 source_id 关联，source_no 传错仍正常
+// 回写 delivered_qty（编号仅作信息落库）；重复审批返回「只有已确认的采购订单才能审批」。
+func TestRepeatedApprovalRejectedAndSourceNumberMismatchIgnored(t *testing.T) {
 	c, _ := setup(t)
 	product := c.ok("GET", "/api/v1/products", nil).(map[string]any)["list"].([]any)[0].(map[string]any)["id"]
 	wh := c.ok("GET", "/api/v1/warehouses", nil).(map[string]any)["list"].([]any)[0].(map[string]any)["id"]
@@ -59,7 +61,10 @@ func TestSourceMismatchAndRepeatedApprovalAreRejected(t *testing.T) {
 	if res["code"] != float64(10000) {
 		t.Fatal("approval repeated", res)
 	}
-	if status, _ := c.request("POST", "/api/v1/stock-ins", map[string]any{"warehouse_id": wh, "source_id": order["id"], "source_no": "WRONG", "lines": []any{map[string]any{"product_id": product, "qty": 1, "unit_cost": 15}}}); status != 400 {
-		t.Fatal("mismatched source number accepted", status)
+	receipt := c.ok("POST", "/api/v1/stock-ins", map[string]any{"warehouse_id": wh, "source_id": order["id"], "source_no": "WRONG", "lines": []any{map[string]any{"product_id": product, "qty": 1, "unit_cost": 15}}}).(map[string]any)
+	c.ok("POST", "/api/v1/stock-ins/"+receipt["id"].(string)+"/confirm", map[string]any{})
+	updated := c.ok("GET", path, nil).(map[string]any)
+	if updated["edges"].(map[string]any)["lines"].([]any)[0].(map[string]any)["delivered_qty"] != "1" {
+		t.Fatal("source number mismatch blocked linking", updated)
 	}
 }

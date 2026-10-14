@@ -118,8 +118,12 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 			if err != nil {
 				return err
 			}
+			// 原版回放 CC8/CC8b（2026-10-14）：qty_per=0、qty_per=-1、scrap_rate=-0.1
+			// 三者原版全部 code:0 且原样落库。属原版校验缺失——qty_per=0 会让该组件
+			// 需求恒为 0、qty_per=-1 会产生负需求，scrap_rate<0 会**放大**需求量。
+			// 按「不复制未证实的错误行为」原则，恢复端保留拒绝，不对齐该缺陷。
 			if !qty.IsPositive() || scrap.IsNegative() {
-				return ErrUnsupported
+				return ErrOriginalDefect
 			}
 
 			row := s.base("bom_items")

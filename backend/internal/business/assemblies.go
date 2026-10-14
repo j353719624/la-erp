@@ -30,6 +30,8 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 				return errors.New("当前状态不能取消")
 			}
 			changes["status"] = "cancelled"
+		// 原版 NN4 实测动作集只有 confirm / cancel，与恢复端白名单完全一致。
+		// 本 default 分支在 API 层 []string{...} 限定下**不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

@@ -85,9 +85,13 @@ func (s *Service) WorkProcessAction(ctx context.Context, id, action string, inpu
 				if err != nil {
 					return err
 				}
-				if n.IsNegative() && (k == "actual_time" || k == "labor_rate") {
-					return ErrUnsupported
-				}
+				// 原版回放 KK8（2026-10-14，evidence/backend-runtime/audit-batch-l-20261014.json）：
+				// 工序报工走的是 **`POST /work-order-processes/{id}/complete`**（不是 `/report`，
+				// 原版无 report 路由），且**负 actual_time 与负 labor_rate 原版都放行并原样落库**：
+				//   actual_time = -7 → code:0，回读 actual_time = -7
+				//   labor_rate  = -1 → code:0，回读 labor_rate  = -1
+				// 原恢复端对二者返回 ErrUnsupported，属误拒，已移除。
+				// 真正被原版拒绝的是超计划数量，文案见下方（与恢复端原本就一致）。
 				amounts[k] = n
 			}
 			if amounts["qty_good"].Add(amounts["qty_bad"]).GreaterThan(readDecimal(p, "qty_planned")) {
@@ -105,6 +109,10 @@ func (s *Service) WorkProcessAction(ctx context.Context, id, action string, inpu
 			}
 			changes["status"], changes["qty_good"], changes["qty_bad"], changes["qty_completed"], changes["actual_time"], changes["completed_at"] = "in_progress", "0", "0", "0", 0, nil
 		default:
+			// 原版 KK8 实测的动作集只有 start / complete / revert 三项
+			// （另有批量端点 POST /work-order-processes/bulk-report，与本分支无关）；
+			// confirm / reverse / void / audit / report 在原版全部 404，
+			// 故该 default 分支在路由层已不可达；无原文案可对齐，保留 ErrUnsupported。
 			return ErrUnsupported
 		}
 		if err := s.Store.UpdateWith(ctx, tx, "work_order_processes", id, changes); err != nil {

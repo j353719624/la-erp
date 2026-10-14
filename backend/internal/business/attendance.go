@@ -40,6 +40,9 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 				return errors.New("当前状态不能取消")
 			}
 			next = "cancelled"
+		// 原版 NN10 的考勤路由前缀与恢复端不同（6 个候选前缀全部 404），
+		// 无法逐项比对原版动作集；本 default 在 API 层 []string{...} 下**不可达**，
+		// 保留 ErrUnsupported 作兜底，不自造文案。
 		default:
 			return ErrUnsupported
 		}

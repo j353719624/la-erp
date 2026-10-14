@@ -59,12 +59,19 @@ func TestConcurrentPaymentDoesNotOverAllocate(t *testing.T) {
 	}
 }
 
-func TestInvoiceRejectsUnsupportedCurrencyInsteadOfDroppingIt(t *testing.T) {
+// 原版回放 BB1/BB1b（2026-10-14，证据 audit-batch-b2-20261014.json）：
+// 发票表无 currency_code/exchange_rate 列，原版对非 CNY 币种与非 1 汇率一律 code:0
+// 并静默忽略落库值；汇率的实际作用点在核销（由收款单侧折算）。
+// 本测试原先编码了「恢复端应拒绝」的自造行为，已按取证结论改写为验证「接受但不落库」。
+func TestInvoiceAcceptsForeignCurrencyWithoutPersistingIt(t *testing.T) {
 	c, _ := setup(t)
 	customer := c.ok("POST", "/api/v1/customers", map[string]any{"name": "币种边界客户"}).(map[string]any)
-	status, body := c.request("POST", "/api/v1/ar-invoices", map[string]any{"customer_id": customer["id"], "invoice_date": time.Now().UTC().Format(time.RFC3339Nano), "total_amount": 10, "currency_code": "USD", "exchange_rate": 7.2})
-	if status == 200 || body["code"] == float64(0) {
-		t.Fatalf("unsupported currency was silently accepted: %d %#v", status, body)
+	invoice := c.ok("POST", "/api/v1/ar-invoices", map[string]any{"customer_id": customer["id"], "invoice_date": time.Now().UTC().Format(time.RFC3339Nano), "total_amount": 10, "currency_code": "USD", "exchange_rate": 7.2}).(map[string]any)
+	if invoice["total_amount"] != "10" {
+		t.Fatalf("foreign currency invoice changed amount: %#v", invoice)
+	}
+	if _, has := invoice["currency_code"]; has {
+		t.Fatalf("invoice table has no currency column but response exposed one: %#v", invoice)
 	}
 }
 
@@ -126,12 +133,32 @@ func TestForeignPaymentCancelRestoresBaseCurrencyBalance(t *testing.T) {
 	}
 }
 
-func TestPaymentRejectsUnsupportedExchangeRateInsteadOfDroppingIt(t *testing.T) {
-	c, _, invoice, _ := paymentFixture(t)
+// 原版实测（2026-10-13，M5 + 凭证核对）：CNY 收款搭配非 1 汇率时创建返回 code:0、
+// exchange_rate=7.2 持久化；确认后发票已收=原币金额（10，而非 10×7.2），
+// 凭证借=贷=10 —— 即 CNY 单据忽略汇率快照，外币单据才按 amount×rate 折算。
+func TestPaymentPersistsCNYExchangeRateButIgnoresItOnConfirm(t *testing.T) {
+	c, s, invoice, _ := paymentFixture(t)
 	accounts := c.ok("GET", "/api/v1/accounts?code=1001", nil).(map[string]any)["list"].([]any)
-	status, body := c.request("POST", "/api/v1/payment-receipts", map[string]any{"customer_id": invoice["customer_id"], "receipt_date": time.Now().UTC().Format(time.RFC3339Nano), "amount": 10, "receipt_type": "normal", "currency_code": "CNY", "exchange_rate": 7.2, "cash_account_id": accounts[0].(map[string]any)["id"], "cash_account_code": accounts[0].(map[string]any)["code"], "lines": []any{map[string]any{"ar_invoice_id": invoice["id"], "amount": 10}}})
-	if status == 200 || body["code"] == float64(0) {
-		t.Fatalf("unsupported exchange rate unexpectedly succeeded: %d %#v", status, body)
+	date := time.Now().UTC().Format(time.RFC3339Nano)
+	pay, body := c.request("POST", "/api/v1/payment-receipts", map[string]any{"customer_id": invoice["customer_id"], "receipt_date": date, "amount": 10, "receipt_type": "normal", "currency_code": "CNY", "exchange_rate": 7.2, "cash_account_id": accounts[0].(map[string]any)["id"], "cash_account_code": accounts[0].(map[string]any)["code"], "lines": []any{map[string]any{"ar_invoice_id": invoice["id"], "amount": 10}}})
+	if pay != 200 || body["code"] != float64(0) {
+		t.Fatalf("CNY receipt with snapshot rate rejected: %d %#v", pay, body)
+	}
+	data := body["data"].(map[string]any)
+	if data["exchange_rate"] != "7.2" {
+		t.Fatalf("rate snapshot dropped: %#v", data)
+	}
+	c.ok("POST", "/api/v1/payment-receipts/"+data["id"].(string)+"/confirm", nil)
+	got := c.ok("GET", "/api/v1/ar-invoices/"+invoice["id"].(string), nil).(map[string]any)
+	if got["received_amount"] != "10" || got["balance"] != "90" {
+		t.Fatalf("CNY rate leaked into allocation: %#v", got)
+	}
+	var total string
+	if err := s.Store.DB.QueryRow("SELECT total_debit FROM vouchers WHERE source_type='payment_receipt' ORDER BY created_at DESC LIMIT 1").Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != "10" {
+		t.Fatalf("CNY rate leaked into posting: %s", total)
 	}
 }
 
