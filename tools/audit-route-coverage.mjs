@@ -85,10 +85,55 @@ async function probe(base, path) {
   return sawMissing ? "missing" : "absent";
 }
 
+// ---------- 两处误判的修正 ----------
+// (1) 无 token 探测时，恢复端的受保护路由一律回 401（=「已注册」），因此无法区分
+//     「真注册了」与「注册了但内容就是 404 路由不存在」。批次 HH 后恢复端有 9 条
+//     详情路由是**故意注册**并逐字返回 404「路由不存在」的（与原版一致），必须
+//     带 token 复探才能看清。复探只打恢复端（本地一次性库），不影响原版。
+// (2) probe 只发 GET/POST，PUT-only 路由（如 /notifications/read-all）在原版被
+//     判为缺失。这类已用带凭据回放逐条确认过，见 verifiedOnOriginal。
+const RECOVERED_PASS = process.env.ERP_PASSWORD;
+let recoveredToken = "";
+if (RECOVERED_PASS) {
+  try {
+    const r = await fetch(`${RECOVERED}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: RECOVERED_PASS }),
+    });
+    recoveredToken = (await r.json())?.data?.access_token ?? "";
+  } catch { /* 拿不到 token 就退回无 token 口径 */ }
+}
+
+async function probeAuthorized(base, path, token) {
+  for (const method of ["GET", "POST"]) {
+    const res = await fetch(base + path, { method, headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.text();
+    if (res.status === 404 && /路由不存在/.test(body)) return "missing";
+    if (res.status === 501 || /尚未恢复/.test(body)) return "missing";
+    return "exists";
+  }
+  return "missing";
+}
+
+// 已在原版上用带凭据回放确认存在、但 GET/POST 探测看不出来的路由。
+// 证据：evidence/backend-runtime/audit-batch-hh-notifications-20261014.json
+const verifiedOnOriginal = new Set([
+  "/api/v1/notifications/read-all", // PUT，原版 200 {updated:121}
+]);
+
 const rows = [];
 for (const path of [...candidates].sort()) {
-  const orig = await probe(ORIG, path);
-  const rec = await probe(RECOVERED, path);
+  let orig = await probe(ORIG, path);
+  let rec = await probe(RECOVERED, path);
+  if (verifiedOnOriginal.has(path) && orig !== "exists") {
+    orig = "exists";
+  }
+  // 原版缺失、恢复端「存在」的，带 token 复探恢复端；若其真实语义就是
+  // 404「路由不存在」，说明两端一致（都不该有），不再算作恢复端独有。
+  if (orig !== "exists" && rec === "exists" && recoveredToken) {
+    rec = await probeAuthorized(RECOVERED, path, recoveredToken);
+  }
   rows.push({ path, orig, recovered: rec });
 }
 

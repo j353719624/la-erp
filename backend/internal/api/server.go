@@ -1402,7 +1402,10 @@ func (s *Server) register(name string, res Resource) {
 		view += "_list"
 	}
 	s.mux.Handle("GET "+base, s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
-	s.mux.Handle("GET "+base+"/{id}", s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.get(w, r, res) })))
+	// 走 s.detail 而非 s.get：与 read_resources.json 重叠的表（production_equipments /
+	// toolings / production_teams / product_documents / assemblies …）需要按原版回放 HH
+	// 的实测形态输出「记录不存在」，未配置的表在 s.detail 内等价于 s.get。
+	s.mux.Handle("GET "+base+"/{id}", s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.detail(w, r, res) })))
 	if name == "permissions" {
 		return
 	}
