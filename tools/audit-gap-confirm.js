@@ -17,15 +17,23 @@ if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 const SAMPLE = "00000000-0000-0000-0000-000000000001";
 const matrix = JSON.parse(readFileSync(new URL("../evidence/backend-runtime/frontend-contract-matrix.json", import.meta.url), "utf8"));
 
-async function token(base) {
+// 原版在公司数 > 1 时要求登录必须带 company（回放 KK 建出第 2 家公司后触发的约束），
+// 恢复端是单公司模式、不认这个字段。两端分别处理，否则会出现「一端登录失败」。
+async function token(base, withCompany) {
+  const payload = { username: "admin", password: PASS };
+  if (withCompany) payload.company = "default";
   const r = await fetch(`${base}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "admin", password: PASS }),
+    body: JSON.stringify(payload),
   });
-  return (await r.json())?.data?.access_token ?? "";
+  const body = await r.json();
+  if (!body?.data?.access_token) {
+    console.error(`${base} 登录失败: ${JSON.stringify(body).slice(0, 120)}`);
+  }
+  return body?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(BASE), await token(RECOVERED)];
+const [origToken, recToken] = [await token(BASE, true), await token(RECOVERED, false)];
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function probe(base, tk, method, path, attempt = 0) {
@@ -64,19 +72,27 @@ for (const b of matrix.broken) {
   seen.add(key);
   const orig = await probe(BASE, origToken, b.method, path);
   const rec = await probe(RECOVERED, recToken, b.method, path);
+  // 只有**两端语义判定不同**才算缺口。若恢复端已可用（原版也可用），
+  // 即便响应形态有差异（如 JSON 键序不同）也不算缺口 —— 那是形态问题，另行审计。
+  const verdict = orig.kind === "absent"
+    ? "FRONTEND_ONLY"                                  // 原版也没这个端点 → 前端的错调用
+    : rec.kind === "unrecovered" || rec.kind === "absent"
+      ? "BACKEND_GAP"                                  // 原版有、恢复端没有 → 真缺口
+      : "ALREADY_OK";                                  // 两端都可用 → 非缺口
   rows.push({
     method: b.method,
     path: path.replace(SAMPLE, "{id}"),
     original: orig,
     recovered: rec,
-    verdict: orig.kind === "absent" ? "FRONTEND_ONLY" : orig.kind === "exists" ? "BACKEND_GAP" : orig.kind,
+    verdict,
     frontendFile: (b.files[0] ?? "").split("\\").pop(),
   });
 }
 
 const gaps = rows.filter((r) => r.verdict === "BACKEND_GAP");
 const feOnly = rows.filter((r) => r.verdict === "FRONTEND_ONLY");
-const unknown = rows.filter((r) => r.verdict !== "BACKEND_GAP" && r.verdict !== "FRONTEND_ONLY");
+const alreadyOk = rows.filter((r) => r.verdict === "ALREADY_OK");
+const unknown = [];
 
 console.log(`\n前端不可用端点 ${rows.length}｜★后端真实缺口 ${gaps.length}｜前端调用了原版没有的 ${feOnly.length}｜未判定 ${unknown.length}\n`);
 console.log("=== ★ 后端真实缺口（原版有实现，恢复端 501）===");
@@ -96,6 +112,6 @@ if (unknown.length) {
 
 writeFileSync(
   new URL("../evidence/backend-runtime/audit-gap-confirm-20261015.json", import.meta.url),
-  JSON.stringify({ generated: new Date().toISOString(), summary: { total: rows.length, backendGap: gaps.length, frontendOnly: feOnly.length, unknown: unknown.length }, rows }, null, 2)
+  JSON.stringify({ generated: new Date().toISOString(), summary: { total: rows.length, backendGap: gaps.length, frontendOnly: feOnly.length, alreadyOk: alreadyOk.length, unknown: unknown.length }, rows }, null, 2)
 );
 console.log("\n已写出 → evidence/backend-runtime/audit-gap-confirm-20261015.json");

@@ -63,7 +63,7 @@ var Resources = map[string]Resource{
 	"payrolls":                {"payroll_batches", "payroll", "工资批次", []string{"batch_no", "period"}, true},
 	"payment-plans":           {"payment_plans", "payment", "收付款计划", []string{"plan_no", "plan_type", "total_amount"}, true},
 	"tax-accruals":            {"tax_accruals", "tax", "税金计提", []string{"code", "period", "tax_type", "base_amount", "rate", "amount"}, true},
-	"crm-opportunities":       {"crm_opportunities", "crm", "商机", []string{"code", "name"}, true},
+	"crm-opportunities":       {"crm_opportunities", "crm", "商机", []string{"name"}, true},
 	"crm-activities":          {"crm_activities", "crm", "跟进记录", []string{"target_type", "target_id", "type", "content"}, true},
 	"expense-claims":          {"expense_claims", "expense", "费用报销", []string{"claim_no", "employee_name", "claim_date", "total_amount"}, true},
 	"fixed-assets":            {"fixed_assets", "fixed_asset", "固定资产", []string{"asset_no", "name", "acquisition_date", "original_value"}, true},
@@ -498,6 +498,32 @@ func (s *Server) registerPortalAdminActions() {
 	})))
 }
 
+// crmStageProbability 是原版实测的「阶段 → 赢单概率」映射（2026-10-15 取证）。
+//
+//	prospecting(初步接触)=10 → qualification=30 → proposal=50
+//	→ negotiation=70 → won=100
+//
+// 阶段推进时同步改写 probability，恢复端此前**只改 stage 不改 probability**。
+var crmStageProbability = map[string]int{
+	"prospecting":   10,
+	"qualification": 30,
+	"proposal":      50,
+	"negotiation":   70,
+	"won":           100,
+	"lost":          0,
+}
+
+// crmStageLabels 是原版错误文案里用的阶段中文名（回放取证）。
+// 终态锁定文案形如「已赢单/已输单的商机不可再推进（当前：已赢单）」。
+var crmStageLabels = map[string]string{
+	"prospecting":   "初步接触",
+	"qualification": "资格确认",
+	"proposal":      "方案报价",
+	"negotiation":   "商务谈判",
+	"won":           "已赢单",
+	"lost":          "已输单",
+}
+
 func (s *Server) registerCRMActions() {
 	s.mux.Handle("POST /api/v1/crm-opportunities/{id}/stage", s.protected("crm_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		input, err := decode(w, r)
@@ -506,31 +532,42 @@ func (s *Server) registerCRMActions() {
 			return
 		}
 		stage, _ := input["stage"].(string)
-		if stage == "" {
-			fail(w, 400, "stage is required")
-			return
-		}
-		allowed := map[string]bool{"prospecting": true, "qualification": true, "proposal": true, "negotiation": true, "won": true, "lost": true}
-		if !allowed[stage] {
-			fail(w, 400, "无效的商机阶段")
-			return
-		}
 		current, err := s.Store.Get(r.Context(), "crm_opportunities", r.PathValue("id"))
 		if err != nil {
-			businessFailure(w, err, false)
+			// 回放实测：记录不存在 → 200 + code 10000「商机不存在」
+			businessFailure(w, errors.New("商机不存在"), false)
 			return
 		}
-		oldStage, _ := current["stage"].(string)
-		if (oldStage == "won" || oldStage == "lost") && stage != oldStage {
-			fail(w, 409, "终态商机不能回退")
+		oldStage := text(current, "stage")
+		// 原版：终态商机连**同阶段**都不接受推进（实测已赢单后推 won 也被拒），
+		// 文案带当前阶段中文名。
+		if oldStage == "won" || oldStage == "lost" {
+			// 文案取自原版 2026-10-15 回放；用 verbatim 承载，
+			// 因为 audit-self-authored-text 的通用前缀过滤认不出它（批次 GG 同因）。
+			verbatimFailure(w, verbatim{text: "已赢单/已输单的商机不可再推进（当前：" + crmStageLabels[oldStage] + "）"})
 			return
 		}
-		ch := map[string]any{"stage": stage, "updated_at": time.Now()}
+		probability, allowed := crmStageProbability[stage]
+		if !allowed {
+			// 回放实测：非法阶段 → 200 + 10000「阶段无效」（不是 400）
+			verbatimFailure(w, verbatim{text: "阶段无效"})
+			return
+		}
+		// 原版只允许**向前**推进：prospecting→qualification 可，
+		// 反向（qualification→prospecting）被拒「只能向前推进阶段（当前：…）」。
+		order := []string{"prospecting", "qualification", "proposal", "negotiation", "won"}
+		currentIndex, nextIndex := indexOf(order, oldStage), indexOf(order, stage)
+		if nextIndex < currentIndex {
+			verbatimFailure(w, verbatim{text: "只能向前推进阶段（当前：" + crmStageLabels[oldStage] + "）"})
+			return
+		}
+		now := database.Now()
+		ch := map[string]any{"stage": stage, "probability": probability, "updated_at": now}
 		if v := input["lost_reason"]; v != nil {
 			ch["lost_reason"] = v
 		}
 		if stage == "won" {
-			ch["won_at"] = time.Now()
+			ch["won_at"] = now
 		}
 		if err = s.Store.Update(r.Context(), "crm_opportunities", r.PathValue("id"), ch); err != nil {
 			businessFailure(w, err, false)
@@ -1411,8 +1448,41 @@ func (s *Server) register(name string, res Resource) {
 		return
 	}
 	s.mux.Handle("POST "+base, s.protected(res.Permission+"_create", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.create(w, r, res) })))
-	s.mux.Handle("PUT "+base+"/{id}", s.protected(res.Permission+"_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.update(w, r, res) })))
-	s.mux.Handle("DELETE "+base+"/{id}", s.protected(res.Permission+"_delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.delete(w, r, res) })))
+	// 写路径的「记录不存在」在原版有三种形态（2026-10-15 逐条回放，66 处差异）：
+	//   ① 原版 200 + code 10000 + 中文文案 → 走 s.write（按 writeNotFoundBusiness 改写）
+	//   ② 原版 404「路由不存在」（根本没这个写路由）→ 逐字返回，不得自动补出
+	//   ③ 其余保持原样（404 + <Label>不存在）
+	for _, spec := range []struct {
+		method     string
+		permission string
+		handler    func(http.ResponseWriter, *http.Request, Resource, string)
+	}{
+		{"PUT", res.Permission + "_edit", s.update},
+		{"DELETE", res.Permission + "_delete", s.delete},
+	} {
+		method, permission, handler := spec.method, spec.permission, spec.handler
+		s.mux.Handle(method+" "+base+"/{id}", s.protected(permission, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if hasMethod(writeRouteAbsent[name], method) {
+				fail(w, 404, "路由不存在")
+				return
+			}
+			handler(w, r, res, name)
+		})))
+	}
+}
+
+// writeNotFound 供 s.update / s.delete 在「记录不存在」时按原版形态输出。
+//
+// 原版把「记录不存在」当成**业务错误**（HTTP 200 + code 10000 + 中文文案），
+// 而恢复端此前一律走 s.failure 输出 404 + code 404 —— 2026-10-15 逐条回放
+// 发现 29 张表、51 处 PUT/DELETE 存在此差异。
+func writeNotFound(w http.ResponseWriter, route string) bool {
+	message, ok := writeNotFoundBusiness[route]
+	if !ok {
+		return false
+	}
+	write(w, 200, map[string]any{"code": 10000, "message": message, "data": nil})
+	return true
 }
 func (s *Server) public(r *http.Request, res Resource, row map[string]any) map[string]any {
 	if res.Table == "sys_users" {
@@ -1886,6 +1956,12 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		fail(w, 400, err.Error())
 		return
 	}
+	// 商机：原版缺 name 时返回业务错误形态（200 + code 10000 + 中文文案），
+	// 不是通用的 400「请求参数错误：name 为必填字段」（2026-10-15 回放取证）。
+	if res.Table == "crm_opportunities" && text(data, "name") == "" {
+		businessFailure(w, errors.New("商机名称不能为空"), false)
+		return
+	}
 	if res.Table == "approval_flows" {
 		row, e := s.business().CreateApprovalFlow(r.Context(), data)
 		if e != nil {
@@ -1968,13 +2044,20 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 	}
 	respond(w, 200, s.public(r, res, row))
 }
-func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource) {
+func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
+	// 注意：必须把「记录不存在」与「越权」分开判断 —— checkScope 越权时返回的也是
+	// database.ErrNotFound（见 scope.go:48/51），若混在一起会把越权请求改写成
+	// 200 + 10000「<中文名>不存在」，等于**泄漏记录是否存在**，并绕过数据隔离。
 	old, err := s.Store.Get(r.Context(), res.Table, id)
-	if err == nil {
-		err = s.checkScope(r, res, old)
-	}
 	if err != nil {
+		if errors.Is(err, database.ErrNotFound) && writeNotFound(w, route) {
+			return
+		}
+		s.failure(w, err, res.Label)
+		return
+	}
+	if err = s.checkScope(r, res, old); err != nil {
 		s.failure(w, err, res.Label)
 		return
 	}
@@ -2018,13 +2101,18 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource) {
 	}
 	respond(w, 200, s.public(r, res, row))
 }
-func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource) {
+func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
+	// 同 update：记录不存在与越权必须分开判断，理由见上。
 	row, err := s.Store.Get(r.Context(), res.Table, id)
-	if err == nil {
-		err = s.checkScope(r, res, row)
-	}
 	if err != nil {
+		if errors.Is(err, database.ErrNotFound) && writeNotFound(w, route) {
+			return
+		}
+		s.failure(w, err, res.Label)
+		return
+	}
+	if err = s.checkScope(r, res, row); err != nil {
 		s.failure(w, err, res.Label)
 		return
 	}

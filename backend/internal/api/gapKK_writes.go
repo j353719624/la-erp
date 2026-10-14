@@ -35,6 +35,7 @@ func (s *Server) registerGapKKWrites() {
 	s.registerCompanyWrites()
 	s.registerGapKKActions()
 	s.registerContractOptions()
+	s.registerReconciliationWrites()
 }
 
 // ── ⑥ sales-contracts/options ────────────────────────────────────────────
@@ -657,3 +658,114 @@ func uuidNew() string { return uuid.NewString() }
 
 // timeParse 解析月份级期间字符串。
 func timeParse(layout, value string) (time.Time, error) { return time.Parse(layout, value) }
+
+// hasMethod 判断切片里是否含某个 HTTP 方法。
+// 注意不能叫 contains —— 同包的 database 包已导出 contains，方法集不同会冲突。
+func hasMethod(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+// indexOf 返回值在切片中的下标；不在时返回 -1。
+func indexOf(list []string, value string) int {
+	for i, item := range list {
+		if item == value {
+			return i
+		}
+	}
+	return -1
+}
+
+// registerReconciliationWrites 补齐对账单的删除路径。
+//
+// 回放实测（2026-10-15）：前端 `purchaseReconApi.remove(id)` 会调
+// `DELETE /purchase-reconciliations/{id}`，恢复端此前没注册（落 501）。
+// 记录不存在时原版返回 200 + code 10000「对账单不存在」。
+func (s *Server) registerReconciliationWrites() {
+	s.mux.Handle("DELETE /api/v1/purchase-reconciliations/{id}", s.protected("purchase_reconciliation_delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		row, err := s.Store.Get(r.Context(), "purchase_reconciliations", r.PathValue("id"))
+		if err != nil {
+			if errors.Is(err, database.ErrNotFound) {
+				businessFailure(w, errors.New("对账单不存在"), false)
+				return
+			}
+			s.failure(w, err, "对账单")
+			return
+		}
+		now := database.Now()
+		if err = s.Store.Update(r.Context(), "purchase_reconciliations", text(row, "id"), map[string]any{"deleted_at": now, "updated_at": now}); err != nil {
+			s.failure(w, err, "对账单")
+			return
+		}
+		respond(w, 200, nil)
+	})))
+}
+
+// ── ⑧ 写路径「记录不存在」的形态（2026-10-15 逐条回放，66 处差异）─────────
+//
+// 起因：前两轮只核对了「路由在不在」「列表形状」，没核对过**写路径的失败形态**。
+// 扫描器 tools/scan-write-labels.mjs 对 Resources 里每张表的 PUT/DELETE 各打一次
+// 「不存在的 id」，发现 66 处不一致：
+//
+//	51 处：原版 200 + code 10000 + 中文文案，恢复端 404 + code 404
+//	15 处：原版**没有**该写路由（404「路由不存在」），恢复端却注册了
+//
+// 两类的差异都不能用「统一 404」或「统一 10000」概括，故按实测逐条配置。
+// 证据：evidence/backend-runtime/audit-batch-kk-write-labels-20261015.json
+
+// writeNotFoundBusiness：写路径「记录不存在」时原版返回业务错误形态
+// （HTTP 200 + code 10000）而非 404 的表，逐字文案取自原版回放。
+// 键是路由名；同一路由的 PUT/DELETE 文案一致（回放已逐一确认）。
+var writeNotFoundBusiness = map[string]string{
+	"approval-flows":         "审批流程不存在",
+	"attendance-requests":    "考勤申请不存在",
+	"categories":             "分类不存在",
+	"crm-activities":         "跟进记录不存在",
+	"crm-opportunities":      "商机不存在",
+	"customers":              "客户不存在",
+	"departments":            "部门不存在",
+	"employees":              "员工不存在",
+	"expense-claims":         "报销单不存在",
+	"fixed-assets":           "资产不存在",
+	"labor-contracts":        "合同不存在",
+	"leads":                  "线索不存在",
+	"loan-orders":            "借出借入单不存在",
+	"locations":              "库位不存在",
+	"payrolls":               "工资批次不存在",
+	"perf-assessments":       "考核单不存在",
+	"perf-templates":         "考核模板不存在",
+	"piecework-rates":        "计件单价不存在",
+	"piecework-records":      "计件登记不存在",
+	"products":               "商品不存在",
+	"racks":                  "货架不存在",
+	"recruitment-candidates": "候选人不存在",
+	"recruitment-positions":  "招聘职位不存在",
+	"roles":                  "角色不存在",
+	"suppliers":              "供应商不存在",
+	"training-records":       "培训记录不存在",
+	"units":                  "计量单位不存在",
+	"users":                  "用户不存在",
+	"warehouses":             "仓库不存在",
+}
+
+// writeRouteAbsent：原版**没有**这些写路由（回放返回 404「路由不存在」），
+// 恢复端不得自动补出，须逐字返回「路由不存在」。
+// 注意是按「路由 + 方法」而非按表 —— 同一张表 DELETE 可能存在而 PUT 不存在
+// （如 crm-activities / expense-claims / fixed-assets / leads 只有 DELETE）。
+var writeRouteAbsent = map[string][]string{
+	"accounting-periods":      {"PUT", "DELETE"},
+	"approval-records":        {"PUT", "DELETE"},
+	"crm-activities":          {"PUT"},
+	"employee-changes":        {"PUT", "DELETE"},
+	"equipment-maintenances":  {"PUT"},
+	"expense-claims":          {"PUT"},
+	"fixed-assets":            {"PUT"},
+	"leads":                   {"PUT"},
+	"payrolls":                {"PUT"},
+	"production-team-members": {"PUT", "DELETE"},
+	"tax-accruals":            {"PUT"},
+}
