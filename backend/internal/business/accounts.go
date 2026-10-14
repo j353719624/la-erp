@@ -130,6 +130,14 @@ func (s *Service) AccountTree(ctx context.Context) (any, error) {
 		for _, row := range byParent[parent] {
 			id := value(row, "id")
 			if path[id] {
+				// 批次 CC 取证（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
+				// 环确实可以形成，但**形成后无法解开** —— 原版 PUT 传 parent_id 返回 code:0，
+				// 回读却是**原值不变**（parent_id 不在可改字段白名单内；name 等字段可正常改）。
+				// 恢复端行为**与原版一致**（实测 PUT parent_id 回读同样不变）。
+				// 此时 GET /accounts/tree 原版返回 code:0（未死循环），
+				// 本守卫则返回 ErrUnsupported —— 差异仅在「有环时的树端点行为」，
+				// 原版该场景的**具体输出结构未取证**，无文案可对齐，不自造。
+				// 保留 ErrUnsupported 作兜底（它同时防止恢复端自身的递归死循环）。
 				return nil, ErrUnsupported
 			}
 			path[id] = true

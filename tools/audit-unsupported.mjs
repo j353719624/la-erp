@@ -93,6 +93,18 @@ const MRP_GATED_GUARDS = new Set([
   "mrp.go:GenerateMRPWorkOrders",
 ]);
 
+// 批次 CC（2026-10-14）：经实测/读码确认不可达或仅在难以构造的场景下可达。
+//   batch_allocation.allocateTrackedBatch —— 原版在设置入口就拒绝非法 batch_strategy
+//   invoices.DeleteFinance                  —— table 来自 []string{...}，default 不可达
+//   accounts.AccountTree                    —— 科目环可形成但解不开；有环时原版 tree 返回 code:0
+//   suggestions.ConvertSuggestion           —— 负 purchase_price 商品无法进入待转建议行
+const CC_GATED_GUARDS = new Set([
+  "batch_allocation.go:allocateTrackedBatch",
+  "invoices.go:DeleteFinance",
+  "accounts.go:AccountTree",
+  "suggestions.go:ConvertSuggestion",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -142,6 +154,13 @@ for (const f of files) {
     if (MRP_GATED_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 8), i).join(" ");
       if (/len\((warehouses|boms)\) != 1/.test(tail)) unreachable = true;
+    }
+    if (CC_GATED_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 8), i).join(" ");
+      if (/strategy != "fifo"/.test(tail) ||
+          /default:/.test(tail) ||
+          /path\[id\]/.test(tail) ||
+          /price\.IsNegative\(\)/.test(tail)) unreachable = true;
     }
     rows.push({
       file: f,

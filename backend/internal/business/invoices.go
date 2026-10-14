@@ -69,6 +69,12 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 			// 原实现对 received_amount/paid_amount>0 返回 ErrUnsupported，
 			// 属未经证据的错误拒绝，已移除。
 		default:
+			// 批次 CC（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
+			// table 由 API 层 registerFinance 的
+			// `for _, table := range []string{"ar_invoices", "ap_invoices"}` 提供，
+			// 而上面两个 case 已覆盖全部四个取值（payment_receipts / payment_payments /
+			// ar_invoices / ap_invoices）→ 本 default **永不可达**。
+			// 保留 ErrUnsupported 作兜底，不自造文案。
 			return ErrUnsupported
 		}
 		// Observed original soft-deletes headers and preserves details/postings.
