@@ -350,6 +350,15 @@ CREATE TABLE `sys_user_roles` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, 
 
 CREATE TABLE `sys_users` (`id` uuid NOT NULL, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `deleted_at` datetime NULL, `username` text NOT NULL, `password_hash` text NOT NULL, `name` text NOT NULL DEFAULT (''), `email` text NULL, `phone` text NULL, `avatar` text NULL, `status` text NOT NULL DEFAULT ('active'), `department_id` uuid NULL, `last_login_at` datetime NULL, `token_version` integer NOT NULL DEFAULT (0), PRIMARY KEY (`id`));
 
+-- 部署控制台的公司注册表（批次 KK，2026-10-15）。
+-- 原版 POST /api/v1/console/companies 建公司后会往这里写一条，恢复端原先没有此表，
+-- 所以 GET 只能硬编码返回一条「默认公司」、写路径一律 501。
+-- 字段取自原版 GET /console/companies 的返回行（回放 KK-28）：
+--   {id, code, name, status, is_default, db_path, db_size, loaded, created_at}
+CREATE TABLE `companies` (`id` uuid NOT NULL, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `deleted_at` datetime NULL, `code` text NOT NULL, `name` text NOT NULL, `status` text NOT NULL DEFAULT ('active'), `is_default` bool NOT NULL DEFAULT (false), `db_path` text NULL, `db_size` integer NOT NULL DEFAULT (0), `loaded` bool NOT NULL DEFAULT (false), PRIMARY KEY (`id`));
+
+CREATE UNIQUE INDEX `companies_code_unique` ON `companies` (`code`);
+
 CREATE TABLE `system_settings` (`id` uuid NOT NULL, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `key` text NOT NULL, `value` json NOT NULL, `remark` text NULL, PRIMARY KEY (`id`));
 
 CREATE TABLE `tax_accruals` (`id` uuid NOT NULL, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `deleted_at` datetime NULL, `code` text NOT NULL, `period` text NOT NULL, `tax_type` text NOT NULL, `base_amount` numeric NOT NULL, `rate` numeric NOT NULL, `amount` numeric NOT NULL, `expense_account_code` text NULL, `tax_account_code` text NULL, `voucher_id` uuid NULL, `voucher_no` text NULL, `details` json NULL, `remark` text NULL, `created_by` uuid NULL, `tenant_id` uuid NOT NULL, PRIMARY KEY (`id`));

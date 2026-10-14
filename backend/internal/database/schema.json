@@ -24984,5 +24984,109 @@
       }
     ],
     "row_count": 0
+  },
+  {
+    "type": "table",
+    "name": "companies",
+    "tbl_name": "companies",
+    "sql": "CREATE TABLE `companies` (`id` uuid NOT NULL, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `deleted_at` datetime NULL, `code` text NOT NULL, `name` text NOT NULL, `status` text NOT NULL DEFAULT ('active'), `is_default` bool NOT NULL DEFAULT (false), `db_path` text NULL, `db_size` integer NOT NULL DEFAULT (0), `loaded` bool NOT NULL DEFAULT (false), PRIMARY KEY (`id`));",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "uuid",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "created_at",
+        "type": "datetime",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "updated_at",
+        "type": "datetime",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "deleted_at",
+        "type": "datetime",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "code",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "name",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "is_default",
+        "type": "bool",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "db_path",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "db_size",
+        "type": "integer",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "loaded",
+        "type": "bool",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreign_keys": [],
+    "row_count": 1
+  },
+  {
+    "type": "index",
+    "name": "companies_code_unique",
+    "tbl_name": "companies",
+    "sql": "CREATE UNIQUE INDEX `companies_code_unique` ON `companies` (`code`);"
   }
 ]

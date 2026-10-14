@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"la-erp-recovered/backend/internal/database"
+	"strings"
 )
 
 func (s *Service) UpdateInvoice(ctx context.Context, table, id string, input map[string]any, issue bool) (map[string]any, error) {
@@ -81,8 +82,34 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 		return s.Store.UpdateWith(ctx, tx, table, id, map[string]any{"deleted_at": now(), "updated_at": now()})
 	})
 }
-func (s *Service) ListPayments(ctx context.Context, d FinanceSpec) ([]map[string]any, error) {
-	rows, err := s.Store.Rows(ctx, "SELECT id FROM "+database.Quote(d.Table)+" WHERE deleted_at IS NULL ORDER BY created_at ASC")
+
+// ListPayments 返回收/付款单列表。原版实测（2026-10-15，批次 KK）：
+//
+//	· 返回**裸数组**，不是 {list,total}；**不支持分页**（page/page_size 被忽略，
+//	  page_size=2 仍返回全部 37 条）
+//	· 支持 status 精确过滤（confirmed → 37 条里命中 10 条）
+//	· 收款单支持 customer_id 过滤（零 UUID → 空数组）；
+//	  付款单**不支持** customer_id（零 UUID 仍返回全部 14 条，因为该表无此列）
+//	· 不支持 keyword / receipt_no / payment_no（原版上这些参数都不生效）
+//
+// 故此处按 FinanceSpec 声明的过滤字段动态拼 WHERE：只有表上确实有该列才过滤，
+// 与批次 JJ 得到的「支持情况与列是否存在不一致」结论一致。
+func (s *Service) ListPayments(ctx context.Context, d FinanceSpec, filters map[string]string) ([]map[string]any, error) {
+	clauses := []string{"deleted_at IS NULL"}
+	args := []any{}
+	if filters == nil {
+		filters = map[string]string{}
+	}
+	for _, field := range []string{"status", "customer_id", "supplier_id", "currency_code"} {
+		v := filters[field]
+		if v == "" || !s.Store.Has(d.Table, field) {
+			continue
+		}
+		clauses = append(clauses, database.Quote(field)+"=?")
+		args = append(args, v)
+	}
+	rows, err := s.Store.Rows(ctx, "SELECT id FROM "+database.Quote(d.Table)+
+		" WHERE "+strings.Join(clauses, " AND ")+" ORDER BY created_at ASC", args...)
 	if err != nil {
 		return nil, err
 	}

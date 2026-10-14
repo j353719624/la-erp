@@ -67,7 +67,16 @@ func (s *Server) registerFinance() {
 	}
 	for route, d := range business.Finances {
 		s.mux.Handle("GET /api/v1/"+route, s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			data, err := s.business().ListPayments(r.Context(), d)
+			// 批次 KK：原版支持 status / customer_id / supplier_id / currency_code 精确过滤，
+			// 且**忽略分页参数**（page_size=2 仍返回全部）。过滤字段是否生效由
+			// ListPayments 按「表上确有该列」判断（与批次 JJ 的结论一致）。
+			filters := map[string]string{}
+			for _, key := range []string{"status", "customer_id", "supplier_id", "currency_code"} {
+				if v := r.URL.Query().Get(key); v != "" {
+					filters[key] = v
+				}
+			}
+			data, err := s.business().ListPayments(r.Context(), d, filters)
 			if err != nil {
 				businessFailure(w, err, false)
 				return

@@ -168,6 +168,7 @@ func New(store *database.Store, secret string) *Server {
 	s.registerSimpleDocuments()
 	s.registerSpuActions()
 	s.registerImportExport()
+	s.registerGapKKWrites()
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 501, "该业务接口尚未恢复："+r.Method+" "+r.URL.Path)
 	})

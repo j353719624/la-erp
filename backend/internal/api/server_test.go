@@ -80,7 +80,8 @@ func TestRecoveredSchemaAndDefaults(t *testing.T) {
 	if err := s.Store.DB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	if tables != 162 {
+	// 163 = 162（原版新鲜安装快照）+ companies（批次 KK 恢复 console/companies 写路径时新增）
+	if tables != 163 {
 		t.Fatalf("tables=%d", tables)
 	}
 	data := c.ok("GET", "/api/v1/permissions?page_size=1000", nil).(map[string]any)

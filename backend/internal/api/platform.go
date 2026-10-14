@@ -29,7 +29,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"la-erp-recovered/backend/internal/database"
@@ -91,25 +90,34 @@ func (s *Server) registerPlatform() {
 	})))
 
 	// ---- 部署控制台：公司清单 ----
-	// 原版回放（api-contracts.json）：单公司部署返回 1 条，字段
+	// 原版回放（api-contracts.json / 批次 KK-28）：字段
 	// {id, code, name, status, is_default, db_path, db_size, loaded, created_at}。
-	// 多公司注册表（POST/PUT）属部署级能力，恢复端为单库部署，暂不恢复（501 由兜底处理器返回）。
+	// 批次 KK 恢复了 POST/PUT 写路径（见 gapKK_writes.go），故这里改为从
+	// `companies` 表读，而不是硬编码单条 —— 否则新建的公司不会出现在清单里。
 	s.mux.Handle("GET /api/v1/console/companies", s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		size := int64(0)
 		if stat, err := os.Stat(s.dbFilename); err == nil {
 			size = stat.Size()
 		}
-		respond(w, 200, []map[string]any{{
-			"id":         database.ZeroUUID,
-			"code":       "default",
-			"name":       "默认公司",
-			"status":     "active",
-			"is_default": true,
-			"db_path":    s.dbFilename,
-			"db_size":    size,
-			"loaded":     true,
-			"created_at": time.Now().UTC().Format(time.RFC3339),
-		}})
+		items := []map[string]any{}
+		rows, err := s.Store.Rows(r.Context(), "SELECT * FROM companies WHERE deleted_at IS NULL ORDER BY is_default DESC, created_at")
+		if err != nil {
+			s.failure(w, err, "公司")
+			return
+		}
+		for _, row := range rows {
+			item := s.Store.Public("companies", row)
+			// 默认公司指向当前库；新建公司没有独立 db_path。
+			if text(row, "db_path") == "" && text(row, "code") == "default" {
+				item["db_path"] = s.dbFilename
+			}
+			if text(row, "code") == "default" {
+				item["db_size"] = size
+				item["loaded"] = true
+			}
+			items = append(items, item)
+		}
+		respond(w, 200, items)
 	})))
 
 	// ---- 登录页公开公司信息（免认证）----
