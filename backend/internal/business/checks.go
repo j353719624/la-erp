@@ -46,6 +46,9 @@ func (s *Service) WriteCheck(ctx context.Context, id string, input map[string]an
 			header[k] = v
 		}
 		if value(input, "location_id") != "" {
+			// 批次 W（2026-10-14）：schema.sql 中 inventory_checks **确有** location_id 列
+			// （`location_id` uuid NULL），故本守卫的 Store.Has 必然命中 → **永不可达**，
+			// 属防御性断言。保留 ErrUnsupported 作兜底，不自造文案。
 			if !s.Store.Has("inventory_checks", "location_id") {
 				return ErrUnsupported
 			}

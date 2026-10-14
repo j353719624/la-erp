@@ -62,6 +62,9 @@ func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string
 			if value(input, k) == "" {
 				continue
 			}
+			// 批次 W（2026-10-14）：schema.sql 中 stock_transfers **确有**
+			// from_location_id / to_location_id 两列（均为 uuid NULL），
+			// 故本守卫的 Store.Has 必然命中 → **永不可达**，属防御性断言。
 			if !s.Store.Has("stock_transfers", k) {
 				return ErrUnsupported
 			}

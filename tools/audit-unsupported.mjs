@@ -64,6 +64,14 @@ const DB_UNIQUE_GUARDS = new Set([
   "service.go:balance",
 ]);
 
+// 批次 W（2026-10-14）：schema 中确有对应列，故 Store.Has 必然命中 → 永不可达。
+//   inventory_checks.location_id（uuid NULL）
+//   stock_transfers.from_location_id / to_location_id（uuid NULL）
+const DB_COLUMN_GUARDS = new Set([
+  "checks.go:WriteCheck",
+  "transfers.go:WriteTransfer",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -94,6 +102,10 @@ for (const f of files) {
     if (DB_UNIQUE_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
       if (tail.includes("len(rows) > 1")) unreachable = true;
+    }
+    if (DB_COLUMN_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
+      if (tail.includes("Store.Has")) unreachable = true;
     }
     rows.push({
       file: f,
