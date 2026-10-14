@@ -32,6 +32,35 @@ var ErrUnsupported = errors.New("该业务分支尚未恢复")
 // 行为产生表面冲突；但**绝不能复用「尚未恢复」的说法**，否则把终态决策
 // 混进待办存量，反复审计也推不动。
 var ErrOriginalDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
+
+// ErrOriginalNoMessage 表示「原版此处会失败但**不返回业务文案**」。
+//
+// 原版有若干路径返回裸 HTTP 400 / 500（既非 code:0 也非 10000，也没有 message），
+// 典型如：外协 material_lines 传非数组 → 400；product_id 指向不存在的商品 → 500
+// （原版未捕获的记录未找到，见 evidence/backend-runtime/audit-batch-e-20261014.json 的 EE8）。
+//
+// 这类场景**不能**用 ErrUnsupported：那个错误对外映射 HTTP 501，
+// 与原版的 400/500 不一致，会让前端错误处理分流错误。
+// 但也不能自造中文文案去「补齐」——原版确实没有文案。
+//
+// 故用本错误携带原版的**状态码**（0 表示沿用调用点的默认语义），
+// 由 API 层原样输出 status 而不给 message。
+type ErrOriginalNoMessage struct {
+	// Status 是原版的 HTTP 状态码（400 / 500）。
+	Status int
+	// Note 是内部说明，**不返回给客户端**，仅供日志与代码注释追溯。
+	Note string
+}
+
+func (e ErrOriginalNoMessage) Error() string {
+	if e.Note != "" {
+		return e.Note
+	}
+	return "原版该路径不返回业务文案"
+}
+
+// Status 返回原版状态码；0 表示调用方应沿用自身默认。
+func (e ErrOriginalNoMessage) StatusCode() int { return e.Status }
 var decimalSyntax = regexp.MustCompile(`^-?[0-9]{1,20}(\.[0-9]{1,12})?$`)
 
 type Service struct{ Store *database.Store }

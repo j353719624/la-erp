@@ -215,6 +215,12 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 				break
 			}
 			if state != "draft" && state != "confirmed" {
+				// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json）：
+				// 原版外协状态机实测只有 draft → confirmed → cancelled 三态
+				// （confirm/cancel 均 code:0，cancelled 可重复 cancel），
+				// 加上收货流程产生的 receiving / received，共 5 个取值。
+				// 本守卫只在这 5 个之外的状态（如历史脏数据）才触发 —— 属**防御性断言**，
+				// 原版无对应文案可取证，不自造，保留 ErrUnsupported 作兜底。
 				return ErrUnsupported
 			}
 			if value(row, "mode") == "with_material" {
@@ -509,25 +515,52 @@ func (s *Service) SubcontractMaterials(ctx context.Context, id string, inputs []
 }
 
 func (s *Service) replaceSubcontractMaterials(ctx context.Context, tx *sql.Tx, order, input map[string]any, creating bool) error {
-	rows, ok := input["material_lines"].([]any)
-	if !ok || len(rows) == 0 {
+	// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json
+	// + subcontract/contracts.json）：
+	//   material_lines **不传**        → 10000「带料外协必须至少指定一种发料材料」
+	//   material_lines 传**空数组**   → 10000 同上
+	//   material_lines 传**字符串/数字** → HTTP **400**「系统内部错误，请稍后重试或联系管理员」
+	//   material_lines 数组内**非对象** → HTTP 400 同上
+	// 即「缺失 / 空」走业务文案，「类型错」才走 400。
+	// 原实现把 `!ok || len(rows)==0` 合并判断，对字符串也回业务文案，与原版不符。
+	raw, present := input["material_lines"]
+	if !present {
+		return errors.New("带料外协必须至少指定一种发料材料")
+	}
+	rows, ok := raw.([]any)
+	if !ok {
+		return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+	}
+	if len(rows) == 0 {
 		return errors.New("带料外协必须至少指定一种发料材料")
 	}
 	seen := map[string]bool{}
 	prepared := []map[string]any{}
 	for i, raw := range rows {
 		line, ok := raw.(map[string]any)
-		// 原版回放 EE8（2026-10-14，audit-batch-e-20261014.json）：
-		// material_lines 传非数组 → HTTP 400；product_id 指向不存在的商品 → HTTP 500
-		// （原版未捕获的记录未找到），二者都**没有业务文案**（非 10000 非 200）。
-		// 恢复端 ErrUnsupported（501）的 HTTP 语义与之不同，故这两处不能算已对齐；
-		// 但也不能自造中文。保留 ErrUnsupported 并在此记录差异。
+		// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json）：
+		// 逐项核实原版的真实返回形态，比早期 EE8 记录更细：
+		//   material_lines 为字符串 / 数字 / 数组内非对象
+		//     → HTTP **400** + 「系统内部错误，请稍后重试或联系管理员」（原版结构体绑定失败）
+		//   product_id 为空字符串
+		//     → HTTP **400** + 「参数错误: invalid UUID length: 0」（原版 UUID 解析错误）
+		//   material_lines=[{}] 或不传 material_lines
+		//     → 先被「外协数量必须大于0」拦下（HTTP 200 + 10000），说明材料校验在数量校验**之后**
+		//   product_id 为格式合法但不存在的全零 UUID
+		//     → 同样先被数量校验拦下，未观察到 500
+		//
+		// 原实现对前三类返回 ErrUnsupported（映射 HTTP 501），与原版 400 不一致，
+		// 会让前端错误处理分流错误。改用 ErrOriginalNoMessage 携带原版状态码与**原文案**。
 		if !ok {
-			return ErrUnsupported
+			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		productID := value(line, "product_id")
+		if productID == "" {
+			// 原版对空 product_id 返回 UUID 解析错误（400），非本守卫的商品查找失败。
+			return ErrOriginalNoMessage{Status: 400, Note: "参数错误: invalid UUID length: 0"}
+		}
 		if _, err := s.Store.GetWith(ctx, tx, "products", productID); err != nil {
-			return ErrUnsupported
+			return ErrOriginalNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		// 原版 EE8：同一材料出现两行 → 10000「发料材料不能重复」，与恢复端一致。
 		if seen[productID] {

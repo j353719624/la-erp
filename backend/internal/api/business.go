@@ -22,6 +22,12 @@ func businessFailureLabeled(w http.ResponseWriter, err error, stock bool, label 
 		fail(w, 501, err.Error())
 		return
 	}
+	// 原版该路径返回裸状态码且**无业务文案** —— 原样输出 status，不自造 message。
+	var noMsg business.ErrOriginalNoMessage
+	if errors.As(err, &noMsg) && noMsg.StatusCode() != 0 {
+		fail(w, noMsg.StatusCode(), noMsg.Error())
+		return
+	}
 	// ErrOriginalDefect 是**终态决策**（已知原版缺陷、有意不对齐），不是待办存量。
 	// 对外同样 501，但文案不同，避免把已结案的决策混进「尚未恢复」里反复审计。
 	if errors.Is(err, business.ErrOriginalDefect) {
