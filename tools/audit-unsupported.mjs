@@ -104,6 +104,9 @@ for (const f of files) {
   const src = readFileSync(join(BIZ, f), "utf8");
   const lines = src.split("\n");
   lines.forEach((raw, i) => {
+    // 跳过注释行：注释里常引用 `return ErrUnsupported`（描述已移除的守卫），
+    // 若不排除会被误报成实际存在的守卫 —— 批次 Y 后台账出现行号漂移即源于此。
+    if (/^\s*\/\//.test(raw)) return;
     const isUnsupported = /return\s+(nil,\s*)?ErrUnsupported/.test(raw);
     const isDefect = /return\s+(nil,\s*)?ErrOriginalDefect/.test(raw);
     if (!isUnsupported && !isDefect) return;

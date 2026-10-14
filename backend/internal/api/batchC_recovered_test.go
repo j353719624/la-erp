@@ -111,7 +111,11 @@ func TestRecoveredLinkedRoutingCannotBeEdited(t *testing.T) {
 	}
 }
 
-// CC8：BOM 的 qty<=0 与 scrap_rate<0 保留恢复端拒绝（原版缺失该校验，属缺陷不对齐）。
+// CC8：BOM 的 qty<=0 保留恢复端拒绝；scrap_rate<0 已按批次 BB 改为**放行**。
+//
+// 依据：批次 T 实测 scrap_rate 是**百分数**，-0.1 只造成 0.1% 级偏差（需求 39.996 vs 40），
+// 危害需极端输入（≤ -100 才产生零/负需求）才成立，不足以作为拒绝理由。
+// 原版实测 scrap_rate=-0.5 的 BOM 建工单 code:0、材料需求 19.9（= 10×2×(1-0.005)）。
 func TestRecoveredBomRejectsNonPositiveQuantityAndNegativeScrap(t *testing.T) {
 	c, product, _, _ := recoveredFixture(t, "CC-BOM")
 	for _, tc := range []struct {
@@ -120,7 +124,6 @@ func TestRecoveredBomRejectsNonPositiveQuantityAndNegativeScrap(t *testing.T) {
 	}{
 		{"qty_zero", map[string]any{"product_id": product["id"], "qty": 0}},
 		{"qty_negative", map[string]any{"product_id": product["id"], "qty": -1}},
-		{"scrap_negative", map[string]any{"product_id": product["id"], "qty": 1, "scrap_rate": -0.1}},
 	} {
 		if _, body := c.request("POST", "/api/v1/boms", map[string]any{
 			"name": "CC-BOM-" + tc.name, "product_id": product["id"], "items": []any{tc.item},
@@ -128,6 +131,11 @@ func TestRecoveredBomRejectsNonPositiveQuantityAndNegativeScrap(t *testing.T) {
 			t.Fatalf("%s accepted", tc.name)
 		}
 	}
+	// scrap_rate<0 必须放行（与原版一致）。
+	c.ok("POST", "/api/v1/boms", map[string]any{
+		"name": "CC-BOM-scrap_negative", "product_id": product["id"],
+		"items": []any{map[string]any{"product_id": product["id"], "qty": 1, "scrap_rate": -0.1}},
+	})
 	ok := c.ok("POST", "/api/v1/boms", map[string]any{
 		"name": "CC-BOM-OK", "product_id": product["id"], "items": []any{map[string]any{"product_id": product["id"], "qty": 2}},
 	}).(map[string]any)

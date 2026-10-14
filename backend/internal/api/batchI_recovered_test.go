@@ -134,15 +134,18 @@ func TestRecoveredSubcontractStateGuards(t *testing.T) {
 	}
 }
 
-// II6：负损耗率 BOM 在恢复端保持拒绝（原版缺失该校验，属缺陷不对齐）。
-func TestRecoveredMrpRejectsNegativeScrap(t *testing.T) {
+// II6：负损耗率 BOM —— 已按批次 BB 改为**放行**（与原版一致）。
+//
+// 原断言依据「scrap_rate<0 会放大需求量」，但批次 T 实测证明：
+// scrap_rate 是**百分数**，-0.1 只造成 0.1% 级偏差（需求 39.996 vs 40），
+// 危害需极端输入（≤ -100 才产生零/负需求）才触发，不足以作为拒绝理由。
+// 批次 BB 实测原版 scrap_rate=-0.5 的 BOM 建工单 code:0、需求 19.9。
+func TestRecoveredMrpAcceptsNegativeScrap(t *testing.T) {
 	c, product, _, _ := recoveredFixture(t, "II-SCRAP")
-	if _, body := c.request("POST", "/api/v1/boms", map[string]any{
+	c.ok("POST", "/api/v1/boms", map[string]any{
 		"name": "II 负损耗", "product_id": product["id"],
 		"items": []any{map[string]any{"product_id": product["id"], "qty": 4, "scrap_rate": -0.1}},
-	}); body["code"] == float64(0) {
-		t.Fatalf("negative scrap accepted, recovered side must keep rejecting it: %#v", body)
-	}
+	})
 	// MRP 端点本身可用（GET /mrp/requirements 返回 code:0 即视为健康）。
 	if _, body := c.request("GET", "/api/v1/mrp/requirements?page_size=3", nil); body["code"] != float64(0) {
 		t.Fatalf("MRP requirements endpoint broken: %#v", body)

@@ -108,23 +108,21 @@ func TestRecoveredCostAdjustmentAcceptsQuantity(t *testing.T) {
 	}
 }
 
-// 守卫分类：负损耗率属「有意不对齐原版缺陷」，不得再标为「尚未恢复」。
-func TestRecoveredNegativeScrapIsMarkedAsOriginalDefect(t *testing.T) {
+// 批次 BB：负损耗率已改为**与原版一致地放行**，不再需要 ErrOriginalDefect 标记。
+//
+// 原断言（负损耗率必须被拒、且标为「有意不对齐原版缺陷」）依据的是「scrap_rate<0
+// 会放大需求量」，但批次 T 实测证明 scrap_rate 是**百分数**：-0.1 只造成 0.1% 级偏差。
+// 该前提被推翻后，把一个小幅无害的偏差标成「原版缺陷」是过度反应 ——
+// 恢复端现已与原版行为一致（放行）。
+//
+// 仍然保留 ErrOriginalDefect 的是 **qty <= 0**（原版放行但会让组件需求恒为 0 或为负，
+// 属可被正常输入触发的实质缺陷），见 batchC_recovered_test.go 的 CC8。
+func TestRecoveredNegativeScrapIsAcceptedLikeOriginal(t *testing.T) {
 	c, product, _, _ := recoveredFixture(t, "KK-DEFECT")
-	_, body := c.request("POST", "/api/v1/boms", map[string]any{
+	c.ok("POST", "/api/v1/boms", map[string]any{
 		"name": "KK 负损耗", "product_id": product["id"],
 		"items": []any{map[string]any{"product_id": product["id"], "qty": 4, "scrap_rate": -0.1}},
 	})
-	if body["code"] == float64(0) {
-		t.Fatal("negative scrap rate must stay rejected (it inflates demand)")
-	}
-	msg := fmtMessage(body)
-	if strings.Contains(msg, "尚未恢复") {
-		t.Fatalf("negative scrap must be reported as an intentional divergence, not as unrecovered: %#v", msg)
-	}
-	if !strings.Contains(msg, "原版") {
-		t.Fatalf("message should explain the divergence: %#v", msg)
-	}
 }
 
 func parseFloat(s string) (float64, error) {

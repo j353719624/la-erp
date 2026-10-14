@@ -65,6 +65,15 @@ func (s *Service) WriteRework(ctx context.Context, id string, input map[string]a
 			if state == "completed" || state == "cancelled" {
 				return fmt.Errorf("工单状态（%s）不允许新建领料/入库/退料单", state)
 			}
+			// 批次 BB 取证（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
+			// 原版返工单的工单状态白名单**完整覆盖全部 5 个状态**（抽样实测）：
+			//   draft / confirmed / in_progress               → code:0
+			//   completed / cancelled                         → 10000
+			//     「工单状态（X）不允许新建领料/入库/退料单」（X 为实际状态，逐字一致）
+			//   work_order_id 指向不存在的工单                → 10000「工单不存在」
+			// 即上方两处校验（completed/cancelled 拒绝 + 本白名单）与原版**逐字一致**。
+			// 本守卫只在这 5 个取值之外（如历史脏数据）才触发 → 属**防御性断言**，
+			// 无原版文案可对齐，不自造，保留 ErrUnsupported 作兜底。
 			if state != "draft" && state != "confirmed" && state != "in_progress" {
 				return ErrUnsupported
 			}

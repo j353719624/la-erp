@@ -189,10 +189,13 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 		// （P1 行消失，仅剩 P2/70）——即原版会按新 BOM 重建材料行。
 		// 原恢复端对「新 BOM 不含的旧材料」返回 ErrUnsupported，属误拒，已移除：
 		// 下方按 allowed 集合清理不再需要的材料行。
+		// 批次 BB 取证（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
+		// 原版**放行**负 scrap_rate 的 BOM 行：scrap_rate=-0.5 的 BOM 建工单 qty=10
+		// → code:0，材料需求 19.9（= 10 × 2 × (1-0.005)）。
+		// 批次 T 已测定 scrap_rate 是**百分数**：只有 ≤ -100 才产生零/负需求，
+		// 小幅负值仅造成 0.5% 级偏差，危害极小，不足以拒绝。
+		// 原恢复端 return ErrUnsupported（501）属误拒，已移除。
 		for _, l := range items {
-			if readDecimal(l, "scrap_rate").IsNegative() {
-				return ErrUnsupported
-			}
 			var rows []map[string]any
 			if !creating {
 				rows, err = database.QueryRows(ctx, tx, "SELECT * FROM work_order_materials WHERE work_order_id=? AND product_id=? AND deleted_at IS NULL ORDER BY created_at", id, l["product_id"])
@@ -226,8 +229,13 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 				continue
 			}
 			if readDecimal(m, "qty_issued").IsPositive() {
-				// 已领用材料换 BOM 时原版的行为**未取证**（回放 EE6 只测了未领用场景）。
-				// 不自造中文，保留 ErrUnsupported。
+				// 批次 BB 取证（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
+				// 本守卫**永不可达** —— 两个前提互斥：
+				//   · 只有**草稿**工单能改 BOM（已 confirmed 的返回 10000「只有草稿状态的工单才能修改」）
+				//   · 只有**非草稿**工单能确认领料（草稿工单 confirm 返回 10000
+				//     「工单状态（draft）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料」）
+				// 即「草稿态」与「已领用（qty_issued>0）」不可能同时成立。
+				// 属防御性断言，保留 ErrUnsupported 作兜底，不自造文案。
 				return ErrUnsupported
 			}
 			// 必须用 UpdateWith 传入 tx：Store.Update 走 s.DB 会逃出当前事务。
