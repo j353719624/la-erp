@@ -160,15 +160,17 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 	// （P1/P2/P3 与 Q1-Q6 回放：批次商品可无批次出库，序列号商品受台账约束），
 	// 原先的整类拒绝属未经证据的错误拒绝，已移除。
 	//
-	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
-	// 原版**不存在 is_combo=true 的商品行** —— 传入 is_combo=true 或 1 均被静默忽略
-	// （回读 undefined，combo-products 列表总数恒为 0）；
-	// 而 product_type=combo 会**正常落库**，且该商品出入库完全正常（code:0 + confirm 通过）。
-	// 原实现按 is_combo 拒绝，但该字段在原版永远为假 → 守卫**永不可达**，属死代码，已移除。
+	// product_type=combo 会**正常落库**，且该商品出入库完全正常（code:0 + confirm 通过）。
 	//
-	// 注：原版的组合件功能挂在独立的 `/api/v1/combo-products` 端点族上
-	// （列表/详情/改行/删除/组装/拆卸/可用量），恢复端尚未恢复该端点族，
-	// 属**功能缺失**而非本守卫问题 —— 组合件功能恢复时应另立任务。
+	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
+	// 通用 products 通道下 is_combo 传入 true / 1 均被**静默忽略**（回读 undefined）。
+	//
+	// 批次 EE 补充取证（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）：
+	// 原版 `PUT /api/v1/combo-products/{id}` 会写入 is_combo=true —— 故 is_combo=true
+	// 的商品行**确实可达**，批次 R「永不可达 / 死代码」的**依据**已作废；
+	// 但补充回放证明：带 is_combo=true 的商品走库存调整单（建单 + confirm，含出库）
+	// 原版**一律放行**（code:0）。即该守卫即便可达，原版本就不按 is_combo 拒绝单据，
+	// 结论不变：**已移除的守卫无需恢复**，此处仅更正注释依据。
 	return p, nil
 }
 

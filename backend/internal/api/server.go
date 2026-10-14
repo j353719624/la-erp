@@ -132,6 +132,7 @@ func New(store *database.Store, secret string) *Server {
 	s.registerReports()
 	s.registerTransfers()
 	s.registerAdjustments()
+	s.registerCombos()
 	s.registerChecks()
 	s.registerUnitConversions()
 	s.registerStockPhotos()
@@ -1749,11 +1750,15 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 
 // originalIgnoredFields 是原版**静默忽略、不落库**的字段（批次 R 取证）。
 //
-// products.is_combo：原版传入 true 或 1 均被忽略（回读 undefined/false），
-// combo-products 列表总数恒为 0 —— 即原版从不产生 is_combo=true 的商品行，
-// 组合件走独立的 /api/v1/combo-products 端点族（尚未恢复）。
-// 恢复端若无条件写列会产出原版不存在的行，进而让 plainProduct 的守卫误判，
-// 故按原版语义在此过滤。
+// products.is_combo：通用 products 通道下，原版对请求体里的 is_combo（true / 1）
+// 一律**静默忽略**（回读 undefined），故恢复端同样过滤，避免写出原版不存在的行。
+//
+// 注：批次 R 曾据此判定「原版不存在 is_combo=true 的商品行」——该结论**只对通用通道成立**。
+// 批次 EE 补充回放（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）：
+// `PUT /api/v1/combo-products/{id}` 会把 is_combo 置为 true，故该商品行**确实可达**；
+// 但带 is_combo=true 的商品走库存调整单（建单 + confirm，含出库）原版一律放行，
+// 因此 plainProduct 处按 is_combo 拒绝单据的守卫依旧应当删除（结论不变，依据已更正）。
+// is_combo 的写入口只有 registerCombos 端点族，不走本过滤。
 var originalIgnoredFields = map[string]map[string]bool{
 	"products": {"is_combo": true},
 }

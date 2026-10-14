@@ -288,7 +288,9 @@ func TestOriginalCollectionContracts(t *testing.T) {
 	if err = json.Unmarshal(raw, &contracts); err != nil {
 		t.Fatal(err)
 	}
-	ignored := map[string]bool{"/api/v1/combo-products": true, "/api/v1/portal/admin/orders": true, "/api/v1/portal/admin/customers": true, "/api/v1/work-order-processes/pending": true}
+	// 批次 EE（2026-10-14）：/api/v1/combo-products 端点族已恢复，解除忽略。
+	// 原版契约为空列表（total=0 / list=[]），恢复端同形态，纳入比对。
+	ignored := map[string]bool{"/api/v1/portal/admin/orders": true, "/api/v1/portal/admin/customers": true, "/api/v1/work-order-processes/pending": true}
 	checked := 0
 	for _, original := range contracts {
 		expected, ok := original.Body["data"].(map[string]any)
@@ -322,7 +324,8 @@ func TestOriginalCollectionContracts(t *testing.T) {
 		})
 		checked++
 	}
-	if checked != 81 {
+	// 81 → 82：批次 EE 恢复 /api/v1/combo-products 后，原版该契约（空列表）纳入比对。
+	if checked != 82 {
 		t.Fatalf("checked original collection contracts=%d", checked)
 	}
 }
