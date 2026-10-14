@@ -85,6 +85,49 @@ async function probe(base, path) {
   return sawMissing ? "missing" : "absent";
 }
 
+// ---------- 带凭据的逐方法探测（批次 KK 用）----------
+//
+// 只看「路由在不在」不够：同一路径在两端的**失败形态**可能不同，
+// 而这正是契约差异。批次 KK 实测（2026-10-15）：
+//
+//	原版   POST /work-orders/{id}/confirm  → 200 code:10000「工单不存在」
+//	恢复端 POST /work-orders/{id}/confirm  → 404「记录不存在」
+//
+// 两端路由都在（探针都判 exists），但**对不存在记录的行为不一致**。
+// 故对「两端都判 exists」的路径追加一次带 token 的逐方法比对，
+// 把「存在但语义不同」这类差异也纳入报告。
+//
+// 另一个盲区在探针方法集合上：原版 Gin 对 POST-only 路由的 GET 直接回
+// 404「路由不存在」（不是 405），所以只发 GET 会误判「不存在」；
+// 但反过来，恢复端若用 `{id}` 通配兜住了路径，POST 会返回业务 404，
+// 同样会被误判成「存在」。两边都需要逐方法比对才能定性。
+const METHODS = ["GET", "POST", "PUT", "DELETE"];
+async function probeDetailed(base, path, token) {
+  const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : {};
+  const out = {};
+  for (const method of METHODS) {
+    try {
+      const res = await fetch(base + path, { method, headers, body: method === "GET" || method === "DELETE" ? undefined : "{}" });
+      const body = await res.text();
+      let kind;
+      if (res.status === 404 && /路由不存在/.test(body)) kind = "absent";
+      else if (res.status === 501 || /尚未恢复/.test(body)) kind = "unrecovered";
+      else if (res.status === 401) kind = "registered";
+      else if (res.status === 405) kind = "method-mismatch";
+      else {
+        try {
+          const parsed = JSON.parse(body);
+          kind = `http${res.status}/code${parsed.code}`;
+        } catch { kind = `http${res.status}`; }
+      }
+      out[method] = kind;
+    } catch {
+      out[method] = "error";
+    }
+  }
+  return out;
+}
+
 // ---------- 两处误判的修正 ----------
 // (1) 无 token 探测时，恢复端的受保护路由一律回 401（=「已注册」），因此无法区分
 //     「真注册了」与「注册了但内容就是 404 路由不存在」。批次 HH 后恢复端有 9 条
@@ -94,15 +137,24 @@ async function probe(base, path) {
 //     判为缺失。这类已用带凭据回放逐条确认过，见 verifiedOnOriginal。
 const RECOVERED_PASS = process.env.ERP_PASSWORD;
 let recoveredToken = "";
+let originalToken = "";
 if (RECOVERED_PASS) {
-  try {
-    const r = await fetch(`${RECOVERED}/api/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "admin", password: RECOVERED_PASS }),
-    });
-    recoveredToken = (await r.json())?.data?.access_token ?? "";
-  } catch { /* 拿不到 token 就退回无 token 口径 */ }
+  const login = async (base) => {
+    try {
+      const r = await fetch(`${base}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: RECOVERED_PASS }),
+      });
+      return (await r.json())?.data?.access_token ?? "";
+    } catch { return ""; }
+  };
+  // 原版也登录：批次 KK 要比对「存在但语义不同」，无 token 只能看到 401，看不出差异。
+  originalToken = await login(ORIG);
+  recoveredToken = await login(RECOVERED);
+  if (!originalToken || !recoveredToken) {
+    console.error("带凭据复探需要两端都能登录（ERP_PASSWORD），已退回无 token 口径。");
+  }
 }
 
 async function probeAuthorized(base, path, token) {
@@ -134,12 +186,29 @@ for (const path of [...candidates].sort()) {
   if (orig !== "exists" && rec === "exists" && recoveredToken) {
     rec = await probeAuthorized(RECOVERED, path, recoveredToken);
   }
-  rows.push({ path, orig, recovered: rec });
+  const row = { path, orig, recovered: rec };
+  // 两端都判「存在」时，追加逐方法语义比对（批次 KK）。
+  // 只在「方法集合或失败形态不一致」时记录，避免报告被上百条一致项淹没。
+  if (orig === "exists" && rec === "exists" && originalToken && recoveredToken) {
+    const [o, r] = await Promise.all([
+      probeDetailed(ORIG, path, originalToken),
+      probeDetailed(RECOVERED, path, recoveredToken),
+    ]);
+    const diff = [];
+    for (const method of METHODS) {
+      // 恢复端 501「尚未恢复」视为缺失（原版没这个概念）
+      const recoverKind = r[method] === "unrecovered" ? "absent" : r[method];
+      if (o[method] !== recoverKind) diff.push(`${method}: 原版=${o[method]} 恢复端=${recoverKind}`);
+    }
+    if (diff.length) row.methodDiff = diff;
+  }
+  rows.push(row);
 }
 
 const gap = rows.filter((r) => r.orig === "exists" && r.recovered !== "exists");
 const recoveredOnly = rows.filter((r) => r.orig !== "exists" && r.recovered === "exists");
 const both = rows.filter((r) => r.orig === "exists" && r.recovered === "exists");
+const methodDiff = rows.filter((r) => r.methodDiff);
 
 const out = {
   generated: new Date().toISOString(),
@@ -149,12 +218,15 @@ const out = {
     bothExist: both.length,
     originalOnly: gap.length,
     recoveredOnly: recoveredOnly.length,
+    methodMismatch: methodDiff.length,
   },
   gap,
   recoveredOnly,
+  methodMismatch: methodDiff,
 };
 writeFileSync(join(ROOT, "evidence/backend-runtime/route-coverage.json"), JSON.stringify(out, null, 2));
 
-console.log(`候选路径 ${rows.length}｜两端都有 ${both.length}｜原版有恢复端无 ${gap.length}｜仅恢复端有 ${recoveredOnly.length}`);
+console.log(`候选路径 ${rows.length}｜两端都有 ${both.length}｜原版有恢复端无 ${gap.length}｜仅恢复端有 ${recoveredOnly.length}｜存在但方法/形态不一致 ${methodDiff.length}`);
 for (const g of gap) console.log("  ✗ " + g.path);
+for (const m of methodDiff) console.log(`  ≠ ${m.path}\n      ${m.methodDiff.join("\n      ")}`);
 for (const r of recoveredOnly) console.log("  + " + r.path + "（恢复端独有）");
