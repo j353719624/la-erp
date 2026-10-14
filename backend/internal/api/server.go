@@ -80,7 +80,13 @@ type Server struct {
 	mux             *http.ServeMux
 	uploadDirectory string
 	uploadMaxBytes  int64
+	// exportDirectory 导入导出文件的落盘目录（未配置时回落到系统临时目录）。
+	exportDirectory string
 	dbFilename      string
+	// machineCodeFn 机器码算法（由 cmd 注入：优先原版 Linux 机器标识，失败回落宿主名）。
+	machineCodeFn func() string
+	// licenseActivate 授权激活器（由 cmd 注入：校验签名并落盘，返回 {activated,file,message}）。
+	licenseActivate func(name string, content []byte) (map[string]any, error)
 }
 type claimsKey struct{}
 
@@ -151,6 +157,17 @@ func New(store *database.Store, secret string) *Server {
 	s.registerSubcontractMaterials()
 	s.registerInventoryPartnerActions()
 	s.registerLeadNotificationActions()
+	s.registerPlatform()
+	s.registerMetadata()
+	s.registerNumbering()
+	s.registerVoucherTemplates()
+	s.registerPrintTemplates()
+	s.registerCommissions()
+	s.registerDashboardStream()
+	s.registerDocumentActions()
+	s.registerSimpleDocuments()
+	s.registerSpuActions()
+	s.registerImportExport()
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 501, "该业务接口尚未恢复："+r.Method+" "+r.URL.Path)
 	})

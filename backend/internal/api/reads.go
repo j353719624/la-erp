@@ -86,7 +86,9 @@ func (s *Server) registerRecoveredReads() {
 		if item.Route != "bank/statements" && item.Route != "serial-numbers" {
 			s.mux.Handle("GET /api/v1/"+item.Route, s.protected(res.Permission, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
 		}
-		if s.Store.Has(res.Table, "id") && item.Route != "mrp/requirements" && item.Route != "purchase-suggestions" && item.Route != "serial-numbers" && item.Route != "mps-plans" {
+		// metadata/entities/{id} 由 metadata.go 自行注册：原版对不存在的 id 返回
+		// HTTP 500 + 通用文案（回放 GG15），与通用读资源的 404「记录不存在」不同。
+		if s.Store.Has(res.Table, "id") && item.Route != "mrp/requirements" && item.Route != "purchase-suggestions" && item.Route != "serial-numbers" && item.Route != "mps-plans" && item.Route != "metadata/entities" {
 			s.mux.Handle("GET /api/v1/"+item.Route+"/{id}", s.protected(res.Permission, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.get(w, r, res) })))
 		}
 	}

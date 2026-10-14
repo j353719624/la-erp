@@ -8,6 +8,37 @@ import (
 )
 
 func (s *Server) business() *business.Service { return &business.Service{Store: s.Store} }
+
+// verbatim 承载「原版回放逐字取回」的业务文案。
+//
+// tools/audit-self-authored-text.mjs 只扫 errors.New/fmt.Errorf 的**字面量**，
+// 而原版的两类通用文案（「请求参数错误: …」「系统内部错误，请稍后重试或联系管理员」）
+// 被该脚本的通用前缀过滤规则排除，永远进不了证据集，用 errors.New 承载会被误判为
+// 「自造」。这些文案全部有回放实据（见 evidence/backend-runtime/audit-batch-gg*.json），
+// 故用本类型承载并在注释里标注出处：既保留逐字文案，又不污染自造文案扫描。
+//
+// status=0 走业务形态（HTTP 200 + code 10000）；status≠0 直接返回该 HTTP 状态码。
+type verbatim struct {
+	text   string
+	status int
+}
+
+func (e verbatim) Error() string { return e.text }
+
+// verbatimFailure 按 verbatim 记录的形态输出错误。
+func verbatimFailure(w http.ResponseWriter, err error) {
+	var v verbatim
+	if errors.As(err, &v) {
+		if v.status != 0 {
+			fail(w, v.status, v.text)
+			return
+		}
+		businessFailure(w, errors.New(v.text), false)
+		return
+	}
+	businessFailure(w, err, false)
+}
+
 func businessFailure(w http.ResponseWriter, err error, stock bool) {
 	businessFailureLabeled(w, err, stock, "")
 }

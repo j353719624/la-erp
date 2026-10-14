@@ -191,7 +191,9 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 // 属系统性误拒。已移除守卫：表有列则落库，表无列则按原版忽略。
 func (s *Service) advancedHeaderFields(table string, input map[string]any) (map[string]any, error) {
 	out := map[string]any{}
-	for _, k := range []string{"location_id", "rack_id", "batch_no", "serial_nos", "production_date", "expiry_date", "sales_contract_id", "contract_id"} {
+	// salesperson_id：sales_orders / sales_quotations 均有该列，销售佣金按业务员汇总
+	// 依赖它落库（批次 FF，2026-10-14）；其它单据表无此列 → 同样静默忽略。
+	for _, k := range []string{"location_id", "rack_id", "batch_no", "serial_nos", "production_date", "expiry_date", "sales_contract_id", "contract_id", "salesperson_id"} {
 		if list, ok := input[k].([]any); ok && len(list) == 0 {
 			continue
 		}

@@ -176,7 +176,9 @@ func (s *Store) List(ctx context.Context, table string, q url.Values) ([]map[str
 	if s.Has(table, "deleted_at") {
 		clauses = append(clauses, "deleted_at IS NULL")
 	}
-	for _, field := range []string{"status", "entity_code", "type_code", "parent_id", "category_id", "category", "shift", "warehouse_id", "department_id", "product_type", "type", "module", "created_by", "location_id", "product_id", "applicable_product_id"} {
+	// period：佣金结算单/税金计提等按「期间」归档的单据需要按 period 精确过滤
+	// （GET /sales-commissions/settlements?period=2026-10 走通用列表资源）。
+	for _, field := range []string{"status", "entity_code", "type_code", "parent_id", "category_id", "category", "shift", "warehouse_id", "department_id", "product_type", "type", "module", "created_by", "location_id", "product_id", "applicable_product_id", "period"} {
 		if value := q.Get(field); value != "" && s.Has(table, field) {
 			clauses = append(clauses, Quote(field)+"=?")
 			args = append(args, value)

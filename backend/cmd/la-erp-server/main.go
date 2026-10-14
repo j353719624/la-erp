@@ -245,6 +245,47 @@ func run() error {
 	if err = app.ConfigureUploads(cfg.Upload.Path, cfg.Upload.MaxSize); err != nil {
 		return err
 	}
+	// 导入导出文件与数据库同目录存放（data/exports）。
+	if err = app.ConfigureExports(filepath.Join(filepath.Dir(cfg.Database.DSN), "exports")); err != nil {
+		return err
+	}
+	// 机器码取原版算法（Linux 机器标识 sha256），激活器写授权文件并校验签名。
+	app.ConfigureLicense(func() string {
+		machine, err := license.MachineID("/")
+		if err != nil || machine == "" {
+			return ""
+		}
+		return machine
+	}, func(name string, content []byte) (map[string]any, error) {
+		var record license.File
+		// 原版该路径的错误文案未取证，故不自造中文：直接回传解析器的原始错误。
+		if err := json.Unmarshal(content, &record); err != nil {
+			return nil, err
+		}
+		machine, err := license.MachineID("/")
+		if err != nil {
+			return nil, err
+		}
+		public := license.OriginalPublicKey
+		if cfg.License.PublicKey != "" {
+			raw, err := os.ReadFile(cfg.License.PublicKey)
+			if err != nil {
+				return nil, err
+			}
+			public = strings.TrimSpace(string(raw))
+		}
+		if err := license.Verify(record, public, machine, "pro", time.Now()); err != nil {
+			return nil, err
+		}
+		target := cfg.License.File
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(target, content, 0o600); err != nil {
+			return nil, err
+		}
+		return map[string]any{"activated": true, "file": target, "message": "授权已激活"}, nil
+	})
 	if cfg.JWT.AccessTTL > 0 {
 		app.Auth.AccessTTL = time.Duration(cfg.JWT.AccessTTL) * time.Second
 	}
