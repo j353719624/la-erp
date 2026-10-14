@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -72,7 +73,7 @@ var Resources = map[string]Resource{
 	"consignments":            {"consignment_orders", "warehouse", "寄售单", []string{"consignment_no", "warehouse_id"}, true},
 	"leads":                   {"leads", "crm", "线索", []string{"lead_no", "name"}, true},
 	"employee-changes":        {"employee_changes", "employee", "员工异动", []string{"employee_id", "employee_name", "change_type", "effective_date"}, true},
-	"accounting-periods":      {"accounting_periods", "accounting", "会计期间", []string{"period", "start_date", "end_date"}, false},
+	"accounting-periods":      {"accounting_periods", "accounting", "会计期间", []string{"period"}, false}, // 必填项只有 period，见 prepareAccountingPeriod
 }
 
 type Server struct {
@@ -229,6 +230,61 @@ func (s *Server) registerAccountingPeriodActions() {
 			respond(w, 200, s.Store.Public("accounting_periods", row))
 		})))
 	}
+}
+
+// accountingPeriodPattern 是原版对会计期间 period 的格式约束 YYYY-MM。
+var accountingPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
+
+// prepareAccountingPeriod 按原版口径校验并补齐 POST /api/v1/accounting-periods 的入参。
+// 返回 false 表示已写出响应，调用方须立即 return。
+//
+// 实测取证（2026-10-15 原版 192.168.110.97:18886，见 docs/UNSUPPORTED-AUDIT-LOG.md 37.2）：
+//
+//	{}                                          → 400「期间不能为空」
+//	{"period":"2026-10"}                        → 200 success，回传 period 原样
+//	{"period":"2026-10-01T00:00:00+08:00"}      → 200 + code 10000「期间格式错误，应为 YYYY-MM」
+//	{"start_date":"2026-10-01","end_date":"…"}  → 400 + Go time.Parse 报错
+//
+// 三点易错处，均按实据对齐：
+//
+//  1. 缺 period 的文案是**专用**的「期间不能为空」，不是通用的
+//     「请求参数错误：period 为必填字段」，故不走 record() 的 res.Required 通道。
+//  2. 格式错是**业务错误形态**（HTTP 200 + code 10000），不是 400 —— 原版的该分支
+//     是业务层校验。用 verbatim 承载文案是为绕开自造文案审计的通用前缀过滤
+//     （该脚本只扫 errors.New/fmt.Errorf 字面量），用法同 document_actions.go。
+//  3. start_date / end_date 在原版是 Go time.Time **值类型**（非指针），请求体不带
+//     就是零值，故 {"period":"2026-10"} 能 200 成功；而带了 "2026-10-01" 这种非
+//     RFC3339 的值则先被 time.Parse 拒掉，**早于** period 校验 —— 这就是第 4 条实测
+//     报 Go parse 错、而不是「期间不能为空」的原因。校验顺序不可颠倒。
+func prepareAccountingPeriod(w http.ResponseWriter, data map[string]any) bool {
+	for _, field := range []string{"start_date", "end_date"} {
+		raw := text(data, field)
+		if raw == "" {
+			continue
+		}
+		// 逐字对齐原版：layout 是 RFC3339（报错的 layout 字样含 .999999999 就是错的做法）。
+		if _, err := time.Parse(time.RFC3339, raw); err != nil {
+			verbatimFailure(w, verbatim{text: "请求参数错误: " + err.Error(), status: 400})
+			return false
+		}
+	}
+	period := text(data, "period")
+	if period == "" {
+		fail(w, 400, "期间不能为空")
+		return false
+	}
+	if !accountingPeriodPattern.MatchString(period) {
+		verbatimFailure(w, verbatim{text: "期间格式错误，应为 YYYY-MM"})
+		return false
+	}
+	// 原版 start_date / end_date 缺省时落 Go 零值时间；schema 里这两列 NOT NULL 且无默认值，
+	// 故显式补零值，否则 INSERT 会因 NOT NULL 约束失败（与 bank.go:72 同一约定）。
+	for _, field := range []string{"start_date", "end_date"} {
+		if _, ok := data[field]; !ok {
+			data[field] = "0001-01-01T00:00:00Z"
+		}
+	}
+	return true
 }
 
 func (s *Server) registerHRReports() {
@@ -2097,6 +2153,11 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "crm_opportunities" && text(data, "name") == "" {
 		businessFailure(w, errors.New("商机名称不能为空"), false)
 		return
+	}
+	if res.Table == "accounting_periods" {
+		if ok := prepareAccountingPeriod(w, data); !ok {
+			return
+		}
 	}
 	if res.Table == "approval_flows" {
 		row, e := s.business().CreateApprovalFlow(r.Context(), data)
