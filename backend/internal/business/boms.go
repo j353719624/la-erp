@@ -123,9 +123,20 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 				return err
 			}
 			// 原版回放 CC8/CC8b（2026-10-14）：qty_per=0、qty_per=-1、scrap_rate=-0.1
-			// 三者原版全部 code:0 且原样落库。属原版校验缺失——qty_per=0 会让该组件
-			// 需求恒为 0、qty_per=-1 会产生负需求，scrap_rate<0 会**放大**需求量。
-			// 按「不复制未证实的错误行为」原则，恢复端保留拒绝，不对齐该缺陷。
+			// 三者原版全部 code:0 且原样落库（qty_per 另被归一为 1，见下）。
+			//
+			// 批次 T 复测（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）
+			// 纠正了早期对 scrap_rate 幅度的误解：**scrap_rate 是百分数**，
+			// 计算式为 `需求 = 工单qty / qty_per × 材料qty × (1 + scrap_rate/100)`。
+			// 实测（工单 qty=10、材料 qty=4、qty_per=1，基准 40）：
+			//   scrap_rate=0     → 40      scrap_rate=100  → 80（翻倍）
+			//   scrap_rate=-0.1  → 39.996  scrap_rate=-0.5  → 39.8
+			//   scrap_rate=-100  → 0       scrap_rate=-1000 → **-360（负需求）**
+			// 即小幅负值（如 -0.1）只造成 0.1% 级偏差，**危害极小**；
+			// 但极端负值（≤ -100）会产生零/负需求，属原版校验缺失。
+			// 恢复端保留拒绝（不复制该缺陷），且不改用 ErrOriginalDefect ——
+			// 后者暗示「原版行为已确认有害且终态决策」，而本例的危害需极端输入才触发，
+			// 保留 ErrOriginalDefect 仅作为标记，最终判定见台账 18.x。
 			if !qty.IsPositive() || scrap.IsNegative() {
 				return ErrOriginalDefect
 			}

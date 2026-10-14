@@ -17,11 +17,18 @@ func (s *Service) confirmProductionReceipt(ctx context.Context, d ProductionDocu
 		if value(h, "status") != "draft" {
 			return errors.New("只有草稿状态的单据才能确认")
 		}
-		order, err := s.Store.GetWith(ctx, tx, "work_orders", value(h, "work_order_id"))
-		if err != nil {
-			return err
+		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
+		// 原版允许**不关联工单**的完工入库单，且 confirm **直接通过**（不看任何设置）。
+		// 无工单时无「工单状态 / 完工数量 / 超量」可比对，整段工单联动跳过。
+		// 空 work_order_id 不能直接查库（返回 ErrNotFound → 404），必须显式跳过。
+		var order map[string]any
+		if woID := value(h, "work_order_id"); woID != "" {
+			if order, err = s.Store.GetWith(ctx, tx, "work_orders", woID); err != nil {
+				return err
+			}
 		}
-		if value(order, "status") != "in_progress" && value(order, "status") != "confirmed" {
+		if order != nil && value(order, "status") != "in_progress" && value(order, "status") != "confirmed" {
+			// 原版仅在**关联了工单**时才校验工单状态；无工单直接放行。
 			return ErrUnsupported
 		}
 		lines, err := database.QueryRows(ctx, tx, "SELECT * FROM production_receipt_lines WHERE receipt_id=? AND deleted_at IS NULL ORDER BY line_no", id)
@@ -31,18 +38,21 @@ func (s *Service) confirmProductionReceipt(ctx context.Context, d ProductionDocu
 		if len(lines) == 0 {
 			return errors.New("入库明细不能为空")
 		}
-		qty := readDecimal(h, "total_qty")
-		ordered := readDecimal(order, "qty")
-		rows, err := database.QueryRows(ctx, tx, "SELECT total_qty FROM production_receipts WHERE work_order_id=? AND status='confirmed' AND deleted_at IS NULL", order["id"])
-		if err != nil {
-			return err
-		}
-		received := readDecimal(map[string]any{"n": "0"}, "n")
-		for _, r := range rows {
-			received = received.Add(readDecimal(r, "total_qty"))
-		}
-		if received.Add(qty).GreaterThan(ordered) {
-			return fmt.Errorf("生产入库超量：工单 %s 完工数量 %s，已入库 %s，本次 %s，合计不能超过完工数量", value(order, "order_no"), ordered.StringFixed(2), received.StringFixed(2), qty.StringFixed(2))
+		// 批次 T：无工单时无「完工数量」可比对，超量校验整段跳过。
+		if order != nil {
+			total := readDecimal(h, "total_qty")
+			ordered := readDecimal(order, "qty")
+			rows, err := database.QueryRows(ctx, tx, "SELECT total_qty FROM production_receipts WHERE work_order_id=? AND status='confirmed' AND deleted_at IS NULL", order["id"])
+			if err != nil {
+				return err
+			}
+			received := readDecimal(map[string]any{"n": "0"}, "n")
+			for _, r := range rows {
+				received = received.Add(readDecimal(r, "total_qty"))
+			}
+			if received.Add(total).GreaterThan(ordered) {
+				return fmt.Errorf("生产入库超量：工单 %s 完工数量 %s，已入库 %s，本次 %s，合计不能超过完工数量", value(order, "order_no"), ordered.StringFixed(2), received.StringFixed(2), total.StringFixed(2))
+			}
 		}
 		for _, line := range lines {
 			if err := rejectAdvanced(line); err != nil {
@@ -53,8 +63,9 @@ func (s *Service) confirmProductionReceipt(ctx context.Context, d ProductionDocu
 			}
 			qty := readDecimal(line, "qty")
 			cost := readDecimal(line, "unit_cost")
-			if cost.IsZero() {
-				cost = readDecimal(order, "total_cost").DivRound(ordered, 6)
+			if cost.IsZero() && order != nil {
+				// 批次 T：无工单时无工单成本可分摊，保留传入的 0 成本。
+				cost = readDecimal(order, "total_cost").DivRound(readDecimal(order, "qty"), 6)
 			}
 			b, err := s.balance(ctx, tx, value(line, "product_id"), value(h, "warehouse_id"), true)
 			if err != nil {

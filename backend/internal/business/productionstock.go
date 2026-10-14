@@ -3,6 +3,7 @@ package business
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
@@ -72,28 +73,37 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 		if err := rejectAdvanced(header); err != nil {
 			return err
 		}
-		if value(input, "work_order_id") == "" {
-			// 原版未取证：不传 work_order_id 时的返回形态未观测过。
-			// 不自造中文，保留 ErrUnsupported。
-			return ErrUnsupported
+		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
+		// 生产领料单 / 入库单 / 退料单**不传 work_order_id 时原版三个端点全部 code:0
+		// 建单成功**。原恢复端返回 ErrUnsupported（501）属误拒，已移除 ——
+		// 「不关联工单的领退料」是常见场景（如车间临时补料），不应被拦。
+		// 注意：空 work_order_id 不能直接查库（会返回 ErrNotFound → 404），
+		// 必须显式跳过，让 order 为 nil 走「无工单」分支。
+		var order map[string]any
+		if woID := value(input, "work_order_id"); woID != "" {
+			var e error
+			if order, e = s.Store.GetWith(ctx, tx, "work_orders", woID); e != nil {
+				return e
+			}
 		}
-		order, err := s.Store.GetWith(ctx, tx, "work_orders", value(input, "work_order_id"))
-		if err != nil {
-			return err
-		}
-		state := value(order, "status")
-		if state == "completed" || state == "cancelled" {
-			return fmt.Errorf("工单状态（%s）不允许新建领料/入库/退料单", state)
+		if order != nil {
+			state := value(order, "status")
+			if state == "completed" || state == "cancelled" {
+				return fmt.Errorf("工单状态（%s）不允许新建领料/入库/退料单", state)
+			}
 		}
 		// 原版回放 EE1/EE2（2026-10-14）：草稿工单建领料单 code:0，直到 confirm 才报
 		// 10000「工单状态（draft）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料单」——
 		// 原版把状态校验放在**确认期**而非建单期。恢复端原先在建单期返回 501，
 		// 既提前又无语义；此处建单放行，由 ConfirmProductionDocument 给出原文案。
-		if value(input, "work_order_no") != "" && value(input, "work_order_no") != value(order, "order_no") {
-			return errors.New("工单编号不一致")
-		}
-		if value(input, "warehouse_id") != value(order, "warehouse_id") {
-			return errors.New("仓库与工单不一致")
+		// 批次 T：不关联工单时（order 为 nil）这两项一致性校验无从比对，跳过。
+		if order != nil {
+			if value(input, "work_order_no") != "" && value(input, "work_order_no") != value(order, "order_no") {
+				return errors.New("工单编号不一致")
+			}
+			if value(input, "warehouse_id") != value(order, "warehouse_id") {
+				return errors.New("仓库与工单不一致")
+			}
 		}
 		// 原版回放（2026-10-13，证据 evidence/backend-runtime/audit-workorder-return-reason-20261013.json）：
 		//   M1a 不传 reason / M1b reason="多余" / M1c reason="other" / M1d reason="excess"
@@ -110,7 +120,14 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			return err
 		}
 		id = value(h, "id")
-		h[d.Number], h["status"], h["work_order_id"], h["work_order_no"], h["warehouse_id"], h["created_by"] = no, "draft", order["id"], order["order_no"], order["warehouse_id"], user
+		// 批次 T：不传 work_order_id 时原版允许建单（order 为 nil），
+		// 此时工单相关列留空，仓库取请求里的 warehouse_id。
+		h[d.Number], h["status"], h["created_by"] = no, "draft", user
+		if order != nil {
+			h["work_order_id"], h["work_order_no"], h["warehouse_id"] = order["id"], order["order_no"], order["warehouse_id"]
+		} else {
+			h["warehouse_id"] = value(input, "warehouse_id")
+		}
 		if d.Kind == "return" {
 			h[d.Date] = now()
 		}
@@ -229,9 +246,28 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 		if value(h, "status") != "draft" {
 			return errors.New("只有草稿状态的单据才能确认")
 		}
-		order, err := s.Store.GetWith(ctx, tx, "work_orders", value(h, "work_order_id"))
+		// 批次 T：不传 work_order_id 的单据（order 为 nil）同样可确认 ——
+		// 原版允许无工单关联的领料/入库/退料，确认期同样不拦。
+		var order map[string]any
+		if woID := value(h, "work_order_id"); woID != "" {
+			if order, err = s.Store.GetWith(ctx, tx, "work_orders", woID); err != nil {
+				return err
+			}
+		}
+		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
+		// **无工单**的单据 confirm 分两种情况（逐端点实测）：
+		//   入库单（receipt）→ code:0 直接确认通过，不看设置
+		//   领料单（picking）→ 读生产设置 production_settings.allow_no_workorder_pick：
+		//       关闭时 10000「未关联工单的领料未开启，请在【生产设置】中开启“允许直接领料（不关联工单）”」
+		//       开启后 code:0，状态 confirmed（已实测开关生效）
+		// 即设置开关**只管确认期**，建单期一律放行（见 CreateProductionDocument）。
+		lines, err := database.QueryRows(ctx, tx, "SELECT * FROM "+database.Quote(d.Lines)+" WHERE "+database.Quote(d.FK)+"=? AND deleted_at IS NULL ORDER BY line_no", id)
 		if err != nil {
 			return err
+		}
+		// 批次 T：无工单单据的确认分流（详见本分支下方注释）。
+		if order == nil {
+			return s.confirmUnlinkedProductionDocument(ctx, tx, d, h, lines)
 		}
 		if value(order, "status") != "in_progress" {
 			// 原版回放 EE2（2026-10-14，audit-batch-e-20261014.json）：
@@ -239,10 +275,6 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			// 「工单状态（draft）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料」
 			// ——注意结尾无「单」字，已按证据逐字对齐。恢复端原先返回 501。
 			return fmt.Errorf("工单状态（%s）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料", value(order, "status"))
-		}
-		lines, err := database.QueryRows(ctx, tx, "SELECT * FROM "+database.Quote(d.Lines)+" WHERE "+database.Quote(d.FK)+"=? AND deleted_at IS NULL ORDER BY line_no", id)
-		if err != nil {
-			return err
 		}
 		delta := decimal.Zero
 		for _, l := range lines {
@@ -336,4 +368,100 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 		return nil, err
 	}
 	return s.GetProductionDocument(ctx, d, id)
+}
+
+// productionSettingsInTx 在事务内读生产设置（避免确认期另开事务）。
+func (s *Service) productionSettingsInTx(ctx context.Context, tx *sql.Tx) (map[string]any, error) {
+	settings := cloneSettings()
+	rows, err := database.QueryRows(ctx, tx, "SELECT value FROM system_settings WHERE key=?", "production_settings")
+	if err != nil {
+		return settings, err
+	}
+	if len(rows) == 0 {
+		return settings, nil
+	}
+	var saved map[string]any
+	if err := json.Unmarshal([]byte(value(rows[0], "value")), &saved); err != nil {
+		return nil, err
+	}
+	for key, v := range saved {
+		if _, ok := settings[key]; ok {
+			settings[key] = v
+		}
+	}
+	return settings, nil
+}
+
+// confirmUnlinkedProductionDocument 确认**不关联工单**的生产单据。
+//
+// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
+// 原版允许建不关联工单的领料/入库/退料单，三个端点建单期一律 code:0。
+// 确认期按类型分流（逐端点实测）：
+//
+//	入库单（receipt）→ code:0 直接确认通过，**不看设置**
+//	领料单（picking）→ 读 production_settings.allow_no_workorder_pick：
+//	    关闭 → 10000「未关联工单的领料未开启，请在【生产设置】中开启“允许直接领料（不关联工单）”」
+//	    开启 → code:0，状态 confirmed（开关生效已实测）
+//
+// 无工单时不做工单材料联动（无 material 行可回写），只做库存变动 + 台账 + 状态更新。
+func (s *Service) confirmUnlinkedProductionDocument(ctx context.Context, tx *sql.Tx, d ProductionDocument, h map[string]any, lines []map[string]any) error {
+	if d.Kind == "picking" {
+		settings, err := s.productionSettingsInTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if allowed, _ := settings["allow_no_workorder_pick"].(bool); !allowed {
+			return errors.New("未关联工单的领料未开启，请在【生产设置】中开启“允许直接领料（不关联工单）”")
+		}
+	}
+	for _, l := range lines {
+		if err := rejectAdvanced(l); err != nil {
+			return err
+		}
+		if _, err := s.plainProduct(ctx, tx, value(l, "product_id"), d.Kind == "receipt"); err != nil {
+			return err
+		}
+		qty := readDecimal(l, "qty")
+		cost := readDecimal(l, "unit_cost")
+		if cost.IsNegative() {
+			return errors.New("成本不能为负")
+		}
+		b, err := s.balance(ctx, tx, value(l, "product_id"), value(h, "warehouse_id"), d.Kind == "return")
+		if err != nil {
+			return err
+		}
+		available, avg := readDecimal(b, "qty_available"), readDecimal(b, "avg_cost")
+		direction, kind, source, remark, date := -1, "out", "production_picking", "生产领料", "last_out_at"
+		if d.Kind == "picking" {
+			if available.LessThan(qty) {
+				return errors.New("库存不足")
+			}
+			available = available.Sub(qty)
+			if err := s.Store.UpdateWith(ctx, tx, d.Lines, value(l, "id"), map[string]any{"picked_qty": qty.String(), "unit_cost": cost.String(), "updated_at": now()}); err != nil {
+				return err
+			}
+		} else {
+			newQty := available.Add(qty)
+			avg = available.Mul(avg).Add(qty.Mul(cost)).DivRound(newQty, 6)
+			available = newQty
+			direction, kind, source, remark, date = 1, "in", "production_return", "生产退料", "last_in_at"
+		}
+		if err := s.Store.UpdateWith(ctx, tx, "inventory_balances", value(b, "id"), map[string]any{"qty_available": available.String(), "avg_cost": avg.String(), date: now(), "updated_at": now()}); err != nil {
+			return err
+		}
+		m := s.base("stock_movements")
+		for k, v := range map[string]any{"type": kind, "source_type": source, "source_id": value(h, "id"), "source_no": h[d.Number], "product_id": l["product_id"], "warehouse_id": h["warehouse_id"], "qty": qty.String(), "direction": direction, "unit_cost": cost.String(), "total_cost": qty.Mul(cost).String(), "balance_after": available.String(), "remark": remark} {
+			m[k] = v
+		}
+		if err := s.Store.InsertWith(ctx, tx, "stock_movements", m); err != nil {
+			return err
+		}
+	}
+	changes := map[string]any{"status": "confirmed", "updated_at": now()}
+	if d.Kind == "return" {
+		changes[d.Date] = now()
+	} else {
+		changes["confirmed_at"] = now()
+	}
+	return s.Store.UpdateWith(ctx, tx, d.Table, value(h, "id"), changes)
 }

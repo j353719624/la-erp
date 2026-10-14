@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -69,4 +70,62 @@ func TestRecoveredSubcontractRequiresMaterials(t *testing.T) {
 			t.Fatalf("missing/empty materials must use the original business message, got %#v", resp)
 		}
 	}
+}
+
+// SS3：不关联工单的生产单据 —— 建单期一律放行，确认期按类型与设置开关分流。
+// 依据：evidence/backend-runtime/audit-batch-t-20261014.json
+func TestRecoveredUnlinkedProductionDocuments(t *testing.T) {
+	c, product, warehouse, _ := recoveredFixture(t, "SS-UNLINKED")
+
+	// 建单期：三个端点都不传 work_order_id，全部应成功
+	picking := c.ok("POST", "/api/v1/production-pickings", map[string]any{
+		"warehouse_id": warehouse["id"],
+		"lines":        []any{map[string]any{"product_id": product["id"], "qty": 1}},
+	}).(map[string]any)
+	receipt := c.ok("POST", "/api/v1/production-receipts", map[string]any{
+		"warehouse_id": warehouse["id"],
+		"lines":        []any{map[string]any{"product_id": product["id"], "qty": 1, "unit_cost": 3}},
+	}).(map[string]any)
+	for name, doc := range map[string]map[string]any{"picking": picking, "receipt": receipt} {
+		if doc["id"] == "" {
+			t.Fatalf("%s without work_order_id rejected at create time", name)
+		}
+		if doc["work_order_id"] != nil {
+			t.Fatalf("%s must not persist a work order id: %#v", name, doc["work_order_id"])
+		}
+	}
+
+	// 确认期：入库单不看设置，直接通过
+	c.ok("POST", "/api/v1/production-receipts/"+receipt["id"].(string)+"/confirm", nil)
+
+	// 确认期：领料单受 allow_no_workorder_pick 开关控制
+	_, body := c.request("POST", "/api/v1/production-pickings/"+picking["id"].(string)+"/confirm", nil)
+	if body["code"] == float64(0) {
+		t.Fatal("unlinked picking must be rejected while the setting is off")
+	}
+	if !strings.Contains(fmtMessage(body), "未关联工单的领料未开启") {
+		t.Fatalf("unlinked picking message: %#v", body["message"])
+	}
+
+	// 开启开关后应通过
+	c.ok("PUT", "/api/v1/production-settings", map[string]any{"allow_no_workorder_pick": true})
+	c.ok("POST", "/api/v1/production-pickings/"+picking["id"].(string)+"/confirm", nil)
+	// 恢复端没有 GET /production-pickings/{id}，用列表回读状态。
+	list := c.ok("GET", "/api/v1/production-pickings?page_size=100", nil).(map[string]any)
+	rows, _ := list["list"].([]any)
+	found := false
+	for _, raw := range rows {
+		row, _ := raw.(map[string]any)
+		if row["id"] == picking["id"] {
+			found = true
+			if row["status"] != "confirmed" {
+				t.Fatalf("unlinked picking should be confirmed once the setting is on: %v", row["status"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("picking not found in the list after confirmation")
+	}
+	// 复原开关，避免影响其它用例
+	c.ok("PUT", "/api/v1/production-settings", map[string]any{"allow_no_workorder_pick": false})
 }
