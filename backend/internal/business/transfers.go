@@ -62,10 +62,15 @@ func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string
 			if value(input, k) == "" {
 				continue
 			}
-			// 批次 W（2026-10-14）：schema.sql 中 stock_transfers **确有**
-			// from_location_id / to_location_id 两列（均为 uuid NULL），
-			// 故本守卫的 Store.Has 必然命中 → **永不可达**，属防御性断言。
+			// 批次 W 取证（2026-10-14，evidence/backend-runtime/audit-batch-w-20261014.json）：
+			//   有效库位（跨仓调拨）→ code:0，from_location_id **确实落库**并回读一致
+			//   不存在的库位（全零 UUID）→ **code:0 照常建单**，原版不校验库位引用完整性
+			// 即原版对库位 id 只做落库、不做存在性校验。原恢复端无引用检查（一致），
+			// 但此处原有一处 Store.Has 断言 —— schema 中两列本就存在，该断言永不可达，
+			// 保留亦无害，故仅补注取证结论。
 			if !s.Store.Has("stock_transfers", k) {
+				// schema.sql 中 stock_transfers 确有 from/to_location_id 两列（uuid NULL），
+				// 此处永不可达；保留作防御性断言，不自造文案。
 				return ErrUnsupported
 			}
 			locations[k] = input[k]

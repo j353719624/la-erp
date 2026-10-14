@@ -49,7 +49,11 @@ func (s *Service) Update(ctx context.Context, d Document, id string, input map[s
 					}
 				}
 				if key == "type" && fmt.Sprint(val) != value(h, "type") {
-					return ErrUnsupported
+					// 批次 W 取证（2026-10-14，evidence/backend-runtime/audit-batch-w-20261014.json）：
+					// 原版允许修改 type：PUT /products 把 product_type 从 goods 改成 raw
+					// 返回 code:0（改回同值也通过）。
+					// 原恢复端 return ErrUnsupported 属误拒 —— 「不允许改单据类型」并非原版行为，
+					// 已移除。
 				}
 				if key == d.Date && val != nil {
 					if _, err := time.Parse(time.RFC3339Nano, fmt.Sprint(val)); err != nil {
