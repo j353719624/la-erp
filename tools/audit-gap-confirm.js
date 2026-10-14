@@ -55,18 +55,29 @@ async function probe(base, tk, method, path, attempt = 0) {
   }
 }
 
-// 把工具产出的路径还原成真实形态：尾斜杠是拼接型正则的残留
+// 把工具产出的路径还原成真实形态；畸形路径（尾斜杠、缺斜杠）直接丢弃。
+//
+// 畸形来源：采集端对 `'/v1/x/' + id` 这类拼接，若表达式跨行或后接 `+ '/stage'`，
+// 会拼出 `/v1/x`（丢了 id）或 `/v1/print-templates{id}`（缺斜杠）这类
+// 两端都不存在的假路径。实测这类共 12 条，全是采集误差而非真实契约差异，
+// 故在探测前过滤，避免污染缺口清单。
 function clean(p) {
-  let s = p;
-  if (s.endsWith("/")) s = s.slice(0, -1); // '/v1/x/' + id → '/v1/x/{id}'
-  s = s.replace(/([^/])\{id\}/, "$1/{id}"); // '/v1/print-templates{id}' → 补斜杠
-  return s;
+  // `/v1/print-templates{id}` → 补斜杠
+  p = p.replace(/([^/])\{id\}/, "$1/{id}");
+  // 尾斜杠：拼接丢了 id 段
+  if (p.endsWith("/")) return "";
+  return p;
 }
 
 const seen = new Set();
+const malformed = [];
 const rows = [];
 for (const b of matrix.broken) {
   const path = clean(b.path);
+  if (!path) {
+    malformed.push({ method: b.method, raw: b.path.replace(SAMPLE, "{id}"), reason: "拼接丢失 id 段（尾斜杠）" });
+    continue;
+  }
   const key = `${b.method} ${path}`;
   if (seen.has(key)) continue;
   seen.add(key);
@@ -112,6 +123,6 @@ if (unknown.length) {
 
 writeFileSync(
   new URL("../evidence/backend-runtime/audit-gap-confirm-20261015.json", import.meta.url),
-  JSON.stringify({ generated: new Date().toISOString(), summary: { total: rows.length, backendGap: gaps.length, frontendOnly: feOnly.length, alreadyOk: alreadyOk.length, unknown: unknown.length }, rows }, null, 2)
+  JSON.stringify({ generated: new Date().toISOString(), summary: { total: rows.length, backendGap: gaps.length, frontendOnly: feOnly.length, alreadyOk: alreadyOk.length, malformed: malformed.length, unknown: unknown.length }, rows }, null, 2)
 );
 console.log("\n已写出 → evidence/backend-runtime/audit-gap-confirm-20261015.json");

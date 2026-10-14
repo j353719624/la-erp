@@ -63,24 +63,45 @@ for (const f of walk(join(ROOT, "frontend/src"), (p) => p.endsWith(".ts") || p.e
       for (const k of queryKeys(raw)) calls.get(key).params.add(k);
     }
   }
-  // 字符串拼接型：http.get('/v1/crm-opportunities/' + id, params)
-  // 上一轮漏掉这批，把 '/v1/x/' + id 误判成尾斜杠路径（原版当然也没有），
-  // 导致 11 条假缺口。此处把拼接的常量前缀还原成完整路径。
+  // 字符串拼接型：多个形式都要覆盖，否则会造出幻觉路径。
+  //   http.get('/v1/crm-opportunities/' + id)              → /v1/crm-opportunities/{id}
+  //   http.post('/v1/crm-opportunities/' + id + '/stage')  → /v1/crm-opportunities/{id}/stage
+  //   http.delete('/v1/piecework-rates/' + id)
+  //
+  // 之前只抓「前缀 + 第一个拼接项」，遇到 `+ id + '/stage'` 就把路径截断成
+  // `{id}`，从而凭空造出「POST /crm-opportunities/{id}」这种原版不存在的端点
+  // （实测两轮，共 16 条假缺口/假「恢复端独有」）。
+  //
+  // 外层正则必须**锚定首段以 /v1/ 开头**且**禁止跨行**，否则 `(?:...)+` 会把
+  // `http.get<T>(...)` 后面大段无关文本也吞进来（实测端点数 613 → 999）。
   for (const m of text.matchAll(
-    /\.(get|post|put|delete|patch)\s*(?:<[^>]*>)?\s*\(\s*(['"`])(\/v1\/[^'"`]*)\2\s*\+/gi
+    /\.(get|post|put|delete|patch)\s*(?:<[^>]*>)?\s*\(\s*['"`]\/v1\/[^'"`\n]*['"`][^)\n]{0,40}/g
   )) {
     const method = m[1].toUpperCase();
-    const prefix = m[3];
-    if (prefix.endsWith("/v1")) continue;
-    // 拼接型：'/v1/crm-opportunities/' + id → 完整路径是 /v1/crm-opportunities/{id}；
-    // 但 '/v1/piecework-rates/' + id 里 id 后面可能还跟了别的段（如 '/stage'），
-    // 这种情况前缀已含尾斜杠且不构成完整端点，跳过避免造出尾斜杠假路径。
-    const path = norm(prefix + "{id}");
+    const expr = m[2];
+    // 逐个取出字符串字面量并连接；`+ id +` 这样的**路径**变量段替换为 {id}
+    let joined = "";
+    let lastIndex = 0;
+    const re = /(['"`])([^'"`]*)\1/g;
+    let match;
+    let found = false;
+    while ((match = re.exec(expr)) !== null) {
+      found = true;
+      if (match.index > lastIndex) joined += "{id}"; // 拼接处的变量段 → 路径参数
+      // 字面量内部的 ${...} 插值属于**查询串**而非路径段
+      // （如 http.get(`/v1/print-templates${q}`)，q 是 "?doc_type=xx"）。
+      // 之前的实现把它当路径变量拼进去，生成了 /v1/print-templates<uuid>
+      // 这种两端都不存在的假路径。此处剔除。
+      joined += match[2].replace(/\$\{[^}]*\}/g, "");
+      lastIndex = match.index + match[0].length;
+    }
+    if (!found) continue;
+    if (!joined.includes("/v1/")) continue;
+    const path = norm(joined);
     if (path.includes("$")) continue;
     const key = `${method} ${path}`;
     if (!calls.has(key)) calls.set(key, { files: new Set(), params: new Set() });
     calls.get(key).files.add(f.replace(ROOT + "/", ""));
-    calls.get(key).params.add("__id_segment__"); // 标记这是按 id 拼的
   }
 }
 
