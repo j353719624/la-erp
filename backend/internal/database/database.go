@@ -167,6 +167,69 @@ func (s *Store) GetWith(ctx context.Context, db Executor, table, id string) (map
 	}
 	return rows[0], nil
 }
+
+// listExtraFilters 是「列存在也不一定支持」的外键/单号过滤，按表白名单。
+//
+// 原版回放 JJ2 对 30 个有数据的资源逐一探测（用不可能命中的值，看 total 是否掉 0），
+// 实测出的支持情况**与列是否存在并不一致**：
+//   - work_order_id：生产领料/入库/退料支持；返工单、工序汇报、外协单**不支持**
+//   - source_type：凭证、收付款计划、库存流水支持；序列号**不支持**
+//   - customer_id / supplier_id / order_no：销售/采购单据类支持
+//
+// 未采样的表（原版上数据 < 4 条，探不出结果）按「有该列就支持」放行，
+// 因为前端若会发这个参数，通常意味着原版确实支持。
+var listExtraFilters = map[string][]string{
+	"crm_opportunities":        {"customer_id"},
+	"vouchers":                 {"source_type"},
+	"bank_statements":          {"account_id"},
+	"payment_plans":            {"source_type"},
+	"stock_movements":          {"source_type"},
+	"sales_orders":             {"customer_id", "order_no"},
+	"purchase_orders":          {"supplier_id", "order_no"},
+	"sales_returns":            {"customer_id", "order_no"},
+	"purchase_returns":         {"supplier_id", "order_no"},
+	"purchase_rf_qs":           {"supplier_id"},
+	"sales_quotations":         {"customer_id"},
+	"purchase_contracts":       {"supplier_id"},
+	"sales_contracts":          {"customer_id"},
+	"purchase_reconciliations": {"supplier_id"},
+	"work_orders":              {"order_no"},
+	"subcontract_orders":       {"supplier_id"},
+	"production_pickings":      {"work_order_id"},
+	"production_receipts":      {"work_order_id"},
+	"production_returns":       {"work_order_id"},
+	"leads":                    {"customer_id"},
+	// 有反证、明确不支持的（列存在但原版不过滤）：
+	//   serial_numbers.source_type、work_order_processes.work_order_id、
+	//   rework_orders.work_order_id、subcontract_orders.work_order_id
+}
+
+func contains(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+// listDateColumn 记录「start_date / end_date 日期区间」在各表上作用于哪一列。
+//
+// 原版回放 JJ2 探测出哪些表接受日期参数，JJ3-B / JJ5 / JJ6 进一步确定作用列：
+//
+//	sales_orders / purchase_orders / sales_returns → order_date
+//	stock_movements                                → created_at
+//
+// vouchers / work_orders / stock_ins / stock_outs / work_order_processes 也接受
+// start_date，但实测出来的命中数与 created_at、order_date 都对不上（作用列另有其人），
+// 未确定前不列入本表，免得按猜错的列过滤出错误结果。
+var listDateColumn = map[string]string{
+	"sales_orders":    "order_date",
+	"purchase_orders": "order_date",
+	"sales_returns":   "order_date",
+	"stock_movements": "created_at",
+}
+
 func (s *Store) List(ctx context.Context, table string, q url.Values) ([]map[string]any, int, error) {
 	if _, ok := s.Tables[table]; !ok {
 		return nil, 0, errors.New("unknown table")
@@ -188,6 +251,49 @@ func (s *Store) List(ctx context.Context, table string, q url.Values) ([]map[str
 		if value := q.Get(field); value != "" && s.Has(table, field) {
 			clauses = append(clauses, Quote(field)+" LIKE ?")
 			args = append(args, "%"+value+"%")
+		}
+	}
+	// ── 以下外键过滤是原版回放 JJ2（2026-10-14）实测补的 ──
+	// 恢复端此前只认一组「通用」字段，销售订单列表页发的 customer_id 被静默忽略，
+	// 等于筛选失效。用「不可能命中的值」逐个探测，total 掉 0 即证明该参数被当作过滤条件。
+	//
+	// 但**不是所有表都支持**：同样是带 work_order_id 列的表，生产领料/入库/退料支持，
+	// 而返工单、工序汇报、外协单实测不支持（total 不变）。故用 listExtraFilters
+	// 按表白名单控制，不能一律按「列存在就过滤」处理。
+	for _, field := range listExtraFilters[table] {
+		// order_no 走下面的「包含」匹配，不参与精确等值
+		if field == "order_no" {
+			continue
+		}
+		if value := q.Get(field); value != "" && s.Has(table, field) {
+			clauses = append(clauses, Quote(field)+"=?")
+			args = append(args, value)
+		}
+	}
+	// order_no 是「包含」匹配且**区分大小写**：
+	//   回放 JJ3-A3 order_no=SO20261014003 → 10 条（命中 030~039）
+	//   回放 JJ3-A4 order_no=202610140035  → 1 条（中缀也命中）
+	//   回放 JJ3-A5 order_no=so202610140035（小写）→ 0 条
+	// SQLite 的 LIKE 对 ASCII 默认不区分大小写，故此处用 instr 而非 LIKE。
+	if value := q.Get("order_no"); value != "" && s.Has(table, "order_no") && contains(listExtraFilters[table], "order_no") {
+		clauses = append(clauses, "instr("+Quote("order_no")+", ?) > 0")
+		args = append(args, value)
+	}
+	// 日期区间：作用列**按表而异**，且上下界写法不对称（回放 JJ3-B / JJ5 / JJ6）：
+	//   下界  col >= start_date                  —— 直接比对（含时间部分）
+	//   上界  date(col) <= date(end_date)        —— 经 SQLite date() 归一到 UTC 再比
+	//   例：销售订单 end_date=2026-10-12 仍能查到 order_date=2026-10-13T00:00:00+08:00
+	//       的记录（date() 归一后为 2026-10-12），而 end_date=2026-10-11 查不到。
+	// 只配置已用回放确认过作用列的表；其余表（vouchers / work_orders / stock_ins …）
+	// 虽然也接受 start_date，但作用列未能确定，故不配置，避免猜错列。
+	if column, ok := listDateColumn[table]; ok {
+		if value := q.Get("start_date"); value != "" {
+			clauses = append(clauses, Quote(column)+" >= ?")
+			args = append(args, value)
+		}
+		if value := q.Get("end_date"); value != "" {
+			clauses = append(clauses, "date("+Quote(column)+") <= date(?)")
+			args = append(args, value)
 		}
 	}
 	if table == "rework_orders" && q.Get("work_order_no") != "" {
