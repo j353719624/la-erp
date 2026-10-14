@@ -61,6 +61,7 @@ func (e ErrOriginalNoMessage) Error() string {
 
 // Status 返回原版状态码；0 表示调用方应沿用自身默认。
 func (e ErrOriginalNoMessage) StatusCode() int { return e.Status }
+
 var decimalSyntax = regexp.MustCompile(`^-?[0-9]{1,20}(\.[0-9]{1,12})?$`)
 
 type Service struct{ Store *database.Store }
@@ -428,6 +429,11 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					return err
 				}
 			} else if err := rejectOrderLine(line, isReturn(d)); err != nil {
+				return err
+			}
+			// 批次 U：serial_nos 元素类型校验对**库存单与订单都生效**
+			// （原版两类单据在建单期都返回 400，见 rejectSerialNosType 注释）。
+			if err := rejectSerialNosType(line); err != nil {
 				return err
 			}
 			// 原版支持赠品行，但要求单价为 0（2026-10-13 B3/R1 回放：
@@ -1046,15 +1052,32 @@ func validateSerialLine(line map[string]any, incoming bool) error {
 		return nil
 	}
 	seen := map[string]bool{}
+	blank := 0
 	for _, v := range raw {
+		if v == nil {
+			// 原版：null 元素等价于空串（建单放行，confirm 时因「有效序列号数为 0」
+			// 而报 10000「序列号不能为空」）。见 evidence/backend-runtime/audit-batch-u-*.json。
+			blank++
+			continue
+		}
 		no, ok := v.(string)
-		if !ok || no == "" {
+		if !ok {
+			// 原版：数字 / 布尔 / 对象元素在**建单期**即 400「系统内部错误，请稍后重试或联系管理员」。
+			// 此处是确认期，正常输入到不了；保留类型错误以防内部调用绕过校验。
 			return errors.New("序列号格式错误")
+		}
+		if no == "" {
+			blank++
+			continue
 		}
 		if seen[no] {
 			return fmt.Errorf("序列号 %s 在本单内重复", no)
 		}
 		seen[no] = true
+	}
+	// 原版：整组只有空串/null 时报 10000「序列号不能为空」（与「序列号不能为空」逐字一致）。
+	if len(seen) == 0 && blank > 0 {
+		return errors.New("序列号不能为空")
 	}
 	verb := "出库"
 	if incoming {
@@ -1062,6 +1085,28 @@ func validateSerialLine(line map[string]any, incoming bool) error {
 	}
 	if !readDecimal(line, "qty").Equal(decimal.NewFromInt(int64(len(raw)))) {
 		return fmt.Errorf("序列号数量(%d)与%s数量(%s)不一致", len(raw), verb, readDecimal(line, "qty").String())
+	}
+	return nil
+}
+
+// rejectSerialNosType 校验 serial_nos 的**元素类型**（建单期）。
+//
+// 批次 U 取证（2026-10-14，evidence/backend-runtime/audit-batch-u-20261014.json）：
+// 原版对 serial_nos 内的非字符串元素在**建单期**即返回 HTTP **400**
+// 「系统内部错误，请稍后重试或联系管理员」（Go 结构体绑定失败）：
+//
+//	数字 123 / 布尔 true / 对象 {"a":1} → 建单 400
+//	null / 空串 ""                     → 建单 code:0（视为空串，见 validateSerialLine）
+//
+// 恢复端原先把 serial_nos 摘出通用守卫后完全放行，数字元素能建单成功，与原版不符。
+func rejectSerialNosType(line map[string]any) error {
+	for _, v := range serialNosOf(line) {
+		if v == nil {
+			continue
+		}
+		if _, ok := v.(string); !ok {
+			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+		}
 	}
 	return nil
 }

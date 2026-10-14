@@ -19,11 +19,20 @@ func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (ma
 	names := []string{}
 	seen := map[string]bool{}
 	for _, v := range raw {
+		if v == nil {
+			// 原版对 null 元素 **code:0 放行**（等价于空串，被下面的 no=="" 跳过）。
+			continue
+		}
 		no, ok := v.(string)
 		if !ok {
-			// 原版 FF3：非字符串元素 → HTTP 400 且**无业务文案**（原版未做类型转换，
-			// 由框架解析失败直接返回 500/400）。不自造中文，保留 ErrUnsupported。
-			return nil, ErrUnsupported
+			// 批次 U 复测（2026-10-14，evidence/backend-runtime/audit-batch-u-20261014.json）：
+			// 原版对 serial_nos 内的**非字符串元素**返回 HTTP **400**「系统内部错误，请稍后重试或联系管理员」
+			// （结构体绑定失败，无业务文案）：
+			//   数字 123 → 400    对象 {a:1} → 400    布尔 true → 400
+			//   **null → code:0 放行**（被当作空串跳过）
+			// 原恢复端返回 ErrUnsupported（映射 501），HTTP 语义与原版 400 不一致；
+			// 改用 ErrOriginalNoMessage 携带原版状态码与原文案，不自造 message。
+			return nil, ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		if no == "" {
 			continue
