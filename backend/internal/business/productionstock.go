@@ -288,15 +288,23 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			if err != nil {
 				return err
 			}
-			if len(materials) != 1 {
-				// 领退料明细必须命中工单的一条材料行。**原版该分支未取证**
-				// （需先构造「领料单含非 BOM 物料」的脏数据，原版回放 EE 系列未覆盖）。
-				// 不自造中文，保留 ErrUnsupported。
-				return ErrUnsupported
+			// 批次 DD 取证（2026-10-14，evidence/backend-runtime/audit-batch-dd-20261014.json）：
+			// 原版**允许**领退料单包含「不在工单 BOM 里的物料」—— 构造：工单 BOM 只含 M，
+			// 领料单领 P（P 不在 BOM 中），原版 **code:0 建单 + code:0 确认通过**，
+			// 且**正常扣库存**（领 2 件 → 库存 100 → 98，差额 -2）、**正常写台账**（type=out, qty=2），
+			// 只是**不回写工单材料行**（P 无对应 material 行，工单材料行 qty_issued 保持 0）。
+			// 即原版语义是「库存与台账照常处理，材料联动无对应行则跳过」。
+			// 原恢复端 return ErrUnsupported（501）属误拒 —— 它会拦掉
+			// 「临时补料领了 BOM 之外的料」这类常见现场操作，已改为按原版语义跳过材料联动。
+			var material map[string]any
+			if len(materials) == 1 {
+				material = materials[0]
 			}
-			material := materials[0]
 			qty := readDecimal(l, "qty")
-			issued, returned, required := readDecimal(material, "qty_issued"), readDecimal(material, "qty_returned"), readDecimal(material, "qty_required")
+			issued, returned, required := decimal.Zero, decimal.Zero, decimal.Zero
+			if material != nil {
+				issued, returned, required = readDecimal(material, "qty_issued"), readDecimal(material, "qty_returned"), readDecimal(material, "qty_required")
+			}
 			b, err := s.balance(ctx, tx, value(l, "product_id"), value(h, "warehouse_id"), d.Kind == "return")
 			if err != nil {
 				return err
@@ -308,9 +316,12 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			}
 			direction, kind, source, remark, date := -1, "out", "production_picking", "生产领料", "last_out_at"
 			if d.Kind == "picking" {
-				remaining := required.Sub(issued).Add(returned)
-				if qty.GreaterThan(remaining) {
-					return fmt.Errorf("物料 %s 领料超需求：已领 %s，剩余可领 %s，本次 %s", value(material, "product_name"), issued.StringFixed(2), remaining.StringFixed(2), qty.StringFixed(2))
+				// material == nil（该物料不在工单 BOM 里）时跳过「超需求」校验，与原版一致。
+				if material != nil {
+					remaining := required.Sub(issued).Add(returned)
+					if qty.GreaterThan(remaining) {
+						return fmt.Errorf("物料 %s 领料超需求：已领 %s，剩余可领 %s，本次 %s", value(material, "product_name"), issued.StringFixed(2), remaining.StringFixed(2), qty.StringFixed(2))
+					}
 				}
 				if available.LessThan(qty) {
 					return errors.New("库存不足")
@@ -325,7 +336,7 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 				// 原版回放 L3：超额退料返回 code:10000
 				// 「退料数量超过该物料已领数量（已领 4、已退 4）」，
 				// 按原版实际业务错误对齐文案（校验逻辑等价）。
-				if qty.GreaterThan(issued.Sub(returned)) {
+				if material != nil && qty.GreaterThan(issued.Sub(returned)) {
 					return fmt.Errorf("退料数量超过该物料已领数量（已领 %s、已退 %s）", issued.String(), returned.String())
 				}
 				newQty := available.Add(qty)
@@ -338,8 +349,10 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			if err := s.Store.UpdateWith(ctx, tx, "inventory_balances", value(b, "id"), map[string]any{"qty_available": available.String(), "avg_cost": avg.String(), date: now(), "updated_at": now()}); err != nil {
 				return err
 			}
-			if err := s.Store.UpdateWith(ctx, tx, "work_order_materials", value(material, "id"), map[string]any{"qty_issued": issued.String(), "qty_returned": returned.String(), "updated_at": now()}); err != nil {
-				return err
+			if material != nil {
+				if err := s.Store.UpdateWith(ctx, tx, "work_order_materials", value(material, "id"), map[string]any{"qty_issued": issued.String(), "qty_returned": returned.String(), "updated_at": now()}); err != nil {
+					return err
+				}
 			}
 			m := s.base("stock_movements")
 			for k, v := range map[string]any{"type": kind, "source_type": source, "source_id": id, "source_no": h[d.Number], "product_id": l["product_id"], "warehouse_id": h["warehouse_id"], "qty": qty.String(), "direction": direction, "unit_cost": cost.String(), "total_cost": qty.Mul(cost).String(), "balance_after": available.String(), "remark": remark} {
