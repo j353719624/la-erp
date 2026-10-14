@@ -37,6 +37,15 @@ type simpleDoc struct {
 	ProductMsg  string // 明细商品不存在
 	ProductHTTP int    // 商品不存在时的 HTTP 状态码；0 表示走业务 10000
 	QtyMsg      string // 数量缺失或非正
+
+	// DeletePayload 是删除成功后 data 的返回内容；nil 表示 data:null。
+	//
+	// 原版回放 II（2026-10-14，evidence/backend-runtime/audit-batch-ii-contracts-20261014.json）
+	// 逐个建单再删除，实测这 6 类单据**并不统一**：
+	//   采购申请 / 销售报价单 / 采购合同 → {"deleted":true}
+	//   询价单 / 销售合同 / 商品款       → null
+	// 询价单特地连测 3 次均为 null，排除偶发。恢复端原先对所有 6 类一律返回 null。
+	DeletePayload map[string]any
 }
 
 var simpleDocs = []simpleDoc{
@@ -50,8 +59,9 @@ var simpleDocs = []simpleDoc{
 		EmptyMsg:   "采购申请明细不能为空",
 		ProductMsg: "系统内部错误，请稍后重试或联系管理员",
 		// 原版对采购申请的不存在商品直接 500（回放 GG5/MM-a），与询价/报价的 10000 不同
-		ProductHTTP: 500,
-		QtyMsg:      "采购申请数量必须为正数",
+		ProductHTTP:   500,
+		QtyMsg:        "采购申请数量必须为正数",
+		DeletePayload: map[string]any{"deleted": true},
 	},
 	{
 		Route: "purchase-rfqs", Table: "purchase_rf_qs", Lines: "purchase_rfq_lines",
@@ -59,6 +69,8 @@ var simpleDocs = []simpleDoc{
 		Label: "询价单", LineFields: []string{"product_id", "unit_id", "qty", "quoted_price", "spec", "remark"},
 		QtyFields: []string{"qty", "quoted_price"}, TotalAmt: false, TotalQty: false,
 		EmptyMsg: "询价明细不能为空", ProductMsg: "所选商品不存在或已被删除", QtyMsg: "询价明细数量必须大于 0",
+		// 原版连测 3 次删除均为 data:null（回放 II-C），与采购申请/报价单不同
+		DeletePayload: nil,
 	},
 	{
 		Route: "sales-quotations", Table: "sales_quotations", Lines: "sales_quotation_lines",
@@ -66,14 +78,21 @@ var simpleDocs = []simpleDoc{
 		Label: "销售报价单", LineFields: []string{"product_id", "unit_id", "qty", "price", "discount", "tax_rate", "spec", "remark"},
 		QtyFields: []string{"qty", "price", "discount", "tax_rate", "amount", "tax_amount"}, TotalQty: true, TotalAmt: true,
 		EmptyMsg: "报价明细不能为空", ProductMsg: "所选商品不存在或已被删除", QtyMsg: "报价明细数量必须大于 0",
+		DeletePayload: map[string]any{"deleted": true},
 	},
 	{
-		Route: "purchase-contracts", Table: "purchase_contracts", Number: "contract_no", Prefix: "PC",
+		// 单号前缀原版实测为 CT（回放 II 建的合同为 CT202610150002/003/004），
+		// 恢复端此前按猜测写成 PC，与原版不符。
+		Route: "purchase-contracts", Table: "purchase_contracts", Number: "contract_no", Prefix: "CT",
 		Permission: "purchase_contract", Label: "采购合同",
+		DeletePayload: map[string]any{"deleted": true},
 	},
 	{
-		Route: "sales-contracts", Table: "sales_contracts", Number: "contract_no", Prefix: "SC",
+		// 单号前缀原版实测为 XSHT（回放 II 建的合同为 XSHT202610150007/008/009），
+		// 恢复端此前写成 SC，与原版不符。
+		Route: "sales-contracts", Table: "sales_contracts", Number: "contract_no", Prefix: "XSHT",
 		Permission: "sales_contract", Label: "销售合同",
+		DeletePayload: nil,
 	},
 	{
 		Route: "spus", Table: "product_spus", Number: "code", Prefix: "SPU",
@@ -247,7 +266,7 @@ func (s *Server) registerSimpleDocuments() {
 				s.failure(w, err, d.Label)
 				return
 			}
-			respond(w, 200, nil)
+			respond(w, 200, d.DeletePayload)
 		})))
 	}
 }
