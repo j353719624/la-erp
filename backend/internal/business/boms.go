@@ -76,8 +76,12 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 		if input["qty_per"] == nil {
 			qtyPer = decimal.NewFromInt(1)
 		}
+		// 批次 Q 取证（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+		// 原版传 qty_per=0 或 -1 均 code:0，且**落库值被归一为 1**（回读均为 1）；
+		// 据此 BOM 建工单 qty=5、材料 2 件 → 需求 10（=5/1×2）。
+		// 原实现返回自造文案「基准数量必须大于零」，与原版不符，已改为按原版归一为 1。
 		if !qtyPer.IsPositive() {
-			return errors.New("基准数量必须大于零")
+			qtyPer = decimal.NewFromInt(1)
 		}
 		var h map[string]any
 		if creating {

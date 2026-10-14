@@ -129,6 +129,12 @@ func (s *Service) writeWorkOrderWith(ctx context.Context, tx *sql.Tx, id, user s
 			}
 			qtyPer = readDecimal(b, "qty_per")
 			if !qtyPer.IsPositive() {
+				// 批次 Q 取证（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+				// 原版建 BOM 传 qty_per=0 或 -1 均 code:0，且**落库值被归一为 1**
+				// （回读均为 1），据此 BOM 建工单 qty=5、材料 2 件 → 需求 10（=5/1×2）。
+				// 原版库实测 qty_per<=0 的 BOM **0 条** —— 建单路径根本不产生该状态。
+				// 故本守卫**永不可达**，属防御性断言（防外部直写数据库的脏数据）。
+				// 无原版文案可对齐，不自造，保留 ErrUnsupported 作兜底。
 				return ErrUnsupported
 			}
 			items, err = database.QueryRows(ctx, tx, "SELECT * FROM bom_items WHERE bom_id=? AND deleted_at IS NULL ORDER BY line_no", bomID)

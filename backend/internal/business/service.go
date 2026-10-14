@@ -595,9 +595,18 @@ func (s *Service) trackingBalance(ctx context.Context, tx *sql.Tx, product, ware
 	if err != nil {
 		return nil, err
 	}
-	// 同键余额行应唯一，原版无「多行时如何取舍」的可用证据
-	// （2026-10-14 DUP-A/DUP-B 实测：无批次出库只认无批次行，qty=0 时报「库存不足」，
-	//  不跨批次取用）。无原版文案证据，保留 ErrUnsupported，不自造中文。
+	// 批次 Q 结论（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+	// 同键余额行由**数据库 UNIQUE 索引**保证唯一 —— schema.sql 定义
+	//   idx_inventory_balance_key ON (product_id, warehouse_id,
+	//     COALESCE(location_id,'000…0'), COALESCE(rack_id,'000…0'), COALESCE(batch_no,''))
+	// 用 COALESCE 把 NULL 归一化，正是为保证「无库位/无货架/无批次」这一组不重复。
+	// 原版库实测 52 条余额行、同键多行组数 0；
+	// 恢复端 TestRecoveredBalanceRowIsUniquePerKey / …BatchedBalance… 亦验证索引生效。
+	//
+	// 故 `len(rows) > 1` **永不可达**（2026-10-14 DUP-A/DUP-B 注释里「无取舍证据」的顾虑，
+	// 已由数据库约束消解）。属**防御性断言**，保留兜底但不再当作待办推进项：
+	// 该分支一旦命中说明数据库被绕过唯一索引写入了脏数据，
+	// 此时返回 ErrUnsupported（500 级）比自造中文更保守 —— 无原版文案可对齐，不自造。
 	if len(rows) > 1 {
 		return nil, ErrUnsupported
 	}
@@ -620,7 +629,8 @@ func (s *Service) balance(ctx context.Context, tx *sql.Tx, product, warehouse st
 		return nil, err
 	}
 	if len(rows) > 1 {
-		// 同 trackingBalance：无原版取舍证据，保留 ErrUnsupported，不自造中文。
+		// 同 trackingBalance：数据库 UNIQUE 索引（批次 Q）保证同键唯一，该分支**不可达**。
+		// 无原版文案可对齐，保留 ErrUnsupported 作兜底，不自造中文。
 		return nil, ErrUnsupported
 	}
 	if len(rows) == 1 {

@@ -56,6 +56,14 @@ function enclosingLine(lines, idx) {
 // 批次 N 已取证：各 *Action 函数的 default 分支不可达 —— API 层用 []string{...} 限定动作白名单，
 // 且原版实测动作集与恢复端逐项一致（evidence/backend-runtime/audit-batch-n-20261014.json）。
 // 这些分支已被单独归入「四、已结案」章节，不计入待办存量。
+// 批次 Q 已取证：同一「商品+仓库+库位+货架+批次」的余额行由数据库 UNIQUE 索引保证唯一
+// （schema.sql 的 idx_inventory_balance_key 用 COALESCE 归一化 NULL），
+// 因此 service.go 两处 `len(rows) > 1` 分支永不可达。
+const DB_UNIQUE_GUARDS = new Set([
+  "service.go:trackingBalance",
+  "service.go:balance",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -80,6 +88,12 @@ for (const f of files) {
         unreachable = UNREACHABLE_ACTIONS.has(fn);
         break;
       }
+    }
+    // 批次 Q：两处「同键余额多行」已由数据库 UNIQUE 索引证明不可能，属防御性断言，
+    // 同样从待办存量中移出（见 DB_UNIQUE_GUARDS 与 schema.sql 的 idx_inventory_balance_key）。
+    if (DB_UNIQUE_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
+      if (tail.includes("len(rows) > 1")) unreachable = true;
     }
     rows.push({
       file: f,

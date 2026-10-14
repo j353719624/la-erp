@@ -1333,6 +1333,35 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, map[string]any{"temp_password": password})
 }
+
+// enforceSingleDefaultWarehouse 保证同一时刻至多一个默认仓库。
+//
+// 批次 Q 取证（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+//
+//	原版 `POST /warehouses` 传 is_default=true **不会**抢占默认位（新仓回读 is_default 为 false），
+//	默认仓数量保持 1；而 `PUT` 改单个仓库的 is_default 是生效的。
+//	即原版的默认位语义是「单一且由服务端维持」，建仓接口不能制造第二个。
+//
+// 恢复端原先无此保护：把 A 设为默认后会与既有默认仓并存（实测 2 个），
+// 进而让 mrp.go 的 `len(warehouses) != 1 → ErrUnsupported`（未取证分支）被触发。
+//
+// 处理方式：置默认前先把其余仓库的 is_default 置 false。
+// 原版未给「取消其他默认仓」的业务文案（属静默归一化），故不返回任何提示。
+func (s *Server) enforceSingleDefaultWarehouse(r *http.Request, id string, record map[string]any) {
+	if v, ok := record["is_default"]; !ok || v != true {
+		return
+	}
+	rows, err := s.Store.Rows(r.Context(),
+		"SELECT id FROM warehouses WHERE deleted_at IS NULL AND is_default=1 AND id<>?", id)
+	if err != nil {
+		return
+	}
+	for _, other := range rows {
+		_ = s.Store.Update(r.Context(), "warehouses", fmt.Sprint(other["id"]),
+			map[string]any{"is_default": false, "updated_at": time.Now()})
+	}
+}
+
 func (s *Server) failure(w http.ResponseWriter, err error, label string) {
 	var validation *validationError
 	if errors.As(err, &validation) {
@@ -1929,6 +1958,9 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource) {
 	if err = s.checkScope(r, res, mergeRecord(old, record)); err != nil {
 		s.failure(w, err, res.Label)
 		return
+	}
+	if res.Table == "warehouses" {
+		s.enforceSingleDefaultWarehouse(r, id, record)
 	}
 	if err = s.writeRecord(r, res, id, record, false); err != nil {
 		s.failure(w, err, res.Label)
