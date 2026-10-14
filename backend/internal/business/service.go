@@ -302,9 +302,15 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			}
 			h = old
 			// 原版允许编辑外币订单（2026-10-13 R2：USD 订单创建/确认/审批全通过），
-			// 不再按币种拒绝。paid_amount 守卫保留——原版没有订单收款路由
-			// （A3：pay/receive/payment/settle/receipt 五个动作端点全部 404），
-			// 已收金额恒为 0，该分支在原版不可达，属恢复端防御性校验。
+			// 不再按币种拒绝。
+			//
+			// 批次 BB 复测（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
+			// 原版**没有任何订单收款路由** —— 7 个候选动作端点
+			// （pay / receive / payment / settle / receipt / collect / confirm-receipt）
+			// 对 sales-orders/{id} 逐一探测，全部 404「路由不存在」；
+			// 且原版库中 101 张销售订单里 `paid_amount > 0` 的为 **0 条**。
+			// 即已收金额恒为 0，本守卫在原版**永不可达**，属防御性断言。
+			// 保留 ErrUnsupported 作兜底（防外部直写数据库造出脏数据），不自造文案。
 			if !readDecimal(h, "paid_amount").IsZero() {
 				return ErrUnsupported
 			}

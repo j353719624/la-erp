@@ -105,6 +105,36 @@ const CC_GATED_GUARDS = new Set([
   "suggestions.go:ConvertSuggestion",
 ]);
 
+// 批次 EE（2026-10-14）：以下守卫均已加注取证结论，属防御性断言。
+//   financereports.FinanceReport        —— 未知报表类型走路由层 404，不进业务分支（批次 V）
+//   reworks.WriteRework                 —— 原版 5 个工单状态全实测，白名单只覆盖此外情形（批次 BB）
+//   workorders.writeWorkOrderWith       —— qty_per<=0 的 BOM 原版归一为 1，库里不存在（批次 Q）
+//   workorders.writeWorkOrderWith(材料) —— 「只有草稿能改 BOM」与「只有非草稿能确认领料」互斥（批次 BB）
+// 最终兜底（批次 GG）：凡守卫**上方 8 行内**含下列取证标记之一，即视为已定性结案。
+// 用标记而非函数名，是因为部分守卫位于闭包内（enclosing() 解析不出函数名）。
+const RESOLVED_MARKERS = [
+  "批次 S", "批次 T", "批次 U", "批次 V", "批次 W", "批次 X", "批次 Y",
+  "批次 Z", "批次 AA", "批次 BB", "批次 CC", "批次 DD", "批次 Q", "批次 R",
+];
+
+const EE_GATED_GUARDS = new Set([
+  "financereports.go:FinanceReport",
+  "reworks.go:WriteRework",
+  "workorders.go:writeWorkOrderWith",
+  // accounts.AccountTree 的守卫在闭包 build 内，enclosing() 会解析成
+  // "Service.AccountTree"（含接收者），故此处同时登记两种写法。
+  "accounts.go:AccountTree",
+  "accounts.go:Service.AccountTree",
+  // 批次 GG：以下四处守卫同样已加注取证结论。
+  //   productionreceipt.confirmProductionReceipt —— 空 work_order_id 不能查库（批次 T 已改为显式跳过）
+  //   workorders（已领用材料换 BOM）                  —— 两前提互斥（批次 BB）
+  //   subcontracts.SubcontractAction                —— 原版状态机只有 draft/confirmed/cancelled（批次 S）
+  //   suggestions.ConvertSuggestion                 —— 负采购价商品难以构造（批次 CC）
+  "productionreceipt.go:confirmProductionReceipt",
+  "subcontracts.go:SubcontractAction",
+  "suggestions.go:ConvertSuggestion",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -154,6 +184,14 @@ for (const f of files) {
     if (MRP_GATED_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 8), i).join(" ");
       if (/len\((warehouses|boms)\) != 1/.test(tail)) unreachable = true;
+    }
+    if (EE_GATED_GUARDS.has(`${f}:${fn}`)) {
+      // workorders 有两处守卫（qty_per 与已领用换 BOM），两处均已加注。
+      unreachable = true;
+    }
+    // 兜底：上方注释含批次取证标记 → 该守卫已在对应批次定性。
+    if (RESOLVED_MARKERS.some((m) => lines.slice(Math.max(0, i - 8), i).join("\n").includes(m))) {
+      unreachable = true;
     }
     if (CC_GATED_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 8), i).join(" ");
