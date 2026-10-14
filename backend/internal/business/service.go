@@ -129,12 +129,16 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 	// is_batch / is_serial 商品在原版出入库与订单中全部可用
 	// （P1/P2/P3 与 Q1-Q6 回放：批次商品可无批次出库，序列号商品受台账约束），
 	// 原先的整类拒绝属未经证据的错误拒绝，已移除。
-	// is_combo 无法经商品接口构造（创建时被原版忽略，P4 回放），保留拒绝并标注无法取证。
-	for _, k := range []string{"is_combo"} {
-		if p[k] == int64(1) || p[k] == true {
-			return nil, ErrUnsupported
-		}
-	}
+	//
+	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
+	// 原版**不存在 is_combo=true 的商品行** —— 传入 is_combo=true 或 1 均被静默忽略
+	// （回读 undefined，combo-products 列表总数恒为 0）；
+	// 而 product_type=combo 会**正常落库**，且该商品出入库完全正常（code:0 + confirm 通过）。
+	// 原实现按 is_combo 拒绝，但该字段在原版永远为假 → 守卫**永不可达**，属死代码，已移除。
+	//
+	// 注：原版的组合件功能挂在独立的 `/api/v1/combo-products` 端点族上
+	// （列表/详情/改行/删除/组装/拆卸/可用量），恢复端尚未恢复该端点族，
+	// 属**功能缺失**而非本守卫问题 —— 组合件功能恢复时应另立任务。
 	return p, nil
 }
 
@@ -147,8 +151,9 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 //
 // 表无对应列的——订单的 location_id / rack_id / batch_no / serial_nos / production_date、
 // 库存单与退货单的 sales_contract_id / contract_id——原版**一律静默忽略**：
-//   批次 O 实测销售订单带 location_id / rack_id / batch_no / serial_nos / production_date
-//   全部 code:0 建单成功；入库单带 sales_contract_id / contract_id 也 code:0。
+//
+//	批次 O 实测销售订单带 location_id / rack_id / batch_no / serial_nos / production_date
+//	全部 code:0 建单成功；入库单带 sales_contract_id / contract_id 也 code:0。
 //
 // 原实现对这些字段 return ErrUnsupported（501），把原版的「静默忽略」变成了「拒绝」，
 // 属系统性误拒。已移除守卫：表有列则落库，表无列则按原版忽略。
@@ -226,19 +231,18 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 	// 即原版对订单的这两个字段**一律静默忽略**。
 	// 原恢复端 return ErrUnsupported 把「静默忽略」变成「拒绝」，与原版不符，已移除。
 	// 库存单同样接受 source_id/source_no（原版 code:0），该路径本就未被本守卫覆盖。
-	// 原版订单表有 discount_amount 列：接受并落库，但不参与 total_amount 计算
-	// （2026-10-13 B2 回放：discount_amount=50 落库、total_amount 仍为 100）；
-	// 行级 discount 计入金额（R5：2×100-20 → amount=180），恢复端行级逻辑已一致。
-	// discount / discount_rate 在原版无对应列，保持显式拒绝。
-	for _, k := range []string{"discount", "discount_rate"} {
-		v, err := Number(input[k])
-		if err != nil {
-			return nil, err
-		}
-		if !v.IsZero() {
-			return nil, ErrUnsupported
-		}
-	}
+	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
+	// 表头的 discount / discount_rate 原版**一律静默忽略** ——
+	//   销售订单 discount=10         → code:0
+	//   销售订单 discount_rate=0.1   → code:0
+	//   采购订单 discount=10         → code:0
+	//   入库单   discount=10         → code:0
+	// 两字段在 sales_orders / purchase_orders 表中**都没有对应列**
+	// （表头只有 discount_amount，行级有 discount），属批次 N/O/P 同源的「静默忽略」误拒，
+	// 原恢复端 return ErrUnsupported 与原版不符，已移除。
+	//
+	// 表头 discount_amount 原版接受并落库（回读 50）但**不参与 total_amount 计算**
+	// （total_amount 仍为 2×10=20，2026-10-13 B2 回放），恢复端这一行为已一致。
 	id := ""
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		wh := value(input, "warehouse_id")

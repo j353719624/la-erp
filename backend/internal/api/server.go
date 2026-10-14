@@ -1746,10 +1746,26 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	}
 	respond(w, 200, s.public(r, res, row))
 }
+
+// originalIgnoredFields 是原版**静默忽略、不落库**的字段（批次 R 取证）。
+//
+// products.is_combo：原版传入 true 或 1 均被忽略（回读 undefined/false），
+// combo-products 列表总数恒为 0 —— 即原版从不产生 is_combo=true 的商品行，
+// 组合件走独立的 /api/v1/combo-products 端点族（尚未恢复）。
+// 恢复端若无条件写列会产出原版不存在的行，进而让 plainProduct 的守卫误判，
+// 故按原版语义在此过滤。
+var originalIgnoredFields = map[string]map[string]bool{
+	"products": {"is_combo": true},
+}
+
 func (s *Server) record(r *http.Request, res Resource, input map[string]any, creating bool) (map[string]any, error) {
 	record := map[string]any{}
+	ignored := originalIgnoredFields[res.Table]
 	for key, value := range input {
 		if !s.Store.Has(res.Table, key) || key == "id" || key == "created_at" || key == "updated_at" || key == "deleted_at" || key == "password_hash" || key == "token_version" || key == "created_by" || key == "updated_by" || key == "tenant_id" || key == "is_system" || (!creating && res.Table == "sys_users" && key == "username") {
+			continue
+		}
+		if ignored[key] {
 			continue
 		}
 		record[key] = value
