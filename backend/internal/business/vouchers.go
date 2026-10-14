@@ -36,8 +36,16 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 	creating := id == ""
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		raw, ok := input["entries"].([]any)
-		if !ok || len(raw) < 2 || len(raw) > 1000 {
-			return errors.New("凭证分录必须为2至1000行")
+		// 批次 V 取证（2026-10-14，evidence/backend-runtime/audit-batch-v-20261014.json）：
+		// 原版凭证**分录行数无上限**（借贷平衡前提下实测）：
+		//   2 / 100 / 1000 / 1500 行 → code:0 全部建单成功
+		//   0 行   → 400「凭证分录不能为空」
+		//   1 行   → 400「借方金额与贷方金额必须相等」（借贷自然不平）
+		//   1001 行 → 400 同上（奇数行导致借贷不平，**不是行数超限**）
+		// 即原版的分录约束只有「非空」与「借贷相等」两条，没有 1000 行的硬上限。
+		// 原恢复端限制 2..1000 行，属误拒（会挡住合法的 1001+ 行凭证），已放宽为「非空」。
+		if !ok || len(raw) == 0 {
+			return errors.New("凭证分录不能为空")
 		}
 		// 原版回放 KK5（2026-10-14，evidence/backend-runtime/audit-batch-k-20261014.json）：
 		// 凭证传 type="adjustment"、带 source_id/source_type、带 currency_code —— 三者

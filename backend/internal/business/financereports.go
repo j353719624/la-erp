@@ -106,5 +106,11 @@ func (s *Service) FinanceReport(ctx context.Context, q url.Values, mode string) 
 	case "balance-sheet":
 		return map[string]any{"assets": assets.String(), "liabilities": liabilities.String(), "equity": equity.Add(profit).String(), "unclosed_profit": profit.String()}, nil
 	}
+	// 批次 V 取证（2026-10-14，evidence/backend-runtime/audit-batch-v-20261014.json）：
+	// 原版 `reports/finance/` 只挂 5 个模式（profit-loss / balance-sheet / trial-balance /
+	// cash-flow / general-ledger）；income / bogus / profit / revenue 等其它名称
+	// 全部由路由层直接 404「路由不存在」，**不进入本分支**。
+	// 即本 default 分支**不可达**，属防御性断言，保留 ErrUnsupported 作兜底。
+
 	return nil, ErrUnsupported
 }

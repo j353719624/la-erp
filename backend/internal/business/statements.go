@@ -17,21 +17,25 @@ func (s *Service) Statement(ctx context.Context, q url.Values, party string) (an
 	if party == "supplier" {
 		invoice, payment, payDate, payNo, payType = "ap_invoices", "payment_payments", "payment_date", "payment_no", "payment"
 	}
-	for _, key := range []string{"start_date", "end_date"} {
-		if v := q.Get(key); v != "" {
-			if _, err := time.Parse("2006-01-02", v); err != nil {
-				return nil, ErrUnsupported
-			}
-		}
-	}
+	// 批次 V 取证（2026-10-14，evidence/backend-runtime/audit-batch-v-20261014.json）：
+	// 原版 `GET /reports/finance/statement/{customer|supplier}` 对**非法日期一律 code:0**
+	// （start_date=bad / end_date=bad / start_date=2026-13-45 均 200/0），
+	// 即静默忽略、视为未指定 —— 与 aging 端点行为一致（同批取证）。
+	// 原恢复端 return ErrUnsupported（501）属误拒，已移除。
+	// 实际过滤在下方构造 where 时进行（必须在那里做，否则非法值会进 SQL 反而清空结果集）。
 	where, args := []string{}, []any{}
 	if id := q.Get(party + "_id"); id != "" {
 		where = append(where, "party_id=?")
 		args = append(args, id)
 	}
 	if end := q.Get("end_date"); end != "" {
-		where = append(where, "date(event_date)<=date(?)")
-		args = append(args, end)
+		// 批次 V：原版对非法日期静默忽略（视为未指定）。
+		// 这里必须显式判断 —— 若把非法值传给 `date(?)`，MySQL 返回 NULL，
+		// 条件 `date(event_date) <= NULL` 恒为假，会把整个结果集清空（与原版不符）。
+		if _, err := time.Parse("2006-01-02", end); err == nil {
+			where = append(where, "date(event_date)<=date(?)")
+			args = append(args, end)
+		}
 	}
 	sql := "SELECT * FROM (SELECT " + party + "_id AS party_id," + party + "_name AS party_name,invoice_date AS event_date,invoice_no AS no,COALESCE(source_no,'') AS source_no,'invoice' AS type,total_amount AS amount,balance,created_at AS event_created FROM " + invoice + " WHERE deleted_at IS NULL UNION ALL SELECT " + party + "_id," + party + "_name," + payDate + "," + payNo + ",'','" + payType + "',amount,0,created_at FROM " + payment + " WHERE deleted_at IS NULL AND status='confirmed')"
 	if len(where) > 0 {

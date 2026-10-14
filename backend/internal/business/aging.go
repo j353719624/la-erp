@@ -18,7 +18,16 @@ func (s *Service) Aging(ctx context.Context, q url.Values, kind string) (map[str
 	}
 	ref, err := time.Parse("2006-01-02", asOf)
 	if err != nil {
-		return nil, ErrUnsupported
+		// 批次 V 取证（2026-10-14，evidence/backend-runtime/audit-batch-v-20261014.json）：
+		// 原版 `GET /reports/finance/aging` 对**非法 as_of 一律 code:0**：
+		//   as_of=2026-13-45 → 200/0
+		//   as_of=abc        → 200/0
+		//   as_of=2026-01-01（合法）→ 200/0，且 buckets 数量与非法值不同（1 vs 2），
+		//   说明合法日期确实生效、非法日期则被当作「未指定」。
+		// 即原版对非法日期**静默回退**，不返回错误。
+		// 原恢复端 return ErrUnsupported（501）属误拒，已移除 —— 回退到当天。
+		// 回退到当天，与「未指定 as_of」行为一致。
+		ref = time.Now()
 	}
 	rows, err := s.Store.Rows(ctx, "SELECT * FROM "+table+" WHERE deleted_at IS NULL")
 	if err != nil {
