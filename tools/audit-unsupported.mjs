@@ -79,6 +79,14 @@ const ROUTED_TABLE_GUARDS = new Set([
   "productionmasters.go:DeleteProductionMaster",
 ]);
 
+// 批次 Z（2026-10-14）：d.Stock 在全部调用点上恒为固定值，故守卫不可达。
+//   fulfillment.source        —— 两个调用点（service.go:363 / 795）都在 `if d.Stock` 内
+//   fulfillment.Approve       —— 只在 approve 路由（business.go:53 `if !d.Stock`）里被调
+const STOCK_GATED_GUARDS = new Set([
+  "fulfillment.go:source",
+  "fulfillment.go:Approve",
+]);
+
 const UNREACHABLE_ACTIONS = new Set([
   "AdjustmentAction", "AssemblyAction", "AttendanceAction", "CheckAction",
   "ExpenseAction", "ReworkAction", "SubcontractAction", "ToolingAction",
@@ -117,6 +125,10 @@ for (const f of files) {
     if (ROUTED_TABLE_GUARDS.has(`${f}:${fn}`)) {
       const tail = lines.slice(Math.max(0, i - 6), i).join(" ");
       if (/table != "(\w+)" && table != "(\w+)"/.test(tail)) unreachable = true;
+    }
+    if (STOCK_GATED_GUARDS.has(`${f}:${fn}`)) {
+      const tail = lines.slice(Math.max(0, i - 3), i).join(" ");
+      if (/if!?\s*d\.Stock/.test(tail)) unreachable = true;
     }
     rows.push({
       file: f,

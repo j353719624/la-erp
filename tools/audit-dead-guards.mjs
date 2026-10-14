@@ -163,3 +163,74 @@ export function findRoutedTableGuards() {
 
 const routed = findRoutedTableGuards();
 dump("静态判定：路由层硬编码表名 → 死代码", routed);
+
+// ---------- 第四类死代码：调用点已被条件包住（批次 Z） ----------
+//
+// 形如 `func (s *Service) X(ctx, d Document, ...)` 开头有
+//   if d.Stock { ... } / if !d.Stock { ... }
+// 的守卫。若**全部调用点**都出现在 API 层或业务层的 `if d.Stock` / `if !d.Stock`
+// 块内，则 d.Stock 恒为固定值 → 守卫不可达。
+export function findStockGatedGuards() {
+  const bizFiles = walk(BIZ).filter((f) => !f.endsWith("_test.go"));
+  const apiDir = join(ROOT, "backend/internal/api");
+  const apiFiles = walk(apiDir).filter((f) => !f.endsWith("_test.go"));
+
+  // 收集每个函数名 → 是否全部调用点都被 d.Stock 条件包住
+  const gated = new Set();
+  const allFns = new Map();
+
+  for (const [files, isApi] of [[bizFiles, false], [apiFiles, true]]) {
+    for (const f of files) {
+      const lines = readFileSync(f, "utf8").split("\n");
+      // 记录所有 `if d.Stock {` / `if !d.Stock {` 块的行范围
+      const stockBlocks = [];
+      const stack = [];
+      lines.forEach((l, i) => {
+        const open = l.match(/^(\s*)if\s+!?d\.Stock\s*\{\s*$/);
+        if (open) stack.push({ indent: open[1].length, start: i, negated: l.includes("!d.Stock") });
+      });
+      for (const b of stack) {
+        let end = b.start + 1;
+        for (let i = b.start + 1; i < lines.length; i++) {
+          const ind = (lines[i].match(/^(\s*)/) || [""])[0].length;
+          if (lines[i].trim() === "}" && ind === b.indent) { end = i; break; }
+        }
+        stockBlocks.push(b);
+      }
+      lines.forEach((l, i) => {
+        const call = l.match(/\.([A-Z]\w+|source)\(ctx, tx, d,/) || l.match(/business\(\)\.(\w+)\(r\.Context\(\), d,/);
+        if (!call) return;
+        const name = call[1];
+        const inBlock = stockBlocks.some((b) => i > b.start && i < b.end);
+        if (!allFns.has(name)) allFns.set(name, { total: 0, gated: 0, isApi });
+        const e = allFns.get(name);
+        e.total++;
+        if (inBlock) e.gated++;
+      });
+    }
+  }
+
+  const out = [];
+  for (const [name, info] of allFns) {
+    if (info.total > 0 && info.gated === info.total) gated.add(name);
+  }
+  // 再扫业务层：这些函数里的 `if d.Stock` / `if !d.Stock` 守卫即死代码
+  for (const f of bizFiles) {
+    const file = f.replace(/.*business[\\/]/, "");
+    const lines = readFileSync(f, "utf8").split("\n");
+    let fn = "";
+    lines.forEach((l, i) => {
+      const m = l.match(/^func (?:\([^)]*\) )?(\w+)\(/);
+      if (m) fn = m[1];
+      if (!/^(\s*)if\s+!?d\.Stock\s*\{\s*$/.test(l)) return;
+      // 下一非空行是 return ErrUnsupported 才算守卫
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (!/return\s+ErrUnsupported/.test(lines[j] || "")) return;
+      if (gated.has(fn)) out.push({ file, line: i + 1, fn });
+    });
+  }
+  return out;
+}
+
+dump("静态判定：调用点已被 d.Stock 条件包住 → 死代码", findStockGatedGuards());

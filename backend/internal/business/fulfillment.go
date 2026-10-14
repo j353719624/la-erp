@@ -35,6 +35,9 @@ func (s *Service) source(ctx context.Context, tx *sql.Tx, d Document, h map[stri
 	if id == "" {
 		return nil, nil
 	}
+	// 批次 Z（2026-10-14）：两处调用点（service.go:363 建单期、service.go:795 确认期）
+	// **都已在 `if d.Stock` 块内**（service.go:349 / 795），故本守卫**永不可达**。
+	// 属防御性断言，保留 ErrUnsupported 作兜底，不自造文案。
 	if !d.Stock {
 		return nil, ErrUnsupported
 	}
@@ -139,6 +142,10 @@ func (s *Service) Approve(ctx context.Context, d Document, id, user string) (map
 	}
 	// 原版没有 stock 单据的审批路由（2026-10-13 A4 回放：POST /stock-ins/{id}/approve → 404
 	// 「路由不存在」），恢复端同样不支持该动作，返回 ErrUnsupported。
+	// 批次 Z（2026-10-14）：approve 路由在 API 层用 `if !d.Stock` 包住注册
+	// （internal/api/business.go:53-54），即**只有非库存单据才有 approve 端点**。
+	// 本函数只在 approve 路由里被调用（business.go:58），故 `d.Stock` 恒为 false
+	// → 本守卫**永不可达**。保留 ErrUnsupported 作兜底，不自造文案。
 	if d.Stock {
 		return nil, ErrUnsupported
 	}
