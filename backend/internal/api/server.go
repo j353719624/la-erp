@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1321,8 +1322,143 @@ func (s *Server) protected(permission string, next http.Handler) http.Handler {
 			fail(w, 403, "没有操作权限")
 			return
 		}
+		// 动作端点（/{id}/<action>）在「记录不存在」时的原版形态与通用 404 不同。
+		// 这里包一层 ResponseWriter 捕获响应：只有当命中 actionNotFoundShapes
+		// 且下游真的因「记录不存在」失败（404 或业务 10000）时才改写成实测形态。
+		if shape, ok := s.actionNotFoundShape(r); ok {
+			recorder := &captureWriter{ResponseWriter: w, status: 200}
+			next.ServeHTTP(recorder, r)
+			if recorder.looksMissing() {
+				recorder.rewrite(shape)
+			} else {
+				recorder.flush()
+			}
+			return
+		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// actionNotFoundShape 判断当前请求是否命中「动作端点 notFound 形态」配置。
+//
+// 路径形如 /api/v1/<resource>/<uuid>/<action>，只有 (resource|action) 在
+// actionNotFoundShapes 里命中才返回配置；其余（如 /{id}/stage 这类未实测的）
+// 返回 false 完全透传。
+func (s *Server) actionNotFoundShape(r *http.Request) (actionNotFound, bool) {
+	if r.Method != http.MethodPost {
+		return actionNotFound{}, false
+	}
+	segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// api / v1 / <resource> / <id> / <action>
+	if len(segments) != 5 || segments[0] != "api" || segments[1] != "v1" {
+		return actionNotFound{}, false
+	}
+	shape, ok := actionNotFoundShapes[segments[2]+"|"+segments[4]]
+	return shape, ok
+}
+
+// captureWriter 捕获下游写出的状态码与 body；**先缓存不提交**，
+// 由调用方决定按原样透传还是按实测形态改写。
+//
+// 不能在 WriteHeader 里就转发 —— 一旦提交就无法再改状态码，
+// 而本用例要把 404 换成 200（原版对动作端点用业务错误形态）。
+type captureWriter struct {
+	http.ResponseWriter
+	status  int
+	body    []byte
+	wrote   bool
+	headers http.Header
+}
+
+// headers 返回将要写出的响应头副本，供 flush 时使用。
+func (c *captureWriter) snapshotHeaders() http.Header {
+	if c.headers == nil {
+		c.headers = c.ResponseWriter.Header().Clone()
+	}
+	return c.headers
+}
+
+func (c *captureWriter) WriteHeader(status int) {
+	if c.wrote {
+		return
+	}
+	c.status = status
+	c.wrote = true
+	c.snapshotHeaders()
+}
+
+func (c *captureWriter) Write(p []byte) (int, error) {
+	if !c.wrote {
+		c.status = http.StatusOK
+		c.wrote = true
+		c.snapshotHeaders()
+	}
+	c.body = append(c.body, p...)
+	return len(p), nil
+}
+
+// flush 按缓存的响应原样提交（用于不需要改写的情况）。
+func (c *captureWriter) flush() {
+	if !c.wrote {
+		return
+	}
+	header := c.snapshotHeaders()
+	for key, values := range header {
+		for _, v := range values {
+			c.ResponseWriter.Header().Add(key, v)
+		}
+	}
+	c.ResponseWriter.WriteHeader(c.status)
+	_, _ = c.ResponseWriter.Write(c.body)
+}
+
+// looksMissing 判断下游响应是否真的属于「记录不存在」。
+//
+// 不能只看 `code == 10000` —— 大量业务校验失败也用 10000
+// （如 work-order-processes/start 的「只有待处理状态的工序才能开始」、
+//
+//	sales-orders/approve 的「当前状态不允许审批」）。
+//
+// 若一律改写，会把业务失败文案吞成「工序不存在」，这正是批次 LL 首版实现
+// 引发 6 个既有回放测试失败的原因。
+//
+// 判据：响应文案里含「不存在」才认为确实是「记录不存在」。
+// 这是逐条回放归纳出来的 —— 实测的 35 组不一致里，原版文案全部含「不存在」
+// 或为 400/500 通用文案；而业务校验文案不含这三个字。
+func (c *captureWriter) looksMissing() bool {
+	if c.status == http.StatusNotFound {
+		return true
+	}
+	if !bytes.Contains(c.body, []byte(`"code":10000`)) {
+		return false
+	}
+	return bytes.Contains(c.body, []byte("不存在"))
+}
+
+// rewrite 用实测的原版形态替换缓存的响应，并提交。
+func (c *captureWriter) rewrite(shape actionNotFound) {
+	body := fmt.Sprintf(`{"code":%d,"message":%s,"data":null}`, shape.code, mustJSONString(shape.text))
+	header := c.snapshotHeaders()
+	header.Set("Content-Type", "application/json; charset=utf-8")
+	for key := range header {
+		c.ResponseWriter.Header().Del(key)
+	}
+	for key, values := range header {
+		for _, v := range values {
+			c.ResponseWriter.Header().Add(key, v)
+		}
+	}
+	c.ResponseWriter.WriteHeader(shape.http)
+	_, _ = c.ResponseWriter.Write([]byte(body))
+}
+
+// mustJSONString 用 encoding/json 转义字符串，避免文案里的引号破坏 JSON。
+func mustJSONString(s string) string {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(raw)
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	data, err := decode(w, r)

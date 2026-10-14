@@ -769,3 +769,68 @@ var writeRouteAbsent = map[string][]string{
 	"production-team-members": {"PUT", "DELETE"},
 	"tax-accruals":            {"PUT"},
 }
+
+// ── ⑨ 动作端点「记录不存在」的形态（批次 LL，2026-10-15）──────────────────
+//
+// 起因：前几轮核对了「路由存在性」「列表/详情形状」「写路径 notFound」，
+// 但**从未核对动作端点（/{id}/confirm、/approve、/cancel…）的 notFound 形态**。
+// 这些是前端高频按钮，文案错了用户立刻看到。
+// tools/scan-action-labels.mjs 对 25 资源 × 36 动作做实际探测，
+// 两端都存在的 40 组里 **35 组不一致**：
+//
+//	25 组：原版 200+10000+中文文案，恢复端 404+404
+//	 5 组：形态同为 200/10000，但恢复端文案与原版不同
+//	 3 组：原版 400，恢复端 404
+//	 2 组：原版 500 通用文案，恢复端 200/10000
+//
+// 关键：同一资源的**不同动作文案可以不同**
+// （如 purchase-requisitions 的 convert 是「采购申请单不存在」而 submit 是「采购申请不存在」），
+// 故按「资源|动作」做键，不能按资源。
+// 证据：evidence/backend-runtime/audit-batch-ll-actions-20261015.json
+
+// actionNotFoundShape 是动作端点（/{id}/<action>）「记录不存在」时原版的形态。
+// 由 tools/scan-action-labels.mjs 逐个实测（批次 LL，2026-10-15）得出，40 组里 35 组不一致。
+// 键是「资源|动作」，值是 HTTP 状态码与业务文案。
+type actionNotFound struct {
+	http int
+	code int
+	text string
+}
+
+var actionNotFoundShapes = map[string]actionNotFound{
+	"accounting-periods|close":      {200, 10000, "会计期间不存在"},
+	"accounting-periods|reopen":     {200, 10000, "会计期间不存在"},
+	"payrolls|confirm":              {200, 10000, "工资批次不存在"},
+	"payment-plans|cancel":          {400, 400, "收付款计划不存在"},
+	"payment-plans|receive":         {400, 400, "Key: 'QfOKnXbU28' Error:Field validation for 'QfOKnXbU28' failed on the 'required' tag"},
+	"assemblies|confirm":            {500, 500, "系统内部错误，请稍后重试或联系管理员"},
+	"assemblies|cancel":             {500, 500, "系统内部错误，请稍后重试或联系管理员"},
+	"expense-claims|approve":        {200, 10000, "报销单不存在"},
+	"expense-claims|cancel":         {200, 10000, "报销单不存在"},
+	"expense-claims|submit":         {200, 10000, "报销单不存在"},
+	"expense-claims|reject":         {200, 10000, "报销单不存在"},
+	"labor-contracts|terminate":     {200, 10000, "合同不存在"},
+	"purchase-requisitions|approve": {200, 10000, "采购申请单不存在"},
+	"purchase-requisitions|cancel":  {200, 10000, "采购申请单不存在"},
+	"purchase-requisitions|convert": {200, 10000, "采购申请不存在"},
+	"purchase-requisitions|submit":  {200, 10000, "采购申请单不存在"},
+	"purchase-requisitions|reject":  {200, 10000, "采购申请单不存在"},
+	"purchase-rfqs|confirm":         {200, 10000, "询价单不存在"},
+	"purchase-rfqs|cancel":          {200, 10000, "询价单不存在"},
+	"purchase-rfqs|convert":         {200, 10000, "询价单不存在"},
+	"sales-quotations|send":         {200, 10000, "销售报价单不存在"},
+	"sales-quotations|convert":      {200, 10000, "销售报价不存在"},
+	"sales-quotations|reject":       {200, 10000, "销售报价单不存在"},
+	"sales-orders|confirm":          {200, 10000, "销售订单不存在"},
+	"sales-orders|approve":          {200, 10000, "销售订单不存在"},
+	"sales-orders|cancel":           {200, 10000, "销售订单不存在"},
+	"sales-orders|close":            {200, 10000, "销售订单不存在"},
+	"sales-orders|change":           {400, 400, "请求参数错误: Key: 'changeSalesOrderRequest.Reason' Error:Field validation for 'Reason' failed on the 'required' tag"},
+	"work-order-processes|complete": {200, 10000, "工序不存在"},
+	"work-order-processes|start":    {200, 10000, "工序不存在"},
+	"work-order-processes|revert":   {200, 10000, "工序不存在"},
+	"work-orders|confirm":           {200, 10000, "工单不存在"},
+	"work-orders|approve":           {200, 10000, "工单不存在"},
+	"work-orders|cancel":            {200, 10000, "工单不存在"},
+	"work-orders|complete":          {200, 10000, "工单不存在"},
+}
