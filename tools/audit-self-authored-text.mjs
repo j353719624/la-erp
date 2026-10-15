@@ -18,6 +18,26 @@ const EXEMPT = new Set([
   "原版该行为存在数据风险，恢复端有意拒绝而非复刻", // ErrOriginalDefect 标识文本
 ]);
 
+// 业务文案的两种写法，都必须纳入提取范围：
+//   ① errors.New("中文…") / fmt.Errorf("中文…") —— 内联字面量
+//   ② XxxYyy = "中文…"                          —— 导出的业务文案常量
+// ② 容易被漏审（批次 PP 就漏过一次：新加的三条装配明细文案全是常量形态，
+// 审计脚本只认 ①，报「无自造」而实际有一条是自造的）。
+// 过滤条件：含中文（排除 "last_out_at" 之类的内部枚举值）+ 用 = 而非 :=（后者是局部变量）。
+const CJK = /[一-鿿]/;
+const INLINE = /(?:errors\.New|fmt\.Errorf)\("([^"]{4,})"/g;
+const CONST = /^\+?\s*([A-Za-z_]\w*)\s*=\s*"([^"]{4,})"/g;
+
+function collectLiterals(text, out, linePrefix) {
+  for (const raw of text.split("\n")) {
+    const line = linePrefix ? raw.slice(1) : raw; // 去掉 diff 的 "+"
+    for (const m of line.matchAll(INLINE)) out.add(m[1]);
+    for (const m of line.matchAll(CONST)) {
+      if (CJK.test(m[2])) out.add(m[2]);
+    }
+  }
+}
+
 function walk(dir, pred, out = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
@@ -32,7 +52,7 @@ const baseFiles = execSync('git ls-tree -r --name-only HEAD backend/', { cwd: RO
 const baseline = new Set();
 for (const f of baseFiles) {
   const s = execSync(`git show HEAD:${f}`, { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 28 });
-  for (const m of s.matchAll(/(?:errors\.New|fmt\.Errorf)\("([^"]{4,})"/g)) baseline.add(m[1]);
+  collectLiterals(s, baseline, false);
 }
 
 const original = new Set();
@@ -54,10 +74,11 @@ for (const f of walk(join(ROOT, "evidence/backend-runtime"), (p) => p.endsWith("
 
 const diff = execSync('git diff -- backend/', { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 28 });
 const added = new Set();
-for (const line of diff.split("\n")) {
-  if (!line.startsWith("+") || line.startsWith("+++")) continue;
-  for (const m of line.matchAll(/(?:errors\.New|fmt\.Errorf)\("([^"]{4,})"/g)) added.add(m[1]);
-}
+collectLiterals(
+  diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).join("\n"),
+  added,
+  true,
+);
 
 const hasEvidence = (c) => {
   const pat = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%[sd]/g, ".*?");

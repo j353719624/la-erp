@@ -2452,6 +2452,33 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		respond(w, 200, row)
 		return
 	}
+	// 装配单：组件明细**必须在表头落库之前**校验完（批次 PP）。
+	// 原因：校验发生在写表头之后的话，任一明细非法都会留下一条无明细的孤儿单据
+	// —— 它在列表里可见、可删，但装配业务上是废数据。
+	// 校验共 A/B/C/D/E/F/G 七段且分段全量前置，见 business.ValidateAssemblyLines。
+	var assemblyLines *business.AssemblyLineSet
+	if res.Table == "assembly_orders" {
+		raw, exists := data["lines"]
+		if !exists || raw == nil {
+			businessFailure(w, errors.New(business.AssemblyLinesRequired), false)
+			return
+		}
+		rawLines, ok := raw.([]any)
+		if !ok {
+			businessFailure(w, business.AssemblyShapeFailure, false)
+			return
+		}
+		if len(rawLines) == 0 {
+			businessFailure(w, errors.New(business.AssemblyLinesRequired), false)
+			return
+		}
+		set, e := s.business().ValidateAssemblyLines(r.Context(), rawLines, true)
+		if e != nil {
+			businessFailure(w, e, false)
+			return
+		}
+		assemblyLines = set
+	}
 	record, err := s.record(r, res, data, true)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -2463,6 +2490,13 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 	if err = s.writeRecord(r, res, record["id"].(string), record, true); err != nil {
 		s.failureForTable(w, err, res.Label, res.Table)
 		return
+	}
+	// 装配单组件明细：表头落库后写行（校验已在上面完成，此处不再可能失败）。
+	if res.Table == "assembly_orders" {
+		if err = s.business().WriteAssemblyLines(r.Context(), record["id"].(string), assemblyLines, false); err != nil {
+			s.failureForTable(w, err, res.Label, res.Table)
+			return
+		}
 	}
 	row, err := s.Store.Get(r.Context(), res.Table, record["id"].(string))
 	if err != nil {
@@ -2521,6 +2555,29 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 	if res.Table == "attendance_requests" && !s.prepareAttendanceRequest(w, data) {
 		return
 	}
+	// 装配单：PUT 时原版会**整体重写**组件明细（批次 PP，
+	// audit-batch-pp-put-lines{,2,3}-20261015.txt）：
+	//   · 带 lines（含空数组）→ 软删旧行 + 写入新行
+	//   · 不带 lines        → 只清空旧明细，**不**报「组件明细不能为空」
+	// 校验同样在写表头之前完成，避免留下「表头已改、明细还是旧的」的半新半旧状态。
+	// 与 POST 唯一的差异是 requireQty=false：原版 PUT 不校验数量为正
+	// （实测 qty=0 → code:0 且原样落库）。
+	var assemblyLines *business.AssemblyLineSet
+	if res.Table == "assembly_orders" {
+		if raw, exists := data["lines"]; exists && raw != nil {
+			rawLines, ok := raw.([]any)
+			if !ok {
+				businessFailure(w, business.AssemblyShapeFailure, false)
+				return
+			}
+			set, e := s.business().ValidateAssemblyLines(r.Context(), rawLines, false)
+			if e != nil {
+				businessFailure(w, e, false)
+				return
+			}
+			assemblyLines = set
+		}
+	}
 	record, err := s.record(r, res, data, false)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -2536,6 +2593,14 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 	if err = s.writeRecord(r, res, id, record, false); err != nil {
 		s.failure(w, err, res.Label)
 		return
+	}
+	// 装配单明细重写：不带 lines 时 assemblyLines 为 nil，WriteAssemblyLines
+	// 只软删旧行（等价于清空），与上面的取证一致。
+	if res.Table == "assembly_orders" {
+		if err = s.business().WriteAssemblyLines(r.Context(), id, assemblyLines, true); err != nil {
+			s.failureForTable(w, err, res.Label, res.Table)
+			return
+		}
 	}
 	row, err := s.Store.Get(r.Context(), res.Table, id)
 	if err == nil {

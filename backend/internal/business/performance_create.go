@@ -12,7 +12,9 @@ func (s *Service) CreatePerformanceAssessment(ctx context.Context, input map[str
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		raw, ok := input["items"].([]any)
 		if !ok || len(raw) == 0 {
-			return errors.New("绩效明细不能为空")
+			// 批次 PP（2026-10-15）：原版逐字为「考核指标不能为空（可选择模板或录入指标）」
+			// （tools/replay-batch-pp-statemachine.js 的建单探针）。括号是原版原文，不得省略。
+			return errors.New("考核指标不能为空（可选择模板或录入指标）")
 		}
 		if value(input, "employee_name") == "" || value(input, "period") == "" {
 			return errors.New("员工和期间不能为空")
@@ -34,8 +36,11 @@ func (s *Service) CreatePerformanceAssessment(ctx context.Context, input map[str
 		weighted, weights := decimal.Zero, decimal.Zero
 		for _, v := range raw {
 			m, ok := v.(map[string]any)
+			// 批次 PP（2026-10-15）：原版缺 indicator（指标名称）时的逐字文案是
+			// 「指标名称不能为空」，不是恢复端原先的「绩效明细格式错误」
+			// （tools/replay-batch-pp-statemachine.js 的建单探针）。
 			if !ok || value(m, "indicator") == "" {
-				return errors.New("绩效明细格式错误")
+				return errors.New("指标名称不能为空")
 			}
 			weight, err := Number(m["weight"])
 			if err != nil || !weight.IsPositive() {

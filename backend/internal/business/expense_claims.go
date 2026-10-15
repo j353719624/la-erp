@@ -53,15 +53,18 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 		}
 		status := value(row, "status")
 		changes := map[string]any{"updated_at": now()}
+		// 批次 PP（2026-10-15）：五个动作的**文案**原版逐字不同，已逐条取证
+		// （tools/replay-batch-pp-expense.js，audit-batch-pp-expense-20261015.txt）。
+		// 原版一律带「的……单」，恢复端此前的简写形态全部不符。
 		switch action {
 		case "submit":
 			if status != "draft" {
-				return errors.New("只有草稿报销才能提交")
+				return errors.New("只有草稿状态的报销单才能提交")
 			}
 			changes["status"] = "submitted"
 		case "approve":
 			if status != "submitted" {
-				return errors.New("只有已提交报销才能审批")
+				return errors.New("只有已提交的报销单才能审批")
 			}
 			amount := readDecimal(row, "total_amount")
 			expenseCode, err := s.expenseMappedCode(ctx, tx, "expense", "6602")
@@ -74,7 +77,7 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 			changes["status"] = "approved"
 		case "paid":
 			if status != "approved" {
-				return errors.New("只有已审批报销才能支付")
+				return errors.New("只有已审批的报销单才能标记付款")
 			}
 			amount := readDecimal(row, "total_amount")
 			cashKey, cashFallback := "bank", "1002"
@@ -94,12 +97,15 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 			}
 		case "reject":
 			if status != "submitted" {
-				return errors.New("只有已提交报销才能驳回")
+				return errors.New("只有已提交的报销单才能驳回")
 			}
 			changes["status"] = "rejected"
 		case "cancel":
-			if status != "draft" && status != "submitted" {
-				return errors.New("当前状态不能取消")
+			// 批次 PP（2026-10-15）：这里不只是文案差异，是**逻辑差异**。
+			// 原版实测 submitted → cancel 被拒（audit-batch-pp-expense2-20261015.txt E9），
+			// 只允许 draft 取消；恢复端原先放行 draft + submitted。
+			if status != "draft" {
+				return errors.New("只有草稿状态的报销单才能取消")
 			}
 			changes["status"] = "cancelled"
 		// 原版 NN1 实测动作集为 submit / approve / paid / reject / cancel，

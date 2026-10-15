@@ -19,25 +19,30 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 		}
 		status := value(row, "status")
 		next := ""
+		// 批次 PP（2026-10-15）：四个动作的文案原版逐字取证
+		// （tools/replay-batch-pp-statemachine.js，audit-batch-pp-statemachine-20261015.txt）。
+		// 原版一律「只有<状态>的考勤申请才能<动作>」，且 approve 的动词是「审批」不是「通过」。
 		switch action {
 		case "submit":
 			if status != "draft" {
-				return errors.New("只有草稿申请才能提交")
+				return errors.New("只有草稿状态的考勤申请才能提交")
 			}
 			next = "submitted"
 		case "approve":
 			if status != "submitted" {
-				return errors.New("只有待审批申请才能通过")
+				return errors.New("只有已提交的考勤申请才能审批")
 			}
 			next = "approved"
 		case "reject":
 			if status != "submitted" {
-				return errors.New("只有待审批申请才能驳回")
+				return errors.New("只有已提交的考勤申请才能驳回")
 			}
 			next = "rejected"
 		case "cancel":
-			if status != "draft" && status != "submitted" {
-				return errors.New("当前状态不能取消")
+			// 批次 PP：与报销单同类，这里不只是文案差异 —— 原版 submitted → cancel
+			// 实测被拒（用例 A5），只允许 draft 取消；恢复端原先放行 draft + submitted。
+			if status != "draft" {
+				return errors.New("只有草稿状态的考勤申请才能取消")
 			}
 			next = "cancelled"
 		// 原版 NN10 的考勤路由前缀与恢复端不同（6 个候选前缀全部 404），
