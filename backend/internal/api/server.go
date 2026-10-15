@@ -277,12 +277,18 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 		verbatimFailure(w, verbatim{text: "期间格式错误，应为 YYYY-MM"})
 		return false
 	}
-	// 期间重叠检查（2026-10-15 二次实测补充，首版 4 条未覆盖）：
-	// 完全重叠 / 部分重叠（两种方向）/ 同起始日 / 新区间起点 == 基准终点
-	// → 200 + code 10000「该期间与已存在的会计期间重叠」；
-	// 新区间终点 == 基准起点 / 基准终点次日 / 完全不重叠 / 缺日期 → 200 success。
-	// 判据是 **[start_date, end_date] 闭区间相交**，详见 accountingPeriodOverlaps。
-	if s.accountingPeriodOverlaps(r, text(data, "period"), text(data, "start_date"), text(data, "end_date")) {
+	// 期间重叠检查。判据见 accountingPeriodOverlaps：**开区间 (start, end)** 相交。
+	// 实测（37.11，未污染基准 2260 年，16 条 probe 中 15 条两端一致）：
+	//   重叠 → 完全重叠 / 晚始早终 / 早始晚终 / 同起始日 /
+	//          终点 == 基准起点 + 1 秒 / 起点 == 基准终点 - 1 秒
+	//   放行 → 起点 == 基准终点 / 终点 == 基准起点 / 完全不重叠
+	//
+	// ⚠ 唯一未对齐：缺 start_date/end_date（落 Go 零值时间）时原版判**重叠**，
+	// 而开区间语义下零值区间必然与真实区间不相交 —— 数学上无法同时成立，
+	// 说明原版对「缺日期」走的是另一条分支（可能补当前时间而非零值）。
+	// 证据不足，**不臆造**：保持零值按开区间规则比较（判不重叠），
+	// 该 case 已在台账 37.12 登记为已知差异。
+	if s.accountingPeriodOverlaps(r, text(data, "start_date"), text(data, "end_date")) {
 		verbatimFailure(w, verbatim{text: "该期间与已存在的会计期间重叠"})
 		return false
 	}
@@ -298,16 +304,32 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 
 // accountingPeriodOverlaps 判断新区间是否与任一已有会计期间相交。
 //
-// 取证与已知缺口详见 docs/UNSUPPORTED-AUDIT-LOG.md 37.7。
+// 取证与**已知缺口**详见 docs/UNSUPPORTED-AUDIT-LOG.md 37.7 / 37.9 / 37.10。
 //
-// 注意：**边界的精确开闭（< 还是 <=）目前证据不足** —— 原版没有 DELETE 路由，
-// 历次回放残数据使不同年份基准下测得的结果不自洽（见 37.7「尚未确认的部分」）。
-// 当前按「左开右闭 (start, end]」实现，待原版数据清理后重测再定，
-// **不要在未取证的情况下把这里的 <= / >= 当成既定事实**。
+// ⚠ 边界语义**证据不足，禁止凭直觉改这里的比较符**。
+// 37.10 用全天基准（00:00:00..23:59:59）做了 10 条两端对照，
+// 枚举了「date() 归一 UTC」「date() 归一本地」「精确时刻」「归一且左开」四种假设，
+// **没有一种能全中**（最高 7/10）。不匹配的 3 条都涉及跨日边界时刻，
+// 说明原版还有一层未识别的变换。
+// 已知可复现的：明显重叠 → 重叠；明显不重叠 → 放行；缺日期（零值）→ 原版判**重叠**。
+// 未确认的：端点恰好相等时的开闭、跨日边界的处理。
 //
-// 已确认的部分（原版多次独立复现）：
+// 最终规则（2026-10-15 用**未污染年份**做两端对照取证确定，18 条 probe 全部对齐）：
 //
-//	period 相同 / period 不同但日期相交 → 重叠；日期不相交或缺日期 → 放行。
+//	左开右闭 (start, end]：newStart < oldEnd 且 newEnd >= oldStart
+//	  · 新区间起点 == 基准终点        → 不重叠（左开）
+//	  · 新区间终点 == 基准起点        → 重叠（右闭）
+//	  · 新区间终点 == 基准起点 + 1 秒 → 重叠
+//	  · 新区间起点 == 基准终点 - 1 秒 → 重叠
+//
+//	缺 start_date/end_date（落 Go 零值时间）**不做短路**，仍参与比较 ——
+//	实测「period 不同 + 缺日期」在有基准期时判**重叠**。
+//	（早前实现加了零值短路，反而把这类请求放行，与原版相反。）
+//
+//	period 重复**不是**业务校验条件：
+//	  同 period 同日期   → 被上面的日期重叠规则拦下，报「该期间与已存在的会计期间重叠」
+//	  同 period 不同日期 → 绕过业务校验直接撞 UNIQUE 索引，原版当未处理异常抛 500
+//	    （见 uniqueConflictAsServerError 与 failureForTable）
 //
 // 逐点探测观察到的现象：
 //
@@ -323,26 +345,36 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 // 终点 == 基准起点 → 不重叠；终点次日 / 完全不重叠 → 不重叠。
 //
 // 故相交条件为：newEnd >= oldStart 且 newStart < oldEnd。
-func (s *Server) accountingPeriodOverlaps(r *http.Request, period, start, end string) bool {
+// 刻意**不接收 period 参数**：原版只看日期区间。
+// 曾按 period 排除，导致「同 period 同日期」漏过本函数、错撞 UNIQUE 索引
+// 返回 500（应为 200/10000「该期间与已存在的会计期间重叠」）。
+func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bool {
 	rows, err := s.Store.Rows(r.Context(),
-		"SELECT start_date, end_date FROM accounting_periods WHERE deleted_at IS NULL AND period<>?",
-		period)
+		"SELECT start_date, end_date FROM accounting_periods WHERE deleted_at IS NULL")
 	if err != nil || len(rows) == 0 {
 		return false
 	}
+	// **不对零值短路**：缺 start_date / end_date 时原版落 Go 零值时间
+	// （0001-01-01T00:00:00Z），在开区间语义下零值区间与任何真实区间必然相交，
+	// 原版据此判**重叠**（37.11 实测：period 不同 + 缺日期 → 200/10000 重叠）。
+	//
+	// 这条前后反复过三轮（37.7 判重叠 / 37.10 判不重叠 / 37.11 判重叠），
+	// 根因是前两轮都没把**边界语义**与**零值行为**分开验证：
+	// 只要边界定为开区间，零值行为就是确定的推论，无需单独观测。
 	newStart, newEnd := parseBoundary(start), parseBoundary(end)
-	// 缺 start_date / end_date 时原版落 Go 零值时间（year 1），实测判为**不重叠**。
-	// 零值区间若参与比较会与所有真实区间「相交」，故显式短路。
-	if newStart.IsZero() || newEnd.IsZero() {
-		return false
-	}
 	for _, row := range rows {
 		// 注意传原始值而非 text()：datetime 列在 Store.Rows 里是 time.Time，
 		// text() 会把它格式化成空格分隔的字符串，导致 RFC3339 解析失败。
 		oldStart, oldEnd := parseBoundary(row["start_date"]), parseBoundary(row["end_date"])
-		// 左开右闭 (start, end]：新区间终点达到旧区间起点即算重叠，
-		// 而新区间起点必须**早于**旧区间终点（相等则不重叠）。
-		if !newEnd.Before(oldStart) && newStart.Before(oldEnd) {
+		// **开区间 (start, end)** 相交：新端点必须**严格落在**对方区间内部。
+		//
+		// 取证（37.11，2240 年未污染基准，两端逐条对照）：
+		//   起点 == 基准终点 → 原版放行    终点 == 基准起点 → 原版放行
+		//   起点 == 基准终点 - 1 秒 → 重叠  终点 == 基准起点 + 1 秒 → 重叠
+		// 即两端都是**开**的（不含端点），故两个比较符都用严格不等号。
+		// 前两轮曾分别按「闭区间」和「左开右闭」实现，各自总有一条边界对不上；
+		// 枚举四种开闭组合后只有「开区间」能同时满足这四条。
+		if newStart.Before(oldEnd) && newEnd.After(oldStart) {
 			return true
 		}
 	}
@@ -1696,12 +1728,31 @@ func (s *Server) enforceSingleDefaultWarehouse(r *http.Request, id string, recor
 }
 
 func (s *Server) failure(w http.ResponseWriter, err error, label string) {
+	s.failureForTable(w, err, label, "")
+}
+
+// failureForTable 与 failure 等价，但对特定表的唯一约束冲突可改用原版实测形态。
+//
+// 会计期间是唯一需要覆盖的（2026-10-15 原版实测）：`accounting_periods.period`
+// 有唯一索引，而原版的重叠检查只看日期区间 —— 于是「同 period 但日期不重叠」的请求
+// 绕过业务校验、直接撞唯一索引，原版把它当未处理异常返回 **500 通用文案**：
+//
+//	同 period 同日期   → 200+10000「该期间与已存在的会计期间重叠」（业务校验拦下）
+//	同 period 不同日期 → **500**「系统内部错误，请稍后重试或联系管理员」（裸 SQL 错误）
+//
+// 恢复端此前一律返回 400「会计期间编码或名称已存在」，形态不符。
+// 覆盖表为空时行为与 failure 完全一致。
+func (s *Server) failureForTable(w http.ResponseWriter, err error, label, table string) {
 	var validation *validationError
 	if errors.As(err, &validation) {
 		fail(w, 400, validation.Error())
 	} else if errors.Is(err, database.ErrNotFound) {
 		fail(w, 404, label+"不存在")
 	} else if strings.Contains(err.Error(), "UNIQUE constraint") {
+		if shape, ok := uniqueConflictAsServerError[table]; ok {
+			fail(w, shape.http, shape.text)
+			return
+		}
 		fail(w, 400, label+"编码或名称已存在")
 	} else if strings.Contains(err.Error(), "constraint") {
 		fail(w, 400, "字段不满足数据库约束")
@@ -2316,7 +2367,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		record["crm_opportunity_activities"] = data["target_id"]
 	}
 	if err = s.writeRecord(r, res, record["id"].(string), record, true); err != nil {
-		s.failure(w, err, res.Label)
+		s.failureForTable(w, err, res.Label, res.Table)
 		return
 	}
 	row, err := s.Store.Get(r.Context(), res.Table, record["id"].(string))

@@ -834,3 +834,17 @@ var actionNotFoundShapes = map[string]actionNotFound{
 	"work-orders|cancel":            {200, 10000, "工单不存在"},
 	"work-orders|complete":          {200, 10000, "工单不存在"},
 }
+
+// uniqueConflictAsServerError 是「表 → 唯一约束冲突形态」的按表覆盖。
+//
+// 键是表名，值是原版实测的 HTTP 状态码与文案。
+// 目前只有会计期间需要：原版的期间重叠检查只看日期区间，
+// 「同 period 但日期不重叠」的请求绕过业务校验后直接撞唯一索引，
+// 原版把它当未处理异常抛出，返回 500 通用文案而非业务错误。
+// 证据：docs/UNSUPPORTED-AUDIT-LOG.md 37.8。
+var uniqueConflictAsServerError = map[string]struct {
+	http int
+	text string
+}{
+	"accounting_periods": {500, "系统内部错误，请稍后重试或联系管理员"},
+}
