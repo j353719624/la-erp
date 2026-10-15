@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -87,6 +88,64 @@ func TestOOAccountBalanceNotFound(t *testing.T) {
 
 	status, result = c.request(http.MethodGet, "/api/v1/accounts/"+ooNIL, nil)
 	ooExpect(t, "detail notFound", 404, 404, "科目不存在", status, result)
+}
+
+// TestOOAccountBalancePeriod 科目余额的 period 语义。
+//
+// 回放 OO（tools/replay-batch-oo-balance.js 受控对照）：原版 GET /accounts/{id}/balance
+// ① **完全忽略** period 参数；② 按 period 升序取首条。
+// 同一科目依次写 2026-10/09/11/08 四期后，返回依次是 10 → 09 → 09 → 08：
+// 写 11 不改变最小值，写 08 才改变 —— 只有 period ASC 吻合。
+// ③ 写入时原版把 YYYY-MM 归一化为「当月 1 日 +08:00」的 RFC3339 串再入库。
+//
+// 恢复端原来按 `account_id=? AND period=?`（period 默认 RFC3339）查，
+// 而 SetOpeningBalances 原样存 YYYY-MM，两者对不上 → **恒为 null**。
+func TestOOAccountBalancePeriod(t *testing.T) {
+	c, _ := setup(t)
+
+	created := c.ok(http.MethodPost, "/api/v1/accounts", map[string]any{
+		"code": "OO-BAL-1", "name": "OO余额科目", "category": "asset",
+	}).(map[string]any)
+	id := created["id"].(string)
+
+	// 写入前：无余额行
+	status, result := c.request(http.MethodGet, "/api/v1/accounts/"+id+"/balance", nil)
+	if status != 200 || result["data"] != nil {
+		t.Fatalf("写入前: 期望 200 + data=nil，实际 %d + %v", status, result["data"])
+	}
+
+	// 写两期期初余额（先晚后早）
+	for _, tc := range []struct{ period string; amount float64 }{{"2026-10", 100}, {"2026-09", 200}} {
+		st, res := c.request(http.MethodPost, "/api/v1/accounting-periods/opening-balances", map[string]any{
+			"period": tc.period, "entries": []any{map[string]any{"account_id": id, "begin_balance": tc.amount}},
+		})
+		if st != 200 || ooCode(res) != 0 {
+			t.Fatalf("写期初 %s: 期望 200/code0，实际 %d/%v（%v）", tc.period, st, ooCode(res), ooMsg(res))
+		}
+	}
+
+	// 默认期间（不传 period）应能读到 —— 这是修复前恒为 null 的地方
+	status, result = c.request(http.MethodGet, "/api/v1/accounts/"+id+"/balance", nil)
+	data, _ := result["data"].(map[string]any)
+	if status != 200 || data == nil {
+		t.Fatalf("写入后默认期间: 期望能读到余额行，实际 %d + %v", status, result["data"])
+	}
+	// period 升序取首条 → 应是 2026-09 那条（begin=200）
+	if got := fmt.Sprint(data["period"]); got != "2026-09-01T00:00:00+08:00" {
+		t.Fatalf("period 应为最早的 2026-09-01T00:00:00+08:00，实际 %q", got)
+	}
+	if got := fmt.Sprint(data["begin_balance"]); got != "200" {
+		t.Fatalf("begin_balance 应为 200（最早期间），实际 %q", got)
+	}
+
+	// 传任意 period 都返回同一条（原版忽略该参数）
+	for _, p := range []string{"2026-10", "BAD", "2026-10-01T00:00:00+08:00"} {
+		_, res := c.request(http.MethodGet, "/api/v1/accounts/"+id+"/balance?period="+p, nil)
+		d, _ := res["data"].(map[string]any)
+		if d == nil || fmt.Sprint(d["period"]) != "2026-09-01T00:00:00+08:00" {
+			t.Fatalf("period=%s 应被忽略并返回最早期间，实际 %v", p, res["data"])
+		}
+	}
 }
 
 func TestOOInvoiceIssueNotFound(t *testing.T) {

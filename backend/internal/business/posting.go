@@ -147,14 +147,18 @@ func (s *Service) AccountBalance(ctx context.Context, id, period string) (map[st
 		// 200 + code 10000，与 GET /accounts/{id} 的 404 不同。
 		return nil, ErrAccountNotFound
 	}
-	if period == "" {
-		var err error
-		period, err = accountingPeriod(now())
-		if err != nil {
-			return nil, err
-		}
-	}
-	rows, err := s.Store.Rows(ctx, "SELECT * FROM account_balances WHERE account_id=? AND period=?", id, period)
+	// 回放 OO（2026-10-15）：原版**完全忽略** period 参数。
+	// 受控对照（tools/replay-batch-oo-balance.js）：同一科目依次写入
+	// 2026-10/09/11/08 四期期初余额，每次写入后 GET balance 的返回依次是
+	// 10 → 09 → 09（写 11 后不变）→ 08（写 08 后变）。
+	// 唯一吻合的排序是 period 升序取首条：写 11 不影响最小值，写 08 才改变它。
+	// 传 2026-10 去查也照样返回 09 那条，所以 period 不入 WHERE。
+	//
+	// 恢复端原来按 `account_id=? AND period=?` 查，而 period 默认取
+	// accountingPeriod(now())（格式 2026-10-01T00:00:00+08:00），
+	// 但 SetOpeningBalances 写入的是入参原样（2026-10），两者对不上 → 恒为 null。
+	_ = period
+	rows, err := s.Store.Rows(ctx, "SELECT * FROM account_balances WHERE account_id=? ORDER BY period ASC LIMIT 1", id)
 	if err != nil {
 		return nil, err
 	}
@@ -162,4 +166,21 @@ func (s *Service) AccountBalance(ctx context.Context, id, period string) (map[st
 		return nil, nil
 	}
 	return s.Store.Public("account_balances", rows[0]), nil
+}
+
+// balancePeriodText 把入参 period 归一化成 account_balances 的存储格式。
+//
+// 回放 OO：原版库里存的是「当月 1 日 00:00:00 +08:00」的 RFC3339 串
+// （写入 2026-10 → 存 2026-10-01T00:00:00+08:00），不是 YYYY-MM。
+// 恢复端原来原样存 YYYY-MM，与过账侧 accountingPeriod 生成的格式不一致，
+// 导致过账时 `WHERE account_id=? AND period=?` 命中不到期初行。
+func BalancePeriodText(period string) string {
+	zone := time.FixedZone("CST", 8*3600)
+	if t, err := time.Parse("2006-01", period); err == nil {
+		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, zone).Format(time.RFC3339)
+	}
+	if t, err := time.Parse(time.RFC3339, period); err == nil {
+		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, zone).Format(time.RFC3339)
+	}
+	return period
 }

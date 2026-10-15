@@ -212,11 +212,14 @@ func (s *Server) registerAccountingPeriodActions() {
 			}
 			entries = append(entries, m)
 		}
-		if err = s.business().SetOpeningBalances(r.Context(), period, entries); err != nil {
+		list, err := s.business().SetOpeningBalances(r.Context(), period, entries)
+		if err != nil {
 			businessFailure(w, err, false)
 			return
 		}
-		respond(w, 200, map[string]any{"period": period, "updated": len(entries)})
+		// 回放 OO：原版成功响应是 `data:{total:N, list:[...]}`，
+		// 恢复端原来的 `{period, updated}` 让前端拿不到写入结果。
+		respond(w, 200, map[string]any{"total": len(list), "list": list})
 	})))
 	for _, action := range []string{"close", "reopen"} {
 		action := action
