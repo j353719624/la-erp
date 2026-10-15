@@ -209,9 +209,45 @@ func TestMMAccountingPeriodZeroValue(t *testing.T) {
 	defer softDeletePeriod(t, s, created["id"].(string))
 
 	// period 与基准不同、日期也不带（落 Go 零值）→ 两端均放行
+	// 原版实测（2440 / 2450 两个两端均确认为空的年份）：
+	//   空库缺省 / 有基准缺省 / 有基准显式传零值 / 有基准日期不相关 —— 4 条全部 200 success
 	status, body := c.request("POST", "/api/v1/accounting-periods", map[string]any{"period": Y + "-09"})
 	if status != http.StatusOK || body["code"] != float64(0) {
 		t.Fatalf("缺日期建期间 = %d %v, want 200/0（原版在干净库上同样放行）", status, body)
+	}
+	if row, ok := body["data"].(map[string]any); ok && row["id"] != nil {
+		softDeletePeriod(t, s, row["id"].(string))
+	}
+
+	// ⚠ 唯一未对齐：**库里存在跨年区间记录时**，原版把零值区间判为重叠。
+	//
+	// 受控对照取证（tools/replay-batch-mm-selfprove.js，2490 / 2500 两个
+	// 两端均确认为空的年份，每条探测的 period 运行前均未被占用）：
+	//
+	//	A 组 库中仅一条跨年区间 `2490-01-31T00:00 .. 2491-01-31T00:00`
+	//	  字段缺省（零值）   → 原版重叠 / 恢复端放行   ← 本用例登记的差异
+	//	  显式传零值        → 原版重叠 / 恢复端放行   ← 同上
+	//	  真实日期不重叠    → 两端放行
+	//	  真实日期与基准相交 → 两端放行（01-10 早于起点 01-31，开区间不相交）
+	//	B 组 库中仅一条同月单点 → 四条全部两端一致
+	//
+	// 即「字段缺省」与「显式传零值」在原版走**同一分支**，
+	// 差异只由「库中是否有跨年区间记录」触发。根因未定位，证据不足**不臆造**，
+	// 保持恢复端现状（放行）并在此显式登记。
+	const Z = "2291"
+	crossYear := c.ok("POST", "/api/v1/accounting-periods", map[string]any{
+		"period":     Z + "-05",
+		"start_date": Z + "-01-31T00:00:00+08:00",
+		"end_date":   "2292-01-31T00:00:00+08:00",
+	}).(map[string]any)
+	defer softDeletePeriod(t, s, crossYear["id"].(string))
+
+	status, body = c.request("POST", "/api/v1/accounting-periods", map[string]any{"period": Z + "-10"})
+	if status != http.StatusOK {
+		t.Fatalf("跨年区间存在时缺省建期间 = %d %v, want 200", status, body)
+	}
+	if body["code"] == float64(0) {
+		t.Logf("已知差异仍在：原版在跨年区间存在时判重叠(%s)，当前实现放行。根因待取证，勿臆造修复。", mmOverlapMsg)
 	}
 	if row, ok := body["data"].(map[string]any); ok && row["id"] != nil {
 		softDeletePeriod(t, s, row["id"].(string))
