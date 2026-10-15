@@ -139,19 +139,24 @@ const RECOVERED_PASS = process.env.ERP_PASSWORD;
 let recoveredToken = "";
 let originalToken = "";
 if (RECOVERED_PASS) {
-  const login = async (base) => {
+  // 原版登录**必须带 company=default**（批次 HH 起的既有约定）；恢复端不需要。
+  // 少了这个参数原版登录会失败，脚本静默退回「无 token 口径」—— 而那个口径下
+  // 受保护路由一律 401，看不出「存在但语义不同」，报出的缺口数是假的。
+  const login = async (base, withCompany) => {
+    const payload = { username: "admin", password: RECOVERED_PASS };
+    if (withCompany) payload.company = "default";
     try {
       const r = await fetch(`${base}/api/v1/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "admin", password: RECOVERED_PASS }),
+        body: JSON.stringify(payload),
       });
       return (await r.json())?.data?.access_token ?? "";
     } catch { return ""; }
   };
   // 原版也登录：批次 KK 要比对「存在但语义不同」，无 token 只能看到 401，看不出差异。
-  originalToken = await login(ORIG);
-  recoveredToken = await login(RECOVERED);
+  originalToken = await login(ORIG, true);
+  recoveredToken = await login(RECOVERED, false);
   if (!originalToken || !recoveredToken) {
     console.error("带凭据复探需要两端都能登录（ERP_PASSWORD），已退回无 token 口径。");
   }
