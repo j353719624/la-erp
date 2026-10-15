@@ -1,0 +1,54 @@
+# LA-ERP 恢复版 · 服务端配置示例
+#
+# 用法：./la-erp-server -c deployment/la-erp.yaml
+#
+# 字段与 backend/cmd/la-erp-server/main.go 的 configuration 结构一一对应，
+# 未列出的字段保持代码内默认值。复制为本文件同名的 la-erp.yaml 后再改，
+# 不要把口令/密钥提交进版本库。
+
+server:
+  # 默认 127.0.0.1 —— 只在容器/反代同机时可用。
+  # 若 nginx 在另一台机器，改为 0.0.0.0（并务必用防火墙限制来源）。
+  host: "127.0.0.1"
+  port: 18887
+
+database:
+  # 此版本仅支持 sqlite；driver 写成别的会直接启动失败
+  # （"PostgreSQL backend recovery is not implemented yet"）。
+  driver: "sqlite"
+  dsn: "data/la-erp.db"
+
+jwt:
+  # 必填且至少 32 个字符，否则启动失败
+  # （"JWT secret must contain at least 32 characters"）。
+  # 留空时会回落到环境变量 ERP_JWT_SECRET，再回落到自动生成的
+  # <db>.jwt.secret 文件（权限 0700）。换掉 secret 会使已签发令牌全部失效。
+  # secret: "请填入至少32个字符的随机串"
+  access_token_ttl: 7200      # 秒，默认 2 小时
+  refresh_token_ttl: 604800   # 秒，默认 7 天
+
+upload:
+  # 留空时回落到 <db 所在目录>/uploads
+  path: "data/uploads"
+  max_size: 10                # MB，允许范围 1~1024，超出启动失败
+
+license:
+  # ⚠️ 默认 true：生产模式（不带 -dev）会读取 license.file 并校验签名，
+  #    文件缺失或校验失败会**直接启动失败**：
+  #    "recovered server currently requires a valid license file;
+  #     trial subsystem not yet restored"
+  #    也就是说——没有授权文件就起不来，且**试用期子系统尚未恢复**。
+  #
+  # 上线前必须完成：
+  #   1) 在目标机器取机器码：node tools/license.mjs machine
+  #   2) 在保管私钥的电脑签发：
+  #      node tools/license.mjs sign --private private.pem \
+  #           --machine-id <机器码> --out license.key --edition pro
+  #   3) 把 license.key 放到下面的 file 路径
+  #
+  # 只有明确清楚后果时才设为 false（等于不校验授权）。
+  enabled: true
+  file: "data/license.key"
+  # 迁移过密钥时指向新的公钥；留空用内置原版公钥
+  public_key: ""
+  trial_days: 0

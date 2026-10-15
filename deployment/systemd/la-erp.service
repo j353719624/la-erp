@@ -1,0 +1,58 @@
+# LA-ERP 恢复版 · systemd 服务单元示例
+#
+# 用法：
+#   sudo cp deployment/systemd/la-erp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now la-erp
+#   journalctl -u la-erp -f
+#
+# 前提：
+#   · 二进制在 /opt/la-erp/la-erp-server
+#   · 配置在 /opt/la-erp/la-erp.yaml（见 deployment/la-erp.yaml.example）
+#   · 授权文件已按配置里的 license.file 放好 —— 否则生产模式启动会失败
+#   · 数据目录 /opt/la-erp/data 已存在且属 la-erp 用户
+
+[Unit]
+Description=LA-ERP recovered backend
+Documentation=https://github.com/j353719624/la-erp-recovered
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=la-erp
+Group=la-erp
+WorkingDirectory=/opt/la-erp
+
+# 不要加 -dev：-dev 会强制绑定回环地址并跳过授权校验，
+# 生产环境用它等于既不对外服务、又不校验授权。
+ExecStart=/opt/la-erp/la-erp-server -c /opt/la-erp/la-erp.yaml
+
+# 后端已处理 SIGTERM（os/signal + syscall.SIGTERM），能优雅退出。
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+# 授权缺失/配置错误属于启动即失败，反复重启没有意义，
+# 5 分钟内失败 5 次就停止，避免刷屏。
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# ── 安全加固 ────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 只有数据目录可写（SQLite、上传、导出、JWT secret 都在这里）
+ReadWritePaths=/opt/la-erp/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# JWT 密钥与口令走环境变量或配置文件，不要写进本单元文件。
+# Environment=ERP_JWT_SECRET=...
+# Environment=LA_ERP_ACCESS_LOG=on
+
+[Install]
+WantedBy=multi-user.target
