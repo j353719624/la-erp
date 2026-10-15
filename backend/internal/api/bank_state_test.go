@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -13,7 +12,7 @@ import (
 
 func verifyBankState(t *testing.T, s *Server, ids map[string]string) {
 	for _, table := range []string{"bank_accounts", "bank_statements"} {
-		raw, err := os.ReadFile("../../../evidence/backend-runtime/" + table + "-including-deleted.json")
+		raw, err := readEvidenceSnapshot(t, "backend-runtime/" + table + "-including-deleted.json")
 		if err != nil {
 			t.Fatal(err)
 		}

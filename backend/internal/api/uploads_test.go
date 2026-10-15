@@ -12,7 +12,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,7 +22,7 @@ func TestOriginalImageUploadReplay(t *testing.T) {
 	if err := s.ConfigureUploads(t.TempDir(), 10); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/upload-flow-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/upload-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

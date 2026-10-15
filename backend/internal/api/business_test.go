@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/shopspring/decimal"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -17,7 +16,7 @@ import (
 // Generated IDs and timestamps are not expected to match across installations.
 func TestOriginalBusinessFlowReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/business-flow-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/business-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +25,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	financialEnd := len(cases)
-	productionRaw, err := os.ReadFile("../../../evidence/backend-runtime/production-flow-contracts.json")
+	productionRaw, err := readEvidenceSnapshot(t, "backend-runtime/production-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +212,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 
 	verifyOriginalPostingState(t, s, "../../../evidence/backend-runtime/production-posting-state.json")
 	verifyOriginalReports(t, c, s, ids)
-	classificationRaw, err := os.ReadFile("../../../evidence/backend-runtime/report-classification-contracts.json")
+	classificationRaw, err := readEvidenceSnapshot(t, "backend-runtime/report-classification-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +238,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		}
 	}
 	t.Logf("replayed %d original business requests", len(cases))
-	inventoryRaw, err := os.ReadFile("../../../evidence/backend-runtime/inventory-flow-contracts.json")
+	inventoryRaw, err := readEvidenceSnapshot(t, "backend-runtime/inventory-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +250,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		masters(item["body"])
 	}
 
-	unitRaw, err := os.ReadFile("../../../evidence/backend-runtime/unit-flow-contracts.json")
+	unitRaw, err := readEvidenceSnapshot(t, "backend-runtime/unit-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +284,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		}
 	}
 	verifyOriginalPostingState(t, s, "../../../evidence/backend-runtime/inventory-unit-posting-state.json")
-	photoRaw, err := os.ReadFile("../../../evidence/backend-runtime/photo-flow-contracts.json")
+	photoRaw, err := readEvidenceSnapshot(t, "backend-runtime/photo-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +312,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 			compare(fmt.Sprintf("photo%d", i), expected["data"], response["data"])
 		}
 	}
-	statementRaw, err := os.ReadFile("../../../evidence/backend-runtime/statement-flow-contracts.json")
+	statementRaw, err := readEvidenceSnapshot(t, "backend-runtime/statement-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +342,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		}
 	}
 	t.Logf("replayed %d cross-month statement requests", len(statements))
-	reorderRaw, err := os.ReadFile("../../../evidence/backend-runtime/reorder-flow-contracts.json")
+	reorderRaw, err := readEvidenceSnapshot(t, "backend-runtime/reorder-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +350,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 	if err = json.Unmarshal(reorderRaw, &reorder); err != nil {
 		t.Fatal(err)
 	}
-	unitMastersRaw, err := os.ReadFile("../../../evidence/backend-runtime/reorder-unit-masters.json")
+	unitMastersRaw, err := readEvidenceSnapshot(t, "backend-runtime/reorder-unit-masters.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +379,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		}
 	}
 	t.Logf("replayed %d replenishment requests", len(reorder))
-	accountRaw, err := os.ReadFile("../../../evidence/backend-runtime/account-flow-contracts.json")
+	accountRaw, err := readEvidenceSnapshot(t, "backend-runtime/account-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +427,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 	t.Logf("replayed %d chart of accounts requests", len(accounts))
 	verifyAccountDeletionState(t, s)
 
-	mappingRaw, err := os.ReadFile("../../../evidence/backend-runtime/mapping-flow-contracts.json")
+	mappingRaw, err := readEvidenceSnapshot(t, "backend-runtime/mapping-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +479,7 @@ func TestOriginalBusinessFlowReplay(t *testing.T) {
 		t.Fatalf("mapping reset not persisted: %v %v", settings, err)
 	}
 	t.Logf("replayed %d account mapping requests", len(mappings))
-	bankRaw, err := os.ReadFile("../../../evidence/backend-runtime/bank-flow-contracts.json")
+	bankRaw, err := readEvidenceSnapshot(t, "backend-runtime/bank-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +590,7 @@ func normalizeReorder(v any) any {
 }
 
 func verifyOriginalReports(t *testing.T, c *client, s *Server, ids map[string]string) {
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/report-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/report-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

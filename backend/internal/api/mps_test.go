@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -13,7 +12,7 @@ import (
 
 func TestOriginalMPSReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/mps/mps-plan-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/mps/mps-plan-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

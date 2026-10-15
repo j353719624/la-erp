@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -23,7 +22,7 @@ func replayMRP(t *testing.T, phase int) {
 	suggestions := phase >= 1
 	c, s := setup(t)
 	read := func(name string, target any) {
-		raw, err := os.ReadFile("../../../evidence/backend-runtime/mrp/" + name)
+		raw, err := readEvidenceSnapshot(t, "backend-runtime/mrp/" + name)
 		if err != nil {
 			t.Fatal(err)
 		}

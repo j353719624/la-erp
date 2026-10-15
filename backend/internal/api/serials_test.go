@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -13,7 +12,7 @@ import (
 
 func TestOriginalSerialNumberReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/serials/serial-number-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/serials/serial-number-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

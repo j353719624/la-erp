@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -11,7 +10,7 @@ import (
 
 func TestOriginalWorkOrderListReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/work-orders/list-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/work-orders/list-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

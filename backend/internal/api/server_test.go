@@ -8,7 +8,6 @@ import (
 	"la-erp-recovered/backend/internal/database"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -192,7 +191,7 @@ func fields(value map[string]any) []string {
 }
 func TestOriginalCreateResponseContracts(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/api-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/api-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +277,7 @@ func normalizeContract(value any) any {
 }
 func TestOriginalCollectionContracts(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/api-contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/api-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

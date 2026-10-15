@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -11,7 +10,7 @@ import (
 
 func TestOriginalCapacityLoadReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := os.ReadFile("../../../evidence/backend-runtime/capacity/contracts.json")
+	raw, err := readEvidenceSnapshot(t, "backend-runtime/capacity/contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
