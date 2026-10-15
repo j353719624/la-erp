@@ -81,15 +81,13 @@ function norm(data) {
   };
   return JSON.stringify(strip(data));
 }
-// 只描述「结构」，不比数据内容（两端库不同）
+// 只描述「结构」，不比数据内容 —— **连条数也不比**：两端是独立库，
+// 原版库里躺着历史数据（如 REC-PERSONAL-FLOW-1013 / OOFLOW1），条数必然不同，
+// 把长度算进结构会让每条用例都误报成不一致。条数由下面的 code 序列单独核对。
 function shape(data) {
-  if (Array.isArray(data)) {
-    return `数组[${data.length}] 键=${[...new Set(data.flatMap((x) => Object.keys(x ?? {})))].sort().join(",")}`;
-  }
-  if (data && typeof data === "object" && "list" in data) {
-    const l = data.list ?? [];
-    return `分页{total=${data.total}, list=${l.length}} 键=${[...new Set(l.flatMap((x) => Object.keys(x ?? {})))].sort().join(",")}`;
-  }
+  const keys = (l) => [...new Set(l.flatMap((x) => Object.keys(x ?? {})))].sort().join(",");
+  if (Array.isArray(data)) return `数组 键=${keys(data)}`;
+  if (data && typeof data === "object" && "list" in data) return `分页 键=${keys(data.list ?? [])}`;
   return typeof data + " " + JSON.stringify(data).slice(0, 80);
 }
 

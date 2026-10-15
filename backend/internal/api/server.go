@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 	"io"
+	"log"
 	"la-erp-recovered/backend/internal/auth"
 	"la-erp-recovered/backend/internal/business"
 	"la-erp-recovered/backend/internal/database"
@@ -20,7 +21,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -95,11 +98,50 @@ type Server struct {
 	machineCodeFn func() string
 	// licenseActivate 授权激活器（由 cmd 注入：校验签名并落盘，返回 {activated,file,message}）。
 	licenseActivate func(name string, content []byte) (map[string]any, error)
+	// accessLog 是否输出访问日志。生产排障需要「谁在什么时候打了哪个接口、
+	// 返回什么状态码、耗时多久」，此前只有一行启动日志，出问题无法回溯。
+	// 只记录 method/path/status/耗时/来源 IP —— **不记录请求体**（含口令、令牌、
+	// 业务金额等敏感数据），也不记录响应内容。
+	// 默认开启；设环境变量 LA_ERP_ACCESS_LOG=off 可关闭。
+	accessLog bool
+}
+
+// statusRecorder 捕获处理器写入的状态码，供访问日志使用。
+// http.ResponseWriter 没有读取状态码的接口，只能自己包一层。
+type statusRecorder struct {
+	http.ResponseWriter
+	status    int
+	committed bool
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	if !sr.committed {
+		sr.status = code
+		sr.committed = true
+	}
+	sr.ResponseWriter.WriteHeader(code)
+}
+func (sr *statusRecorder) Write(b []byte) (int, error) {
+	// 未显式调 WriteHeader 时，首次 Write 隐含 200
+	if !sr.committed {
+		sr.status = 200
+		sr.committed = true
+	}
+	return sr.ResponseWriter.Write(b)
+}
+func (sr *statusRecorder) Flush() {
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 type claimsKey struct{}
 
 func New(store *database.Store, secret string) *Server {
-	s := &Server{Store: store, Auth: auth.New(store, secret), mux: http.NewServeMux(), dbFilename: store.Filename}
+	s := &Server{
+		Store: store, Auth: auth.New(store, secret), mux: http.NewServeMux(), dbFilename: store.Filename,
+		// 默认开启：生产环境默认应该可观测，而不是默认「静默」。
+		accessLog: os.Getenv("LA_ERP_ACCESS_LOG") != "off",
+	}
 	// 批次 PP（2026-10-15）：原版 /health 返回 {"status":"OK"}（大写），
 	// 恢复端原为 "ok"（tools/replay-batch-oo-catchall.js D 组取证）。
 	s.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]any{"status": "OK"}) })
@@ -1489,8 +1531,66 @@ func (s *Server) registerLaborContractActions() {
 	})))
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	recorder := &statusRecorder{ResponseWriter: w, status: 200}
+
+	// 两个 defer 的**注册顺序即逆序执行顺序**，此处刻意如此安排：
+	//   · defer 访问日志（先注册 → 后执行）
+	//   · defer panic 兜底（后注册 → 先执行）
+	// 于是 panic 会先被兜底成 500 并写进 recorder，访问日志随后记到 500，
+	// 而不是漏记或记成 200。
+	defer func() {
+		if !s.accessLog {
+			return
+		}
+		log.Printf("access method=%s path=%s status=%d took=%s remote=%s",
+			r.Method, r.URL.RequestURI(), recorder.status,
+			time.Since(started).Round(time.Millisecond), r.RemoteAddr)
+	}()
+	// 生产就绪度（2026-10-15）：此前**没有任何 panic 兜底**。
+	// net/http 的 conn.serve 虽有 recover（不会打挂进程），但会：
+	//   · 直接掐断连接 → 客户端拿到空响应，无法区分「服务挂了」和「网络抖了」
+	//   · 只往标准错误打堆栈 → 没有请求上下文，无法定位是哪个接口/参数触发的
+	// 故在此统一兜底：记录带请求上下文的日志，并对客户端返回原版已取证的
+	// 通用 500 形态（与 business.ErrOriginalNoMessage 一致，不自造文案）。
+	defer func() {
+		rec := recover()
+		if rec == nil {
+			return
+		}
+		log.Printf("panic method=%s path=%s remote=%s panic=%v\n%s",
+			r.Method, r.URL.RequestURI(), r.RemoteAddr, rec, debug.Stack())
+		// 响应头可能已发出（panic 发生在写 body 中途），此时无法再改状态码，
+		// 仅尽力而为；日志已保证可定位。
+		write(recorder, 500, map[string]any{
+			"code": 500, "message": "系统内部错误，请稍后重试或联系管理员", "data": nil,
+		})
+	}()
 	w.Header().Set("X-ERP-Recovery", "source-reconstruction")
-	s.mux.ServeHTTP(w, r)
+	// 生产就绪度评估（2026-10-15）：原版（Gin）把 `/api/v1/xxx/` 与 `/api/v1/xxx`
+	// 视为同一路由，带尾斜杠的请求照样返回 200 正常数据；Go 的 ServeMux 不会
+	// ——它把以 `/` 结尾的模式当作**子树**前缀，而我们注册的都是精确模式，
+	// 于是所有带尾斜杠的调用全部落到 404「路由不存在」。
+	//
+	// 实测原版（8 个资源抽样，含带 id 与不带 id）：
+	//   /api/v1/accounts/           → 200 同无尾斜杠
+	//   /api/v1/accounts/{id}/      → 200 同无尾斜杠
+	//   /api/v1/auth/me/            → 200 同无尾斜杠
+	//   /api/v1/ 与 /api/           → 404（两端都不处理，保持原样）
+	//
+	// 影响面：既有前端/客户端按原版习惯发出的带尾斜杠请求会全线 404。
+	// 做法：只对 /api/v1/ 前缀、长度超过该前缀、且以 / 结尾的路径剥掉尾斜杠，
+	// 用克隆请求交给 mux，不改动原始 r（避免影响处理器里对原路径的读取）。
+	const apiPrefix = "/api/v1/"
+	if strings.HasPrefix(r.URL.Path, apiPrefix) &&
+		len(r.URL.Path) > len(apiPrefix) &&
+		strings.HasSuffix(r.URL.Path, "/") {
+		cloned := r.Clone(r.Context())
+		cloned.URL.Path = strings.TrimRight(r.URL.Path, "/")
+		s.mux.ServeHTTP(recorder, cloned)
+		return
+	}
+	s.mux.ServeHTTP(recorder, r)
 }
 
 func (s *Server) allProductionEquipments(w http.ResponseWriter, r *http.Request) {
@@ -1696,6 +1796,77 @@ func mustJSONString(s string) string {
 	}
 	return string(raw)
 }
+// ── 登录失败限流 ─────────────────────────────────────────────────────
+//
+// 生产就绪度（2026-10-15）：恢复端此前**完全没有限流**，口令可被无限次枚举。
+// 原版有，且取证清晰（evidence/backend-runtime/audit-batch-pp-login-throttle-20261015.txt）：
+//
+//	· 文案逐字：登录尝试过于频繁，请 5 分钟后再试
+//	· http 429 / code 429（不是 401，也不是 10000）
+//	· 维度：按**用户名**计数 —— 换一个不存在的用户名登录仍回 401，不受他人影响
+//	· 冷却：5 分钟（文案里写死「5 分钟」）
+//	· 冷却期内即使输入**正确**口令也被拒（实测第 ④ 组）
+//
+// 实现取舍：
+//   · 计数存**内存**，进程重启清零。原版是否持久化未能取证；内存实现最简单，
+//     且重启后攻击者不会额外获得机会（清零只是让计数重新开始）。
+//   · **用户不存在也计数**：否则攻击者用任意用户名即可绕过 —— 安全上必须。
+//     这也与实测一致（不存在的用户名第 1 次仍回 401，因为尚未超限）。
+const (
+	// 原版实测：连续失败 10 次仍是 401，**第 11 次**起返回 429
+	// （audit-batch-pp-login-throttle-20261015.txt，冷却满 5 分钟后重跑取得）。
+	loginThrottleLimit  = 10
+	loginThrottleWindow = 5 * time.Minute // 与文案里的「5 分钟」一致
+)
+
+var loginAttempts = struct {
+	sync.Mutex
+	byName map[string]*loginAttempt
+}{byName: map[string]*loginAttempt{}}
+
+type loginAttempt struct {
+	fails   int
+	blocked time.Time
+}
+
+// loginThrottled 判断该用户名当前是否处于冷却期；第二个返回值供测试观察。
+func loginThrottled(username string, now time.Time) (bool, *loginAttempt) {
+	key := strings.ToLower(username)
+	loginAttempts.Lock()
+	defer loginAttempts.Unlock()
+	rec := loginAttempts.byName[key]
+	if rec == nil {
+		return false, nil
+	}
+	return now.Before(rec.blocked), rec
+}
+
+// loginRecordFail 记录一次失败，返回是否已触发冷却。
+func loginRecordFail(username string, now time.Time) bool {
+	key := strings.ToLower(username)
+	loginAttempts.Lock()
+	defer loginAttempts.Unlock()
+	rec := loginAttempts.byName[key]
+	if rec == nil {
+		rec = &loginAttempt{}
+		loginAttempts.byName[key] = rec
+	}
+	rec.fails++
+	if rec.fails >= loginThrottleLimit {
+		rec.blocked = now.Add(loginThrottleWindow)
+		return true
+	}
+	return false
+}
+
+// loginClearFail 登录成功后清零。
+func loginClearFail(username string) {
+	key := strings.ToLower(username)
+	loginAttempts.Lock()
+	defer loginAttempts.Unlock()
+	delete(loginAttempts.byName, key)
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	data, err := decode(w, r)
 	if err != nil {
@@ -1706,11 +1877,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "用户名和密码不能为空")
 		return
 	}
-	result, err := s.Auth.Login(r.Context(), text(data, "username"), text(data, "password"), text(data, "company"))
+	name := text(data, "username")
+	// 冷却检查必须在校验口令**之前**：原版实测冷却期内输入正确口令同样被拒。
+	if blocked, _ := loginThrottled(name, time.Now()); blocked {
+		write(w, 429, map[string]any{
+			"code": 429, "message": "登录尝试过于频繁，请 5 分钟后再试", "data": nil,
+		})
+		return
+	}
+	result, err := s.Auth.Login(r.Context(), name, text(data, "password"), text(data, "company"))
 	if err != nil {
+		loginRecordFail(name, time.Now())
 		fail(w, 401, err.Error())
 		return
 	}
+	loginClearFail(name)
 	respond(w, 200, result)
 }
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -1834,7 +2015,11 @@ func (s *Server) register(name string, res Resource) {
 	case "product", "customer", "supplier", "warehouse":
 		view += "_list"
 	}
-	s.mux.Handle("GET "+base, s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
+	if bareListResources[name] {
+		s.mux.Handle("GET "+base, s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.listBare(w, r, res) })))
+	} else {
+		s.mux.Handle("GET "+base, s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
+	}
 	// 走 s.detail 而非 s.get：与 read_resources.json 重叠的表（production_equipments /
 	// toolings / production_teams / product_documents / assemblies …）需要按原版回放 HH
 	// 的实测形态输出「记录不存在」，未配置的表在 s.detail 内等价于 s.get。
@@ -2009,6 +2194,54 @@ func (s *Server) public(r *http.Request, res Resource, row map[string]any) map[s
 	}
 	return pub
 }
+// 批次 PP（2026-10-15）：原版这两个审批资源的列表返回**裸数组**并**忽略分页**
+// （page_size=2 仍返回全部 5 条），按 created_at **升序**，且不返回 is_active。
+// 恢复端原先走通用注册器：输出 {list,total} 分页对象、默认 `created_at DESC`、
+// 且多带一个 is_active —— 三项都与原版不符。
+//
+// 取证：
+//   · 结构/排序/尾斜杠 → evidence/backend-runtime/audit-batch-pp-approvalflows-20261015.txt
+//     （5 条用例全不一致）
+//   · 软删除两端一致排除（建 1 条删 1 条后列表不含被删记录，条数不变）
+//     → evidence/backend-runtime/audit-batch-pp-approval-shape2-20261015.txt
+//
+// 注：这是**逐资源**差异，不是普遍形态 —— 扫过 105 个资源，只有这两个是裸数组
+// （对照组 currencies 两端都是裸数组是另一回事，原版对它也本就是裸数组）。
+var bareListResources = map[string]bool{
+	"approval-flows":   true,
+	"approval-records": true,
+}
+
+// 原版列表响应不含 is_active：该列供「是否存在活动审批流」守卫使用，不对外暴露。
+var bareListDropKeys = map[string]bool{"is_active": true}
+
+// listBare 输出「原版裸数组」形态的列表：不分页、created_at 升序、剔除内部字段。
+func (s *Server) listBare(w http.ResponseWriter, r *http.Request, res Resource) {
+	order := "id ASC"
+	if s.Store.Has(res.Table, "created_at") {
+		order = "created_at ASC"
+	}
+	where := ""
+	if s.Store.Has(res.Table, "deleted_at") {
+		where = " WHERE deleted_at IS NULL"
+	}
+	rows, err := s.Store.Rows(r.Context(), "SELECT * FROM "+database.Quote(res.Table)+where+" ORDER BY "+order)
+	if err != nil {
+		s.failure(w, err, res.Label)
+		return
+	}
+	// 用 make(…, 0, n) 而非 nil：无数据时也要序列化成 []，与实测原版一致
+	items := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		item := s.Store.Public(res.Table, row)
+		for key := range bareListDropKeys {
+			delete(item, key)
+		}
+		items = append(items, item)
+	}
+	respond(w, 200, items)
+}
+
 func (s *Server) list(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "work_order_processes" {
 		s.workReports(w, r, "list")

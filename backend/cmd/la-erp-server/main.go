@@ -220,7 +220,11 @@ func run() error {
 		password = os.Getenv("ERP_ADMIN_PASSWORD")
 	}
 	if password == "" {
+		// 保留原版默认口令（对齐原版，不自造），但**必须让运维看见风险**：
+		// 部署时若忘记设置，管理员账号会是众所周知的弱口令。
 		password = "admin123"
+		log.Printf("警告：未通过 -initial-admin-password 或 ERP_ADMIN_PASSWORD 设置初始管理员口令，" +
+			"已沿用原版默认口令。仅用于空数据库首次初始化，正式环境请立即登录修改。")
 	}
 	if err = store.Seed(context.Background(), password); err != nil {
 		return err
