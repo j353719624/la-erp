@@ -72,6 +72,11 @@ func (s *Service) CreateAccount(ctx context.Context, input map[string]any) (map[
 func (s *Service) UpdateAccount(ctx context.Context, id string, input map[string]any) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := s.Store.GetWith(ctx, tx, "accounts", id); err != nil {
+			// 批次 PP（2026-10-15）：原版 PUT /accounts/{合法UUID不存在} 回
+			// 400「科目不存在」，恢复端此前直接透传 record not found（ORM 原文泄漏）。
+			if errors.Is(err, database.ErrNotFound) {
+				return ErrAccountNotFound
+			}
 			return err
 		}
 		changes := map[string]any{"updated_at": now()}

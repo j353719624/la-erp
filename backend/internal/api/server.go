@@ -100,7 +100,9 @@ type claimsKey struct{}
 
 func New(store *database.Store, secret string) *Server {
 	s := &Server{Store: store, Auth: auth.New(store, secret), mux: http.NewServeMux(), dbFilename: store.Filename}
-	s.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]any{"status": "ok"}) })
+	// 批次 PP（2026-10-15）：原版 /health 返回 {"status":"OK"}（大写），
+	// 恢复端原为 "ok"（tools/replay-batch-oo-catchall.js D 组取证）。
+	s.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]any{"status": "OK"}) })
 	s.mux.HandleFunc("GET /api/v1/companies/public", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, []map[string]any{{"code": "default", "name": "默认公司", "is_default": true}})
 	})
@@ -182,8 +184,11 @@ func New(store *database.Store, secret string) *Server {
 	// 只有后注册也无效（Go ServeMux 以**更具体的模式**优先），故改为显式注册
 	// 具体方法 + 具体路径，覆盖通用注册器铺出来的形态（详见 gapOO_align.go）。
 	s.ooRegisterFixedHandlers()
+	// 批次 PP（2026-10-15）：原版对一切未注册的 /api/ 路径逐字返回
+	// 404 + code 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，
+	// 8 条对照 100% 一致）。恢复端此前的 501「该业务接口尚未恢复」是自造占位形态。
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		fail(w, 501, "该业务接口尚未恢复："+r.Method+" "+r.URL.Path)
+		fail(w, 404, "路由不存在")
 	})
 	return s
 }
@@ -2031,6 +2036,16 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, res Resource) {
 	respond(w, 200, map[string]any{"list": items, "total": total})
 }
 func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
+	// 批次 PP（2026-10-15）：非法 UUID 的守卫必须放在**所有专用分支之前** ——
+	// vouchers / approval_flows / loan_orders 等表的分支直接调 business 层，
+	// 此前非 UUID 漏进去后输出 404「<Label>不存在」，与原版 400 逐字文案不符。
+	// 只对 badIDMessages 里**已取证**的表生效，未取证表保持原行为，不臆造。
+	if msg, ok := badIDMessages[res.Table]; ok {
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			fail(w, 400, msg)
+			return
+		}
+	}
 	// Business-specific detail handlers below return before the generic
 	// scope check. Enforce visibility before dispatching to those handlers.
 	if scopedMaster(res.Table) {
@@ -2214,8 +2229,10 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 		respond(w, 200, data)
 		return
 	}
+	// 批次 PP（2026-10-15）：非法 UUID 的文案逐表对齐原版
+	// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
 	if _, err := uuid.Parse(r.PathValue("id")); err != nil {
-		fail(w, 400, "无效的 ID")
+		fail(w, 400, badIDMessage(res.Table))
 		return
 	}
 	row, err := s.Store.Get(r.Context(), res.Table, r.PathValue("id"))
@@ -2456,6 +2473,14 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 }
 func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
+	// 批次 PP（2026-10-15）：非法 UUID 在进业务层之前拦下，逐表文案对齐原版
+	// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
+	// 此前非法 ID 漏到 Store.Get → ErrNotFound → 200+10000「<Label>不存在」，
+	// 与原版 400「无效的<Label>ID」不符。
+	if _, err := uuid.Parse(id); err != nil {
+		fail(w, 400, badIDMessage(res.Table))
+		return
+	}
 	// 注意：必须把「记录不存在」与「越权」分开判断 —— checkScope 越权时返回的也是
 	// database.ErrNotFound（见 scope.go:48/51），若混在一起会把越权请求改写成
 	// 200 + 10000「<中文名>不存在」，等于**泄漏记录是否存在**，并绕过数据隔离。
@@ -2524,6 +2549,12 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 }
 func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
+	// 批次 PP（2026-10-15）：非法 UUID 守卫，文案与 GET/PUT 同一套
+	// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
+	if _, err := uuid.Parse(id); err != nil {
+		fail(w, 400, badIDMessage(res.Table))
+		return
+	}
 	// 注：会计科目的删除守卫不在这里 —— registerAccounts 里的
 	// DELETE /api/v1/accounts/{id} 比本通用注册更早命中，守卫写在 accounts.go。
 	// 同 update：记录不存在与越权必须分开判断，理由见上。
@@ -2531,6 +2562,14 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource, ro
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) && writeNotFound(w, route) {
 			return
+		}
+		// 批次 PP（2026-10-15）：个别资源的「合法 UUID 不存在」原版回 400 + 专用文案
+		// （tools/replay-batch-oo-badid2.js，audit-batch-oo-badid2-20261015.txt）。
+		if errors.Is(err, database.ErrNotFound) {
+			if msg, ok := ppWriteNotFound[route]; ok {
+				fail(w, 400, msg)
+				return
+			}
 		}
 		s.failure(w, err, res.Label)
 		return

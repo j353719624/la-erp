@@ -60,6 +60,12 @@ func loadNotFoundStyles(raw []byte) {
 			Message: item.NotFoundMessage,
 		}
 	}
+	// 批次 PP（2026-10-15）：这两张表的详情路由原版不存在（GET /{合法UUID} 实测
+	// 404「路由不存在」，tools/replay-batch-oo-badid2.js）。
+	// 表在 Resources（server.go）注册过、不在 read_resources.json，故在此补配，
+	// 防止通用 GET /{id} 自动补出原版没有的详情路由。
+	notFoundStyles["production_team_members"] = notFoundStyle{HTTP: 404, Code: 404, Message: "路由不存在"}
+	notFoundStyles["approval_records"] = notFoundStyle{HTTP: 404, Code: 404, Message: "路由不存在"}
 }
 
 // responseCapture 缓冲 s.get 的输出，用于在命中「记录不存在」时按原版形态改写。

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"la-erp-recovered/backend/internal/business"
 )
 
 func (s *Server) registerAccounts() {
@@ -36,6 +39,13 @@ func (s *Server) registerAccounts() {
 		respond(w, 200, data)
 	})))
 	s.mux.Handle("PUT /api/v1/accounts/{id}", s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 批次 PP（2026-10-15）：非法 UUID → 400「无效的ID格式」；
+		// 合法 UUID 不存在 → 400「科目不存在」（此前泄漏 ORM 原文 record not found）。
+		// 取证：tools/replay-batch-oo-catchall2.js B 组。
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			fail(w, 400, "无效的ID格式")
+			return
+		}
 		input, err := decode(w, r)
 		if err != nil {
 			fail(w, 400, err.Error())
@@ -45,6 +55,10 @@ func (s *Server) registerAccounts() {
 			return
 		}
 		if err = s.business().UpdateAccount(r.Context(), r.PathValue("id"), input); err != nil {
+			if errors.Is(err, business.ErrAccountNotFound) {
+				fail(w, 400, "科目不存在")
+				return
+			}
 			fail(w, 400, err.Error())
 			return
 		}

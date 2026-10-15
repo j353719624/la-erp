@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"la-erp-recovered/backend/internal/business"
 	"la-erp-recovered/backend/internal/database"
 )
@@ -141,6 +143,13 @@ func (s *Server) registerFinance() {
 		}
 	}
 	s.mux.Handle("GET /api/v1/accounts/{id}/balance", s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 批次 PP（2026-10-15）：非法 UUID → 400「无效的ID格式」
+		// （tools/replay-batch-oo-catchall2.js B 组），此前漏进 AccountBalance
+		// 输出 200+10000「科目不存在」。
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			fail(w, 400, "无效的ID格式")
+			return
+		}
 		data, err := s.business().AccountBalance(r.Context(), r.PathValue("id"), r.URL.Query().Get("period"))
 		if err != nil {
 			// 回放 OO：原版科目不存在时返回 200 + code 10000 + 「科目不存在」，

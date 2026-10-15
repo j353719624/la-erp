@@ -174,8 +174,10 @@ func TestBasicCRUDAndDepartmentCycles(t *testing.T) {
 		t.Fatalf("cycle=%d", status)
 	}
 	c.ok("PUT", "/api/v1/departments/"+child["id"].(string)+"/move", map[string]any{"parent_id": nil})
-	if status, _ := c.request("POST", "/api/v1/work-orders/unknown/finish", map[string]any{}); status != 501 {
-		t.Fatalf("unrecovered operation fabricated success=%d", status)
+	// 批次 PP（2026-10-15）：原版对一切未注册 /api/ 路径逐字返回
+	// 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，8 条对照 100%）。
+	if status, body := c.request("POST", "/api/v1/work-orders/unknown/finish", map[string]any{}); status != 404 || body["message"] != "路由不存在" {
+		t.Fatalf("unrecovered operation = %d %v, want 404 路由不存在", status, body)
 	}
 }
 func fields(value map[string]any) []string {

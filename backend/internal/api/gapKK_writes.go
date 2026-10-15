@@ -279,6 +279,13 @@ func (s *Server) registerPermissionWrites() {
 	})))
 
 	s.mux.Handle("PUT "+base+"/{id}", s.protected("permission_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 批次 PP（2026-10-15）：非法 UUID → 400「无效的权限ID」
+		// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
+		// 权限表在 register() 里提前 return，不经过通用守卫，故在此补。
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			fail(w, 400, badIDMessage("sys_permissions"))
+			return
+		}
 		body, err := decode(w, r)
 		if err != nil {
 			fail(w, 400, err.Error())
@@ -313,6 +320,11 @@ func (s *Server) registerPermissionWrites() {
 	})))
 
 	s.mux.Handle("DELETE "+base+"/{id}", s.protected("permission_delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 批次 PP（2026-10-15）：非法 UUID → 400「无效的权限ID」（同上）。
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			fail(w, 400, badIDMessage("sys_permissions"))
+			return
+		}
 		row, err := s.Store.Get(r.Context(), "sys_permissions", r.PathValue("id"))
 		if err != nil {
 			if errors.Is(err, database.ErrNotFound) {

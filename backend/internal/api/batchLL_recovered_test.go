@@ -111,10 +111,13 @@ func TestLLActionPassthroughUnconfigured(t *testing.T) {
 	if before["message"] != "商机不存在" {
 		t.Fatalf("未配置动作被改写: %v", before)
 	}
-	// 未注册的动作端点应落到 501 兜底，而不是被配置表命中
+	// 未注册的动作端点落到兜底：批次 PP（2026-10-15）取证原版对一切未注册
+	// /api/ 路径逐字返回 404 + code 404 +「路由不存在」
+	// （tools/replay-batch-oo-catchall.js，8 条对照 100%），
+	// 恢复端原先的 501「该业务接口尚未恢复」是自造占位形态，已对齐。
 	status, body := c.request("POST", "/api/v1/products/"+absent+"/no-such-action", map[string]any{})
-	if status != http.StatusNotImplemented || body["message"] == "" {
-		t.Fatalf("未注册动作 = %d %v, want 501", status, body)
+	if status != http.StatusNotFound || body["message"] != "路由不存在" {
+		t.Fatalf("未注册动作 = %d %v, want 404 路由不存在", status, body)
 	}
 }
 
