@@ -183,18 +183,23 @@ func TestMMAccountingPeriodSamePeriodConflict(t *testing.T) {
 	}
 }
 
-// TestMMAccountingPeriodKnownGap 登记**已知未对齐**的一条，勿当新 bug 处理。
+// TestMMAccountingPeriodZeroValue 「缺 start_date/end_date」时两端一致。
 //
-// 「period 不同 + 缺 start_date/end_date」时原版判**重叠**，
-// 而开区间语义下零值区间（0001-01-01）与真实区间必然不相交 ——
-// 数学上两条结论无法同时成立，说明原版对「缺日期」走的是另一条分支
-// （可能补当前时间而非零值）。证据不足，不臆造。
+// ⚠ 本用例的前身叫 TestMMAccountingPeriodKnownGap，把「原版判重叠、恢复端放行」
+// 登记成已知差异。**那条结论是错的**，已在 2026-10-15 推翻：
+// crosscheck 证据里 `period 不同 + 缺日期 → 原版判重叠` 那一轮，
+// 原版库里已积累数十条前几轮回放留下的残数据（原版**没有**
+// `DELETE /accounting-periods/{id}`，删不掉），被测请求的 period 撞上了其中一条，
+// 于是被 period 重复的规则拦下，而非零值语义。
 //
-// 本用例断言「当前实现的行为」并显式记录该差异，取证得到新证据后
-// 应同步修改此处与 docs/UNSUPPORTED-AUDIT-LOG.md 37.12。
-func TestMMAccountingPeriodKnownGap(t *testing.T) {
+// 在**确认两端该年份均为空**的库上重测（2400 年），
+// `period 不同 + 缺日期` 两端都是 `200 success` —— 完全一致。
+//
+// 本用例即固化这个正确结论：缺日期落 Go 零值时间，在开区间语义下
+// 与任何真实区间不相交，故放行。
+func TestMMAccountingPeriodZeroValue(t *testing.T) {
 	c, s := setup(t)
-	const Y = "2280"
+	const Y = "2290"
 	base := map[string]any{
 		"period":     Y + "-01",
 		"start_date": Y + "-01-01T00:00:00+08:00",
@@ -203,13 +208,12 @@ func TestMMAccountingPeriodKnownGap(t *testing.T) {
 	created := c.ok("POST", "/api/v1/accounting-periods", base).(map[string]any)
 	defer softDeletePeriod(t, s, created["id"].(string))
 
-	// 原版实测：200 + 10000「该期间与已存在的会计期间重叠」
-	// 当前实现：200 + 0（放行）—— 二者不一致，属已知差异。
-	status, body := c.request("POST", "/api/v1/accounting-periods", map[string]any{"period": Y + "-02"})
-	if status != http.StatusOK {
-		t.Fatalf("缺日期建期间 = %d %v, want 200", status, body)
+	// period 与基准不同、日期也不带（落 Go 零值）→ 两端均放行
+	status, body := c.request("POST", "/api/v1/accounting-periods", map[string]any{"period": Y + "-09"})
+	if status != http.StatusOK || body["code"] != float64(0) {
+		t.Fatalf("缺日期建期间 = %d %v, want 200/0（原版在干净库上同样放行）", status, body)
 	}
-	if body["code"] == float64(0) {
-		t.Logf("已知差异仍在：原版判重叠(%s)，当前实现放行。取到新证据后请同步 37.12 与本用例。", mmOverlapMsg)
+	if row, ok := body["data"].(map[string]any); ok && row["id"] != nil {
+		softDeletePeriod(t, s, row["id"].(string))
 	}
 }

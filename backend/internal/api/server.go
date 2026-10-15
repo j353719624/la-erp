@@ -283,11 +283,12 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 	//          终点 == 基准起点 + 1 秒 / 起点 == 基准终点 - 1 秒
 	//   放行 → 起点 == 基准终点 / 终点 == 基准起点 / 完全不重叠
 	//
-	// ⚠ 唯一未对齐：缺 start_date/end_date（落 Go 零值时间）时原版判**重叠**，
-	// 而开区间语义下零值区间必然与真实区间不相交 —— 数学上无法同时成立，
-	// 说明原版对「缺日期」走的是另一条分支（可能补当前时间而非零值）。
-	// 证据不足，**不臆造**：保持零值按开区间规则比较（判不重叠），
-	// 该 case 已在台账 37.12 登记为已知差异。
+	// 缺 start_date / end_date（落 Go 零值时间）时**按同一规则比较**：
+	// 零值区间（0001-01-01）在开区间语义下与任何真实区间不相交 → 放行。
+	// 这一点在**确认两端该年份均为空**的库上验证过（2400 年），
+	// 两端都是 200 success。此前 crosscheck 里那条「原版判重叠」是残数据假象
+	// —— 被测 period 撞上了前几轮残留在原版库里的记录（该库无 DELETE 路由），
+	// 被 period 重复规则拦下，与零值语义无关。详见台账 37.12。
 	if s.accountingPeriodOverlaps(r, text(data, "start_date"), text(data, "end_date")) {
 		verbatimFailure(w, verbatim{text: "该期间与已存在的会计期间重叠"})
 		return false
@@ -355,12 +356,14 @@ func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bo
 		return false
 	}
 	// **不对零值短路**：缺 start_date / end_date 时原版落 Go 零值时间
-	// （0001-01-01T00:00:00Z），在开区间语义下零值区间与任何真实区间必然相交，
-	// 原版据此判**重叠**（37.11 实测：period 不同 + 缺日期 → 200/10000 重叠）。
+	// （0001-01-01T00:00:00Z），与真实区间按**同一规则**比较 ——
+	// 开区间下必然不相交 → 放行（两端在干净库上实测一致）。
 	//
-	// 这条前后反复过三轮（37.7 判重叠 / 37.10 判不重叠 / 37.11 判重叠），
-	// 根因是前两轮都没把**边界语义**与**零值行为**分开验证：
-	// 只要边界定为开区间，零值行为就是确定的推论，无需单独观测。
+	// 这条曾反复三轮（37.7 判重叠 / 37.10 判不重叠 / 37.11 又判重叠），
+	// 根因是前两轮的「原版判重叠」都来自**被残数据污染的库**：
+	// 原版没有 DELETE /accounting-periods/{id}，回放留下的记录永远删不掉，
+	// 被测请求的 period 撞上其中一条，就被 period 重复规则拦下，
+	// 与零值语义无关。教训见台账 37.12。
 	newStart, newEnd := parseBoundary(start), parseBoundary(end)
 	for _, row := range rows {
 		// 注意传原始值而非 text()：datetime 列在 Store.Rows 里是 time.Time，
