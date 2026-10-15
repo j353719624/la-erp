@@ -13,7 +13,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -26,7 +26,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -95,13 +95,13 @@ async function run(tag, base, tk, suffix, qty) {
 }
 
 say("=== ① 组件 qty=999999（远超库存）→ 两端都应拒绝 ===");
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   const r = await run(tag, base, tk, "OVER" + stamp, 999999);
   if (r) say(`  [${tag}] confirm: ${r.confirmText} | 流水条数=${r.moves.length}`);
 }
 
 say("\n=== ② 组件 qty=1（合理）→ 两端都应成功并产生 2 条流水 ===");
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   const r = await run(tag, base, tk, "OK" + stamp, 1);
   if (!r) continue;
   say(`  [${tag}] confirm: ${r.confirmText}`);

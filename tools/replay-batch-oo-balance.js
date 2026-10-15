@@ -14,11 +14,11 @@
 // 若原版能读出而恢复端读不出，就是恢复端的 period 格式缺陷；
 // 若两端都读不出，那是原版行为，恢复端无需改（也不能自造）。
 //
-// 用法：ERP_PASSWORD=xxx [OO_RECOVERED=url] node tools/replay-batch-oo-balance.js
+// 用法：ERP_PASSWORD=xxx [OO_ACTUAL=url] node tools/replay-batch-oo-balance.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18903";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18903";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -31,7 +31,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -82,7 +82,7 @@ async function run(tag, base, tk, code) {
 }
 
 await run("原版", ORIG, origToken, "OO-BAL-ORIG");
-await run("恢复端", RECOVERED, recToken, "OO-BAL-REC");
+await run("恢复端", ACTUAL, recToken, "OO-BAL-REC");
 
 writeFileSync(
   "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-balance-20261015.txt",

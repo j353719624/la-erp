@@ -17,7 +17,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -30,7 +30,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -64,7 +64,7 @@ for (const r of rows) {
 say(`\n=== ② 用有库存的商品 confirm（两端对照，组件 qty=1）===`);
 for (const s of stocked.slice(0, 3)) {
   say(`\n--- product=${s.product_id} (库存 qty=${s.qty}) ---`);
-  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
     const no = "A3" + stamp + tag;
     const c = await call(base, tk, "POST", "/api/v1/assemblies", {
       assembly_no: no,
@@ -82,7 +82,7 @@ for (const s of stocked.slice(0, 3)) {
 
 // ── ③ 反证：恢复端用远超库存的数量，看是否仍成功 ──────────────────────
 say(`\n=== ③ 反证：组件 qty=999999（远超任何库存）===`);
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   const { list, warehouse } = await (async () => {
     const r = await call(base, tk, "GET", "/api/v1/products?page=1&page_size=5");
     const w = await call(base, tk, "GET", "/api/v1/warehouses?page=1&page_size=1");

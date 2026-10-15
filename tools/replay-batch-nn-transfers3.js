@@ -9,11 +9,11 @@
 //      （原恢复端的「只有草稿状态的调拨单才能编辑」是自造文案）
 // DELETE 的状态守卫文案又是另一句「只有草稿状态的调拨单才能删除」，勿与 ④ 合并。
 //
-// 用法：ERP_PASSWORD=xxx [NN_RECOVERED=url] node tools/replay-batch-nn-transfers3.js
+// 用法：ERP_PASSWORD=xxx [NN_ACTUAL=url] node tools/replay-batch-nn-transfers3.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.NN_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.NN_ACTUAL ?? "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -25,7 +25,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -58,7 +58,7 @@ async function prepare(base, tk) {
   return { wh, prd, line, mk };
 }
 const O = await prepare(ORIG, origToken);
-const R = await prepare(RECOVERED, recToken);
+const R = await prepare(ACTUAL, recToken);
 const NOPE = "00000000-0000-0000-0000-000000000099";
 
 const both = (n) => "请求参数错误: Key: '" + n + ".FromWarehouseID' Error:Field validation for 'FromWarehouseID' failed on the 'required' tag\n" +
@@ -85,12 +85,12 @@ for (const c of cases) {
   const o = c.build(O), r = c.build(R);
   const oid = o.id ?? (await O.mk()), rid = r.id ?? (await R.mk());
   const ro = flat(await call(ORIG, origToken, "PUT", `/api/v1/stock-transfers/${oid}`, o.body));
-  const rr = flat(await call(RECOVERED, recToken, "PUT", `/api/v1/stock-transfers/${rid}`, r.body));
+  const rr = flat(await call(ACTUAL, recToken, "PUT", `/api/v1/stock-transfers/${rid}`, r.body));
   // ③ 的落库后果：明细确实被清空
   let oLines = null, rLines = null;
   if (ro.code === 0 && rr.code === 0) {
     const od = await call(ORIG, origToken, "GET", `/api/v1/stock-transfers/${oid}`);
-    const rd = await call(RECOVERED, recToken, "GET", `/api/v1/stock-transfers/${rid}`);
+    const rd = await call(ACTUAL, recToken, "GET", `/api/v1/stock-transfers/${rid}`);
     oLines = od.json?.data?.edges?.lines?.length ?? 0;
     rLines = rd.json?.data?.edges?.lines?.length ?? 0;
   }
@@ -106,9 +106,9 @@ const delRec = [];
 {
   const oid = await O.mk(), rid = await R.mk();
   await call(ORIG, origToken, "POST", `/api/v1/stock-transfers/${oid}/cancel`, {});
-  await call(RECOVERED, recToken, "POST", `/api/v1/stock-transfers/${rid}/cancel`, {});
+  await call(ACTUAL, recToken, "POST", `/api/v1/stock-transfers/${rid}/cancel`, {});
   const ro = flat(await call(ORIG, origToken, "DELETE", `/api/v1/stock-transfers/${oid}`));
-  const rr = flat(await call(RECOVERED, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
+  const rr = flat(await call(ACTUAL, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
   const same = ro.http === rr.http && ro.code === rr.code && ro.message === rr.message;
   delRec.push({ case: "DELETE cancelled", orig: ro, actual: rr, same });
   console.log(`\n[DELETE cancelled] ${same ? "一致" : "★差异"}`);
@@ -119,7 +119,7 @@ const delRec = [];
 {
   const oid = await O.mk(), rid = await R.mk();
   const ro = flat(await call(ORIG, origToken, "DELETE", `/api/v1/stock-transfers/${oid}`));
-  const rr = flat(await call(RECOVERED, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
+  const rr = flat(await call(ACTUAL, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
   const same = ro.http === rr.http && ro.code === rr.code && ro.message === rr.message;
   delRec.push({ case: "DELETE draft", orig: ro, actual: rr, same });
   console.log(`\n[DELETE draft] ${same ? "一致" : "★差异"}`);
@@ -132,7 +132,7 @@ const same = all.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-transfers3-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第三轮：PUT 与 DELETE 语义的两端对照",
-  base: { orig: ORIG, actual: RECOVERED },
+  base: { orig: ORIG, actual: ACTUAL },
   put: records,
   del: delRec,
   expectedMessages: {

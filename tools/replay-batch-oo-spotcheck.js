@@ -12,7 +12,7 @@
 // 用法：ERP_PASSWORD=xxx node tools/replay-batch-oo-spotcheck.js
 import { writeFileSync } from "node:fs";
 
-const BASE = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const BASE = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 

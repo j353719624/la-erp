@@ -16,7 +16,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18899";
 const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"];
 
 const PATHS = [
@@ -70,11 +70,11 @@ const rows = [];
 for (const p of PATHS) {
   for (const m of METHODS) {
     const o = await probe(ORIG, m, p);
-    const r = await probe(RECOVERED, m, p);
+    const r = await probe(ACTUAL, m, p);
     rows.push({
       path: p, method: m,
       orig: { http: o.http, code: o.code, msg: o.message, exists: exists(ORIG, o) },
-      rec: { http: r.http, code: r.code, msg: r.msg, exists: exists(RECOVERED, r) },
+      rec: { http: r.http, code: r.code, msg: r.msg, exists: exists(ACTUAL, r) },
     });
     process.stdout.write(".");
   }
@@ -99,7 +99,7 @@ for (const p of PATHS) {
 }
 const text =
   `批次 OO 第一段：多方法存在性复验（无 token）\n` +
-  `原版=${ORIG} 恢复端=${RECOVERED} 共 ${PATHS.length} 路径 × ${METHODS.length} 方法\n` +
+  `原版=${ORIG} 恢复端=${ACTUAL} 共 ${PATHS.length} 路径 × ${METHODS.length} 方法\n` +
   out.join("\n") + "\n";
 console.log(text);
 writeFileSync(

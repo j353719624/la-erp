@@ -14,7 +14,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -27,7 +27,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 const log = [];
 const say = (s) => { log.push(s); console.log(s); };
@@ -87,8 +87,8 @@ async function alive(base) {
 say("=== 畸形输入健壮性探测（只看恢复端；崩溃/5xx 即缺陷）===");
 let deadly = 0, crashed = 0;
 for (const [name, method, path, body] of CASES) {
-  const r = await probe(RECOVERED, rTk, method, path, body);
-  const ok = await alive(RECOVERED);
+  const r = await probe(ACTUAL, rTk, method, path, body);
+  const ok = await alive(ACTUAL);
   let verdict = "OK";
   if (!ok) { verdict = "!! 进程崩溃"; crashed++; deadly++; }
   else if (r.http >= 500) { verdict = "!! 5xx 未处理错误"; deadly++; }
@@ -111,7 +111,7 @@ say(`  原版 5xx/中断 ${origDeadly} / ${CASES.length}`);
 say("");
 say("=== 结论 ===");
 say(`恢复端：崩溃 ${crashed}｜5xx/缺陷 ${deadly} / ${CASES.length}`);
-say(`服务存活：${(await alive(RECOVERED)) ? "是" : "否"}（原版 ${(await alive(ORIG)) ? "是" : "否"}）`);
+say(`服务存活：${(await alive(ACTUAL)) ? "是" : "否"}（原版 ${(await alive(ORIG)) ? "是" : "否"}）`);
 
 writeFileSync(
   new URL(`../evidence/backend-runtime/eval-robustness-probe-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.txt`, import.meta.url),

@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -26,7 +26,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 // 泄漏特征（大小写不敏感）
 const PATTERNS = [
@@ -86,7 +86,7 @@ for (const c of CASES_RAW) CASES.push(c);
 const log = [];
 const say = (s) => { log.push(s); console.log(s); };
 
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   say(`\n=== ${tag} ===`);
   const hits = [];
   for (const [name, method, path, body] of CASES) {

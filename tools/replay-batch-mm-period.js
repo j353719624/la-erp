@@ -14,7 +14,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18899";
+const ACTUAL = "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -27,7 +27,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 if (!origToken || !recToken) {
   console.error(`登录失败 原版=${!!origToken} 恢复端=${!!recToken}`);
   process.exit(1);
@@ -42,7 +42,7 @@ async function call(base, tk, method, path, body) {
   return { http: res.status, json: await res.json() };
 }
 const createOrig = (b) => call(ORIG, origToken, "POST", "/api/v1/accounting-periods", b);
-const createRec = (b) => call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", b);
+const createRec = (b) => call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", b);
 
 // 逐年推进，永不复用被污染的年份。
 // 手工改常量很容易改成上一轮已用过的年份（该年基准期留在原版库里，
@@ -64,7 +64,7 @@ async function compare(tag, body) {
   console.log(`  ${same ? "✓" : "✗"} ${tag.padEnd(24)} 原版=${a.http}/${a.json.code} ${JSON.stringify(a.json.message)}`);
   if (!same) console.log(`      ${" ".repeat(24)} 恢复端=${b.http}/${b.json.code} ${JSON.stringify(b.json.message)}`);
   // 恢复端建了就删；原版无 DELETE，留作残数据（已登记）
-  if (b.json.data?.id) await call(RECOVERED, recToken, "DELETE", `/api/v1/accounting-periods/${b.json.data.id}`);
+  if (b.json.data?.id) await call(ACTUAL, recToken, "DELETE", `/api/v1/accounting-periods/${b.json.data.id}`);
   return same;
 }
 
@@ -100,7 +100,7 @@ tally((await compare("period 不同 起点==基准终点-1秒", { period: `${Y}-
 tally((await compare("period 不同 完全不重叠", { period: `${Y}-09`, start_date: `${Y + 1}-02-01T00:00:00+08:00`, end_date: `${Y + 1}-02-28T00:00:00+08:00` })).same);
 tally((await compare("period 不同 缺日期(零值)", { period: `${Y}-10` })).same);
 
-if (baseRec.json.data?.id) await call(RECOVERED, recToken, "DELETE", `/api/v1/accounting-periods/${baseRec.json.data.id}`);
+if (baseRec.json.data?.id) await call(ACTUAL, recToken, "DELETE", `/api/v1/accounting-periods/${baseRec.json.data.id}`);
 
 // 统计必须从 rows 现算，不能用 pass/fail 累加器 ——
 // 上面每条是 `tally((await compare(...)).same)`，而 compare() 返回的是
@@ -117,7 +117,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-period-crosscheck-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, actual: RECOVERED },
+    base: { original: ORIG, actual: ACTUAL },
     note: "原版无 DELETE /api/v1/accounting-periods/{id}，本轮基准期（year=" + Y + "）留在原版库中作为残数据",
     summary: { total: rows.length, same: pass, differ: fail, textDiff: textDiffCount },
     rows,

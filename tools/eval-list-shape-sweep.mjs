@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -29,7 +29,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败"); process.exit(1); }
 
 // 从前端 api 源码里抓资源路径
@@ -65,7 +65,7 @@ let structural = 0, httpDiff = 0;
 for (const res of list) {
   const path = `/api/v1/${res}?page=1&page_size=2`;
   const o = await probe(ORIG, oTk, path);
-  const r = await probe(RECOVERED, rTk, path);
+  const r = await probe(ACTUAL, rTk, path);
   const so = shapeOf(o.data), sr = shapeOf(r.data);
   const shapeDiff = so.replace(/\[\d+\]|\{total=\d+,n=\d+\}/g, "") !== sr.replace(/\[\d+\]|\{total=\d+,n=\d+\}/g, "");
   const statusDiff = o.http !== r.http || String(o.code) !== String(r.code);

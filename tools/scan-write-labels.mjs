@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18886";
+const ACTUAL = "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 const S = "00000000-0000-0000-0000-000000000001";
@@ -41,7 +41,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const to = await token(ORIG, true);
-const tr = await token(RECOVERED, false);
+const tr = await token(ACTUAL, false);
 if (!to || !tr) { console.error("两端登录失败"); process.exit(1); }
 
 async function probe(base, tk, method, path) {
@@ -65,7 +65,7 @@ const same = [];
 for (const { route } of routes) {
   for (const method of ["PUT", "DELETE"]) {
     const path = `/api/v1/${route}/${S}`;
-    const [o, r] = [await probe(ORIG, to, method, path), await probe(RECOVERED, tr, method, path)];
+    const [o, r] = [await probe(ORIG, to, method, path), await probe(ACTUAL, tr, method, path)];
     // 只看「两端都因记录不存在而失败」的情况；两边任一不是 404/10000 说明路由或鉴权不同，跳过
     const oMissing = o.code === 404 || o.code === 10000;
     const rMissing = r.code === 404 || r.code === 10000;

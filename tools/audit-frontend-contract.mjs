@@ -17,7 +17,7 @@ const arg = (flag, def) => {
   const i = process.argv.indexOf(flag);
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
 };
-const RECOVERED = arg("--actual", "http://127.0.0.1:18886");
+const ACTUAL = arg("--actual", "http://127.0.0.1:18886");
 const SAMPLE = "00000000-0000-0000-0000-000000000001";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
@@ -107,7 +107,7 @@ for (const f of walk(join(ROOT, "frontend/src"), (p) => p.endsWith(".ts") || p.e
 
 // ---------- 2. 登录并实际探测 ----------
 async function login() {
-  const r = await fetch(`${RECOVERED}/api/v1/auth/login`, {
+  const r = await fetch(`${ACTUAL}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: PASS }),
@@ -119,7 +119,7 @@ if (!token) { console.error("恢复端登录失败"); process.exit(1); }
 
 async function probe(method, path, attempt = 0) {
   try {
-    const res = await fetch(`${RECOVERED}${path}`, {
+    const res = await fetch(`${ACTUAL}${path}`, {
       method,
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: method === "GET" || method === "DELETE" ? undefined : "{}",
@@ -181,7 +181,7 @@ for (const r of rows) {
 
 const out = {
   generated: new Date().toISOString(),
-  actual: RECOVERED,
+  actual: ACTUAL,
   summary: {
     frontendCalls: rows.length,
     served: rows.length - broken.length - errored.length,

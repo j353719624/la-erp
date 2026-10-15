@@ -8,7 +8,7 @@
 // 用法：ERP_PASSWORD=xxx node tools/eval-module-readiness.mjs
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -21,7 +21,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败"); process.exit(1); }
 
 async function probe(base, tk, method, path, body) {
@@ -50,7 +50,7 @@ console.log("-".repeat(115));
 let bad = 0;
 for (const [mod, method, path, body] of CASES) {
   const o = await probe(ORIG, oTk, method, path, body);
-  const r = await probe(RECOVERED, rTk, method, path, body);
+  const r = await probe(ACTUAL, rTk, method, path, body);
   const fmt = (x) => `http${x.http} code=${x.code ?? "-"} ${x.msg || "success"}`;
   // 只比「形态」：http 状态 + 业务 code + 文案；数据内容两端必然不同
   const same = o.http === r.http && o.code === r.code && o.msg === r.msg;

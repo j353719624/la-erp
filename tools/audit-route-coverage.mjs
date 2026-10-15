@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 const ROOT = "C:/Users/35371/Desktop/11111/la-erp";
 const ORIG = arg("--orig", "http://192.168.110.97:18886");
-const RECOVERED = arg("--actual", "http://127.0.0.1:18886");
+const ACTUAL = arg("--actual", "http://127.0.0.1:18886");
 const SAMPLE = "00000000-0000-0000-0000-000000000001";
 
 function arg(flag, def) {
@@ -135,15 +135,15 @@ async function probeDetailed(base, path, token) {
 //     带 token 复探才能看清。复探只打恢复端（本地一次性库），不影响原版。
 // (2) probe 只发 GET/POST，PUT-only 路由（如 /notifications/read-all）在原版被
 //     判为缺失。这类已用带凭据回放逐条确认过，见 verifiedOnOriginal。
-const RECOVERED_PASS = process.env.ERP_PASSWORD;
+const ACTUAL_PASS = process.env.ERP_PASSWORD;
 let srcToken = "";
 let originalToken = "";
-if (RECOVERED_PASS) {
+if (ACTUAL_PASS) {
   // 原版登录**必须带 company=default**（批次 HH 起的既有约定）；恢复端不需要。
   // 少了这个参数原版登录会失败，脚本静默退回「无 token 口径」—— 而那个口径下
   // 受保护路由一律 401，看不出「存在但语义不同」，报出的缺口数是假的。
   const login = async (base, withCompany) => {
-    const payload = { username: "admin", password: RECOVERED_PASS };
+    const payload = { username: "admin", password: ACTUAL_PASS };
     if (withCompany) payload.company = "default";
     try {
       const r = await fetch(`${base}/api/v1/auth/login`, {
@@ -156,7 +156,7 @@ if (RECOVERED_PASS) {
   };
   // 原版也登录：批次 KK 要比对「存在但语义不同」，无 token 只能看到 401，看不出差异。
   originalToken = await login(ORIG, true);
-  srcToken = await login(RECOVERED, false);
+  srcToken = await login(ACTUAL, false);
   if (!originalToken || !srcToken) {
     console.error("带凭据复探需要两端都能登录（ERP_PASSWORD），已退回无 token 口径。");
   }
@@ -182,14 +182,14 @@ const verifiedOnOriginal = new Set([
 const rows = [];
 for (const path of [...candidates].sort()) {
   let orig = await probe(ORIG, path);
-  let rec = await probe(RECOVERED, path);
+  let rec = await probe(ACTUAL, path);
   if (verifiedOnOriginal.has(path) && orig !== "exists") {
     orig = "exists";
   }
   // 原版缺失、恢复端「存在」的，带 token 复探恢复端；若其真实语义就是
   // 404「路由不存在」，说明两端一致（都不该有），不再算作恢复端独有。
   if (orig !== "exists" && rec === "exists" && srcToken) {
-    rec = await probeAuthorized(RECOVERED, path, srcToken);
+    rec = await probeAuthorized(ACTUAL, path, srcToken);
   }
   const row = { path, orig, actual: rec };
   // 两端都判「存在」时，追加逐方法语义比对（批次 KK）。
@@ -197,7 +197,7 @@ for (const path of [...candidates].sort()) {
   if (orig === "exists" && rec === "exists" && originalToken && srcToken) {
     const [o, r] = await Promise.all([
       probeDetailed(ORIG, path, originalToken),
-      probeDetailed(RECOVERED, path, srcToken),
+      probeDetailed(ACTUAL, path, srcToken),
     ]);
     const diff = [];
     for (const method of METHODS) {
@@ -217,7 +217,7 @@ const methodDiff = rows.filter((r) => r.methodDiff);
 
 const out = {
   generated: new Date().toISOString(),
-  base: { original: ORIG, actual: RECOVERED },
+  base: { original: ORIG, actual: ACTUAL },
   summary: {
     candidates: rows.length,
     bothExist: both.length,

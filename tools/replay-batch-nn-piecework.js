@@ -14,11 +14,11 @@
 //   ③ 每条记录 http / code / message / data 顶层键集合
 //   ④ 会写库的操作用互不相同的载荷，并在运行前落盘两端清单
 //
-// 用法：ERP_PASSWORD=xxx [NN_RECOVERED=url] node tools/replay-batch-nn-piecework.js
+// 用法：ERP_PASSWORD=xxx [NN_ACTUAL=url] node tools/replay-batch-nn-piecework.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.NN_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.NN_ACTUAL ?? "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -31,7 +31,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -62,7 +62,7 @@ const before = {};
 for (const res of RESOURCES) {
   before[res] = {
     orig: (await call(ORIG, origToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
-    actual: (await call(RECOVERED, recToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
+    actual: (await call(ACTUAL, recToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
   };
 }
 console.log("运行前 total:", JSON.stringify(before));
@@ -95,7 +95,7 @@ cases.push({ res: "piecework-records", name: "POST import-processes 缺参数", 
 const records = [];
 for (const c of cases) {
   const o = shape(await call(ORIG, origToken, c.method, c.path, c.body));
-  const r = shape(await call(RECOVERED, recToken, c.method, c.path, c.body));
+  const r = shape(await call(ACTUAL, recToken, c.method, c.path, c.body));
   const same = o.http === r.http && o.code === r.code && o.message === r.message;
   records.push({
     resource: c.res, case: c.name, method: c.method, path: c.path,
@@ -111,7 +111,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-piecework-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN：piecework-rates / piecework-records / print-templates 写路径与 notFound 形态对照",
-  base: { orig: ORIG, actual: RECOVERED },
+  base: { orig: ORIG, actual: ACTUAL },
   before,
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },

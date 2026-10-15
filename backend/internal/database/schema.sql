@@ -1,4 +1,4 @@
--- Recovered exactly from the original fresh SQLite database.
+-- LA-ERP database schema (SQLite). Generated from a fresh initialised database.
 
 CREATE TABLE `account_balances` (`id` uuid NOT NULL, `period` datetime NOT NULL, `begin_balance` numeric NOT NULL, `debit_amount` numeric NOT NULL, `credit_amount` numeric NOT NULL, `end_balance` numeric NOT NULL, `tenant_id` uuid NOT NULL, `account_id` uuid NOT NULL, PRIMARY KEY (`id`), CONSTRAINT `account_balances_accounts_balances` FOREIGN KEY (`account_id`) REFERENCES `accounts` (`id`) ON DELETE NO ACTION);
 

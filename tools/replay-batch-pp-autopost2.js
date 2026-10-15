@@ -17,7 +17,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -30,7 +30,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -131,15 +131,15 @@ async function scenarioC(tag, base, tk, code) {
 }
 
 say("=== 场景 A：应收开票（借 1122 / 贷 6001）===");
-await scenarioA("恢复端", RECOVERED, rTk, "R" + stamp);
+await scenarioA("恢复端", ACTUAL, rTk, "R" + stamp);
 await scenarioA("原版", ORIG, oTk, "O" + stamp);
 
 say("\n=== 场景 B：工资计提 confirm（借 6602 / 贷 2211）===");
-await scenarioB("恢复端", RECOVERED, rTk, "R" + stamp);
+await scenarioB("恢复端", ACTUAL, rTk, "R" + stamp);
 await scenarioB("原版", ORIG, oTk, "O" + stamp);
 
 say("\n=== 场景 C：费用报销审批（借 6602 / 贷 2211）===");
-await scenarioC("恢复端", RECOVERED, rTk, "R" + stamp);
+await scenarioC("恢复端", ACTUAL, rTk, "R" + stamp);
 await scenarioC("原版", ORIG, oTk, "O" + stamp);
 
 writeFileSync(

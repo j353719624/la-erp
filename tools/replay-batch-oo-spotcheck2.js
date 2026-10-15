@@ -5,11 +5,11 @@
 //   ① 期初余额真实路径是 POST /api/v1/accounting-periods/opening-balances（不是 /periods/{p}/...）
 //   ② 复查 approve 失败（400 凭证不存在或状态不允许审批）但 post 成功的现象
 //
-// 用法：ERP_PASSWORD=xxx [OO_RECOVERED=url] node tools/replay-batch-oo-spotcheck2.js
+// 用法：ERP_PASSWORD=xxx [OO_ACTUAL=url] node tools/replay-batch-oo-spotcheck2.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -22,7 +22,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -40,7 +40,7 @@ const say = (s) => { log.push(s); console.log(s); };
 
 // ============ A) 期初余额真实路径 ============
 say("=== A) 期初余额：固定路径 vs 带 period 路径（两端对照）===");
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   say(`\n--- ${tag} ---`);
   const p1 = await call(base, tk, "POST", "/api/v1/accounting-periods/opening-balances", {
     period: "2026-09", entries: [],
@@ -57,18 +57,18 @@ for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, r
 // ============ B) 期初余额写入 → 查回 ============
 say("\n=== B) 期初余额写入 → 查回（恢复端）===");
 const stamp = Date.now().toString().slice(-6);
-const acc = await call(RECOVERED, rTk, "POST", "/api/v1/accounts", {
+const acc = await call(ACTUAL, rTk, "POST", "/api/v1/accounts", {
   code: "OB" + stamp, name: "期初科目" + stamp, category: "asset",
 });
 const aid = acc.json?.data?.id;
 say(`  建科目 http${acc.http} id=${aid}`);
 if (aid) {
-  const w = await call(RECOVERED, rTk, "POST", "/api/v1/accounting-periods/opening-balances", {
+  const w = await call(ACTUAL, rTk, "POST", "/api/v1/accounting-periods/opening-balances", {
     period: "2026-09",
     entries: [{ account_id: aid, begin_balance: 500, direction: "debit" }],
   });
   say(`  写入 http${w.http} code=${w.json?.code} "${w.json?.message ?? ""}" data=${JSON.stringify(w.json?.data).slice(0, 200)}`);
-  const g = await call(RECOVERED, rTk, "GET", "/api/v1/accounts/" + aid + "/balance");
+  const g = await call(ACTUAL, rTk, "GET", "/api/v1/accounts/" + aid + "/balance");
   say(`  查科目余额 http${g.http} data=${JSON.stringify(g.json?.data).slice(0, 200)}`);
 }
 
@@ -121,7 +121,7 @@ async function voucherFlow(tag, base, tk, code) {
   const d = b.json?.data;
   say(`  balance = ${d ? JSON.stringify(d).slice(0, 200) : "null"}`);
 }
-await voucherFlow("恢复端", RECOVERED, rTk, "VC" + stamp + "R");
+await voucherFlow("恢复端", ACTUAL, rTk, "VC" + stamp + "R");
 await voucherFlow("原版", ORIG, oTk, "VC" + stamp + "O");
 
 writeFileSync(

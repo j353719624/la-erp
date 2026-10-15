@@ -6,11 +6,11 @@
 //   · piecework-records：qty 解码 → work_date 解码 → 数量>0 → 作业日期 → 计件项 → 员工
 //   · print-templates：DELETE 幂等（已软删再删）、PUT 空载荷、POST 缺任一项
 //
-// 用法：ERP_PASSWORD=xxx [NN_RECOVERED=url] node tools/replay-batch-nn-piecework2.js
+// 用法：ERP_PASSWORD=xxx [NN_ACTUAL=url] node tools/replay-batch-nn-piecework2.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.NN_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.NN_ACTUAL ?? "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -22,7 +22,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -58,21 +58,21 @@ const records = [];
   ];
   for (const c of cases) {
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/piecework-rates", c.b()));
-    const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/piecework-rates", c.b()));
+    const r = flat(await call(ACTUAL, recToken, "POST", "/api/v1/piecework-rates", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
     records.push({ res: "piecework-rates", case: c.n, orig: o, actual: r, same });
     console.log(`[piecework-rates · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
   // 同名（各端用自己刚建的同一名字）
-  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, RECOVERED]]) {
+  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, ACTUAL]]) {
     const name = mkName("DUP");
     const a = flat(await call(base, tk, "POST", "/api/v1/piecework-rates", { name, unit_price: 1 }));
     const b = flat(await call(base, tk, "POST", "/api/v1/piecework-rates", { name, unit_price: 1 }));
     console.log(`[piecework-rates · 同名(${tag})] 首次=${a.code} 再次=${b.code} ${JSON.stringify(b.message)}`);
   }
   // PUT 同名排除自身 + PUT 空名
-  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, RECOVERED]]) {
+  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, ACTUAL]]) {
     const name = mkName("PUT");
     const made = await call(base, tk, "POST", "/api/v1/piecework-rates", { name, unit_price: 1 });
     const id = made.json?.data?.id;
@@ -98,14 +98,14 @@ const records = [];
   ];
   for (const c of cases) {
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/piecework-records", c.b()));
-    const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/piecework-records", c.b()));
+    const r = flat(await call(ACTUAL, recToken, "POST", "/api/v1/piecework-records", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
     records.push({ res: "piecework-records", case: c.n, orig: o, actual: r, same });
     console.log(`[piecework-records · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
   // 编号形状（JJ + 日期 + 4 位流水）
-  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, RECOVERED]]) {
+  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, ACTUAL]]) {
     const made = await call(base, tk, "POST", "/api/v1/piecework-records", {
       qty: 1, work_date: "2030-01-01T00:00:00+08:00", item_name: "项A", employee_name: "李四",
     });
@@ -122,14 +122,14 @@ const records = [];
     { n: "doc_type + name 空串", b: () => ({ doc_type: "sale_order", name: "" }) },
   ]) {
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/print-templates", c.b()));
-    const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/print-templates", c.b()));
+    const r = flat(await call(ACTUAL, recToken, "POST", "/api/v1/print-templates", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
     records.push({ res: "print-templates", case: c.n, orig: o, actual: r, same });
     console.log(`[print-templates · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
   // PUT 空载荷（原版放行）/ DELETE 幂等（已删再删仍 code 0）
-  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, RECOVERED]]) {
+  for (const [tag, tk, base] of [["原版", origToken, ORIG], ["恢复端", recToken, ACTUAL]]) {
     const made = await call(base, tk, "POST", "/api/v1/print-templates", { doc_type: "sale_order", name: mkName("NN") });
     const id = made.json?.data?.id;
     if (!id) { console.log(`[print-templates(${tag})] 建单失败`); continue; }
@@ -144,7 +144,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-piecework2-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第二轮：计件两张表与打印模板的完整校验链",
-  base: { orig: ORIG, actual: RECOVERED },
+  base: { orig: ORIG, actual: ACTUAL },
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },
 }, null, 2));

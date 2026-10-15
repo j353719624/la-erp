@@ -12,7 +12,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -25,7 +25,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -47,16 +47,16 @@ const say = (s) => { log.push(s); console.log(s); };
 const stamp = Date.now().toString().slice(-6);
 say("=== 恢复端：新建 draft → post → approve（复刻原版取证路径）===");
 const cash = await (async () => {
-  const r = await call(RECOVERED, rTk, "GET", "/api/v1/accounts?page=1&page_size=100");
+  const r = await call(ACTUAL, rTk, "GET", "/api/v1/accounts?page=1&page_size=100");
   const list = r.json?.data?.list ?? r.json?.data ?? [];
   for (const a of list) if (["1001", "1002"].includes(String(a.code))) return a;
   return list.find((a) => a.category === "asset") ?? list[0];
 })();
-const acc = await call(RECOVERED, rTk, "POST", "/api/v1/accounts", {
+const acc = await call(ACTUAL, rTk, "POST", "/api/v1/accounts", {
   code: "VS" + stamp, name: "状态科目" + stamp, category: "expense",
 });
 const aid = acc.json?.data?.id;
-const v = await call(RECOVERED, rTk, "POST", "/api/v1/vouchers", {
+const v = await call(ACTUAL, rTk, "POST", "/api/v1/vouchers", {
   voucher_date: "2026-10-05T00:00:00+08:00",
   type: "general",
   remark: "VS" + stamp,
@@ -68,16 +68,16 @@ const v = await call(RECOVERED, rTk, "POST", "/api/v1/vouchers", {
 const vid = v.json?.data?.id;
 say(`  建凭证 http${v.http} id=${vid}`);
 if (vid) {
-  say(`  新建后状态 = ${await st(RECOVERED, rTk, vid)}`);
-  const a1 = await call(RECOVERED, rTk, "POST", `/api/v1/vouchers/${vid}/approve`, {});
+  say(`  新建后状态 = ${await st(ACTUAL, rTk, vid)}`);
+  const a1 = await call(ACTUAL, rTk, "POST", `/api/v1/vouchers/${vid}/approve`, {});
   say(`  draft  → approve → http${a1.http} code=${a1.json?.code} "${a1.json?.message ?? ""}"   [原版同形: 400 凭证不存在或状态不允许审批]`);
-  const p1 = await call(RECOVERED, rTk, "POST", `/api/v1/vouchers/${vid}/post`, {});
+  const p1 = await call(ACTUAL, rTk, "POST", `/api/v1/vouchers/${vid}/post`, {});
   say(`  draft  → post    → http${p1.http} code=${p1.json?.code} "${p1.json?.message ?? ""}"   [原版同形: 200 success]`);
-  say(`  post 后状态 = ${await st(RECOVERED, rTk, vid)}`);
-  const a2 = await call(RECOVERED, rTk, "POST", `/api/v1/vouchers/${vid}/approve`, {});
+  say(`  post 后状态 = ${await st(ACTUAL, rTk, vid)}`);
+  const a2 = await call(ACTUAL, rTk, "POST", `/api/v1/vouchers/${vid}/approve`, {});
   say(`  posted → approve → http${a2.http} code=${a2.json?.code} "${a2.json?.message ?? ""}"   [原版同形: 200 success]`);
-  say(`  approve 后状态 = ${await st(RECOVERED, rTk, vid)}`);
-  const p2 = await call(RECOVERED, rTk, "POST", `/api/v1/vouchers/${vid}/post`, {});
+  say(`  approve 后状态 = ${await st(ACTUAL, rTk, vid)}`);
+  const p2 = await call(ACTUAL, rTk, "POST", `/api/v1/vouchers/${vid}/post`, {});
   say(`  approved → post → http${p2.http} code=${p2.json?.code} "${p2.json?.message ?? ""}"`);
 }
 

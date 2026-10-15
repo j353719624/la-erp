@@ -18,7 +18,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -31,7 +31,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -60,7 +60,7 @@ async function seeds(base, tk) {
     taxAccount: accounts.find((a) => String(a.code) === "2221") ?? accounts.find((a) => String(a.code).startsWith("2221")),
   };
 }
-const S = { 原版: await seeds(ORIG, oTk), 恢复端: await seeds(RECOVERED, rTk) };
+const S = { 原版: await seeds(ORIG, oTk), 恢复端: await seeds(ACTUAL, rTk) };
 
 async function voucherTotal(base, tk) {
   return (await call(base, tk, "GET", "/api/v1/vouchers?page=1&page_size=1")).json?.data?.total ?? -1;
@@ -94,7 +94,7 @@ async function knownVoucherIds(base, tk, sourceType) {
   return ids;
 }
 
-const SIDE = [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]];
+const SIDE = [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]];
 
 // ─────────── A. 销售出库：type 各取值的过账行为 ───────────
 say("========== A. 销售出库 confirm 的 type 取值 ==========");

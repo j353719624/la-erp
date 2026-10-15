@@ -13,11 +13,11 @@
 //   ② debit/credit/end_balance 的数值口径（end = begin + debit - credit？）
 //   ③ 跨月结转：上月 end_balance 是否成为本月 begin_balance
 //
-// 用法：ERP_PASSWORD=xxx [OO_RECOVERED=url] node tools/replay-batch-oo-posting.js
+// 用法：ERP_PASSWORD=xxx [OO_ACTUAL=url] node tools/replay-batch-oo-posting.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -30,7 +30,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -119,7 +119,7 @@ async function scenario(tag, base, tk, code) {
 
 const stamp = Date.now().toString().slice(-6);
 await scenario("原版", ORIG, origToken, "OOP"+stamp+"A");
-await scenario("恢复端", RECOVERED, recToken, "OOP"+stamp+"B");
+await scenario("恢复端", ACTUAL, recToken, "OOP"+stamp+"B");
 
 writeFileSync(
   "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-posting-20261015.txt",

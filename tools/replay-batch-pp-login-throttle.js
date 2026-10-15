@@ -23,7 +23,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -75,7 +75,7 @@ say("=== ③ 限流维度：换一个不存在的用户名，看是否仍被限 
 say("");
 say("=== 恢复端同组对照（当前应无限流）===");
 for (let i = 1; i <= 12; i++) {
-  const r = await attempt(RECOVERED, "admin", "wrong-" + stamp + "-" + i);
+  const r = await attempt(ACTUAL, "admin", "wrong-" + stamp + "-" + i);
   if (i <= 3 || i >= 11) say(`  第 ${String(i).padStart(2)} 次: ${fmt(r)}`);
 }
 

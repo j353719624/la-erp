@@ -14,7 +14,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -27,7 +27,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -72,14 +72,14 @@ const line = { product_id: null, qty: 1 }; // product_id 在下面动态填
 
 say("=== ① 空明细 / 缺明细字段 ===");
 await tryCreate("原版", ORIG, oTk, "E" + stamp, {});
-await tryCreate("恢复端", RECOVERED, rTk, "E" + stamp, {});
+await tryCreate("恢复端", ACTUAL, rTk, "E" + stamp, {});
 await tryCreate("原版", ORIG, oTk, "Z" + stamp, { components: [] });
-await tryCreate("恢复端", RECOVERED, rTk, "Z" + stamp, { components: [] });
+await tryCreate("恢复端", ACTUAL, rTk, "Z" + stamp, { components: [] });
 
 say("\n=== ② 逐个试明细字段名（非空数组）===");
 for (const key of ["components", "lines", "items", "bom_components"]) {
   say(`\n--- 字段名 ${key} ---`);
-  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
     const r = await refs(base, tk);
     const res = await call(base, tk, "POST", "/api/v1/assemblies", {
       assembly_no: "K" + stamp,
@@ -103,7 +103,7 @@ for (const key of ["components", "lines", "items", "bom_components"]) {
 }
 
 say("\n=== ③ 用 bom-components 带出的真实组件建单 ===");
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   const r = await refs(base, tk);
   const bc = await call(base, tk, "GET", `/api/v1/assemblies/bom-components?product_id=${r.product_id}`);
   const comps = bc.json?.data ?? [];

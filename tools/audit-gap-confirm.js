@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const BASE = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18886";
+const ACTUAL = "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -33,7 +33,7 @@ async function token(base, withCompany) {
   }
   return body?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(BASE, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(BASE, true), await token(ACTUAL, false)];
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function probe(base, tk, method, path, attempt = 0) {
@@ -82,7 +82,7 @@ for (const b of matrix.broken) {
   if (seen.has(key)) continue;
   seen.add(key);
   const orig = await probe(BASE, origToken, b.method, path);
-  const rec = await probe(RECOVERED, recToken, b.method, path);
+  const rec = await probe(ACTUAL, recToken, b.method, path);
   // 只有**两端语义判定不同**才算缺口。若恢复端已可用（原版也可用），
   // 即便响应形态有差异（如 JSON 键序不同）也不算缺口 —— 那是形态问题，另行审计。
   const verdict = orig.kind === "absent"

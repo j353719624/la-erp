@@ -26,7 +26,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18899";
+const ACTUAL = "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 const YEAR = Number(process.env.MM_YEAR ?? 2340);
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
@@ -40,7 +40,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -74,13 +74,13 @@ async function probeZeroValue(label, baseBody) {
       groupIndex++;
       return;
     }
-    await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", { ...baseBody, period: basePeriod });
+    await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", { ...baseBody, period: basePeriod });
   }
   groupIndex++;
   // 被测请求：只有 period，不带任何日期 → 原版落 Go 零值时间
   const req = { period: probePeriod };
   const a = await call(ORIG, origToken, "POST", "/api/v1/accounting-periods", req);
-  const r = await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", req);
+  const r = await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", req);
   const same = norm(a) === norm(r);
   rows.push({
     label,
@@ -126,7 +126,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-zerovalue-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, actual: RECOVERED },
+    base: { original: ORIG, actual: ACTUAL },
     note: `「缺 start_date/end_date」在四种库状态下的原版行为。period 固定两位月份：基准依次用 ${BASE_MONTHS.join("/")}、被测固定 ${probePeriod}。原版无 DELETE 路由，基准期（YEAR=${YEAR}）永久留在原版库中作为残数据。`,
     summary: { total: rows.length, same, differ: rows.length - same },
     rows,

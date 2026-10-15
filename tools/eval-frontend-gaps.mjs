@@ -8,7 +8,7 @@
 // 用法：ERP_PASSWORD=xxx node tools/eval-frontend-gaps.mjs
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -22,7 +22,7 @@ async function token(base, withCompany) {
   return j?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败", { oTk: !!oTk, rTk: !!rTk }); process.exit(1); }
 
 async function probe(base, tk, method, path) {
@@ -61,7 +61,7 @@ console.log("-".repeat(120));
 let realGap = 0;
 for (const [res, method, path] of GAPS) {
   const o = await probe(ORIG, oTk, method, path);
-  const r = await probe(RECOVERED, rTk, method, path);
+  const r = await probe(ACTUAL, rTk, method, path);
   const oAbsent = is404(o), rAbsent = is404(r);
   const tag = !oAbsent && rAbsent ? "真实缺口（原版有，恢复端无）"
     : oAbsent && rAbsent ? "非缺口（两端都没有）"

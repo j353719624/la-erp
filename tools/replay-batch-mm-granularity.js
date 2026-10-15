@@ -16,7 +16,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18899";
+const ACTUAL = "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 const YEAR = Number(process.env.MM_YEAR ?? 2210);
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
@@ -30,7 +30,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -49,7 +49,7 @@ const baseBody = {
   end_date: `${DAY}T23:59:59+08:00`,
 };
 const bO = await call(ORIG, origToken, "POST", "/api/v1/accounting-periods", baseBody);
-const bR = await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", baseBody);
+const bR = await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", baseBody);
 console.log(`基准（${DAY} 全天 00:00:00..23:59:59）：原版=${bO.json.code} 恢复端=${bR.json.code}`);
 if (bO.json.code !== 0 || bR.json.code !== 0) {
   console.error("基准期未建成 —— 改 MM_YEAR 换一个未占用的年份（原版无 DELETE 路由）");
@@ -61,7 +61,7 @@ let seq = 1;
 async function probe(label, startDate, endDate) {
   const body = { period: `${YEAR}-${String(seq++).padStart(2, "0")}`, start_date: startDate, end_date: endDate };
   const a = await call(ORIG, origToken, "POST", "/api/v1/accounting-periods", body);
-  const r = await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", body);
+  const r = await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", body);
   const norm = (x) => (x.json.code === 0 ? "放行" : "重叠");
   const same = norm(a) === norm(r);
   rows.push({
@@ -71,7 +71,7 @@ async function probe(label, startDate, endDate) {
     same,
   });
   console.log(`  ${same ? "✓" : "✗"} ${label.padEnd(30)} 原版=${norm(a).padEnd(4)} 恢复端=${norm(r)}`);
-  if (r.json.data?.id) await call(RECOVERED, recToken, "DELETE", `/api/v1/accounting-periods/${r.json.data.id}`);
+  if (r.json.data?.id) await call(ACTUAL, recToken, "DELETE", `/api/v1/accounting-periods/${r.json.data.id}`);
 }
 
 console.log("\n=== A. 同一天内的时刻（基准覆盖全天，结果应与时刻无关）===");
@@ -90,7 +90,7 @@ await probe("两端皆零值", "0001-01-01T00:00:00Z", "0001-01-01T00:00:00Z");
 await probe("起点零值 → 基准日末", "0001-01-01T00:00:00Z", `${DAY}T23:59:59+08:00`);
 await probe("基准日初 → 终点零值", `${DAY}T00:00:00+08:00`, "0001-01-01T00:00:00Z");
 
-if (bR.json.data?.id) await call(RECOVERED, recToken, "DELETE", `/api/v1/accounting-periods/${bR.json.data.id}`);
+if (bR.json.data?.id) await call(ACTUAL, recToken, "DELETE", `/api/v1/accounting-periods/${bR.json.data.id}`);
 
 const same = rows.filter((r) => r.same).length;
 console.log(`\n两端一致 ${same}｜不一致 ${rows.length - same}`);
@@ -98,7 +98,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-period-granularity-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, actual: RECOVERED },
+    base: { original: ORIG, actual: ACTUAL },
     note: `基准为全天区间 ${DAY} 00:00:00..23:59:59。原版无 DELETE 路由，基准期（YEAR=${YEAR}）留在原版库中作为残数据。`,
     summary: { total: rows.length, same, differ: rows.length - same },
     rows,

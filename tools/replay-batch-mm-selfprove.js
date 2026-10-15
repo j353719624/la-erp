@@ -26,7 +26,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18899";
+const ACTUAL = "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 const YEAR = Number(process.env.MM_YEAR ?? 2480);
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
@@ -40,7 +40,7 @@ async function token(base, withCompany) {
   });
   return (await r.json())?.data?.access_token ?? "";
 }
-const [origToken, recToken] = [await token(ORIG, true), await token(RECOVERED, false)];
+const [origToken, recToken] = [await token(ORIG, true), await token(ACTUAL, false)];
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -67,7 +67,7 @@ async function snapshot(base, tk) {
 // ── ① 运行前的两端库状态清单 ──
 const snapBefore = {
   original: await snapshot(ORIG, origToken),
-  actual: await snapshot(RECOVERED, recToken),
+  actual: await snapshot(ACTUAL, recToken),
 };
 console.log(`=== 运行前库状态 ===`);
 console.log(`  原版   ${snapBefore.original.total} 条`);
@@ -124,7 +124,7 @@ for (const group of GROUPS) {
   console.log(`=== ${group.name}（${Y} 年）===`);
   console.log(`  基准 ${group.base.period}  ${group.base.start_date.slice(0, 19)} → ${group.base.end_date.slice(0, 19)}`);
   const bo = await call(ORIG, origToken, "POST", "/api/v1/accounting-periods", group.base);
-  await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", group.base);
+  await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", group.base);
   console.log(`  建基准 → 原版 ${bo.json.code}${bo.json.code !== 0 ? " " + bo.json.message : ""}\n`);
 
   // 四条探测：period 各不相同，且都不与基准撞
@@ -137,7 +137,7 @@ for (const group of GROUPS) {
   for (const [label, period, extra] of probes) {
     const req = { period, ...extra };
     const a = await call(ORIG, origToken, "POST", "/api/v1/accounting-periods", req);
-    const r = await call(RECOVERED, recToken, "POST", "/api/v1/accounting-periods", req);
+    const r = await call(ACTUAL, recToken, "POST", "/api/v1/accounting-periods", req);
     const row = {
       group: group.name,
       label,
@@ -160,7 +160,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-selfprove-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, actual: RECOVERED },
+    base: { original: ORIG, actual: ACTUAL },
     year: YEAR,
     snapshotBefore: snapBefore,
     note: "本文件含运行前两端库状态清单与每条探测的 periodOccupiedBefore，"

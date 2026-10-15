@@ -17,7 +17,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18900";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18900";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 const NIL = "00000000-0000-0000-0000-000000000001";
@@ -31,7 +31,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -61,7 +61,7 @@ async function firstAccount(base, tk) {
   return Array.isArray(list) && list[0]?.id ? list[0].id : "";
 }
 const origAcc = await firstAccount(ORIG, origToken);
-const recAcc = await firstAccount(RECOVERED, recToken);
+const recAcc = await firstAccount(ACTUAL, recToken);
 
 const CASES = [
   // ---- 应付/应收发票：空载荷原版 500，用近合法载荷再探 ----
@@ -110,7 +110,7 @@ const CASES = [
 const rows = [];
 for (const c of CASES) {
   const o = await call(ORIG, c.anon ? "" : origToken, c.m, c.p, c.b);
-  const r = await call(RECOVERED, c.anon ? "" : recToken, c.m, c.pRec ?? c.p, c.b);
+  const r = await call(ACTUAL, c.anon ? "" : recToken, c.m, c.pRec ?? c.p, c.b);
   const so = shape(o), sr = shape(r);
   rows.push({ ...c, orig: so, rec: sr, same: same(so, sr) });
   process.stdout.write(".");
@@ -127,7 +127,7 @@ for (const r of rows) {
 }
 const text =
   `批次 OO 第三段：递进取证（正确参数名 + 近合法载荷）\n` +
-  `原版=${ORIG} 恢复端=${RECOVERED}  共 ${rows.length} 条，不一致 ${diff} 条\n` +
+  `原版=${ORIG} 恢复端=${ACTUAL}  共 ${rows.length} 条，不一致 ${diff} 条\n` +
   `原版首个科目=${origAcc} 恢复端首个科目=${recAcc}\n\n` + out.join("\n") + "\n";
 console.log(text);
 writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-shapes2-20261015.txt", text);

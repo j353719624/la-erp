@@ -17,7 +17,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.NN_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.NN_ACTUAL ?? "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -30,7 +30,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -68,9 +68,9 @@ async function twoWarehouses(base, tk) {
   return list;
 }
 const whOrig = await twoWarehouses(ORIG, origToken);
-const whRec = await twoWarehouses(RECOVERED, recToken);
+const whRec = await twoWarehouses(ACTUAL, recToken);
 const prdOrig = await pick(ORIG, origToken, "/api/v1/products?page=1&page_size=20", "id", 1);
-const prdRec = await pick(RECOVERED, recToken, "/api/v1/products?page=1&page_size=20", "id", 1);
+const prdRec = await pick(ACTUAL, recToken, "/api/v1/products?page=1&page_size=20", "id", 1);
 console.log("原版 仓库:", whOrig, "物料:", prdOrig);
 console.log("恢复端 仓库:", whRec, "物料:", prdRec);
 
@@ -106,7 +106,7 @@ for (const c of cases) {
   const ob = build(whOrig, prdOrig, c.opt);
   const rb = build(whRec, prdRec, c.opt);
   const o = await call(ORIG, origToken, "POST", "/api/v1/stock-transfers", ob);
-  const r = await call(RECOVERED, recToken, "POST", "/api/v1/stock-transfers", rb);
+  const r = await call(ACTUAL, recToken, "POST", "/api/v1/stock-transfers", rb);
   const so = shape(o), sr = shape(r);
   records.push({
     case: c.name, sentOrig: ob, sentRec: rb, orig: so, actual: sr,
@@ -124,7 +124,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-transfers2-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第二轮：stock-transfers 校验顺序与明细字段名",
-  base: { orig: ORIG, actual: RECOVERED },
+  base: { orig: ORIG, actual: ACTUAL },
   ids: { whOrig, whRec, prdOrig, prdRec },
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },

@@ -3,13 +3,13 @@
 // 再跑一遍两端对照，确认恢复端形态已与原版逐字一致。
 //
 // 每条都写明「修复前恢复端的形态」，便于日后回溯当初为什么要改。
-// 运行前请先把改动后的二进制起在 OO_RECOVERED（默认 18901）。
+// 运行前请先把改动后的二进制起在 OO_ACTUAL（默认 18901）。
 //
-// 用法：ERP_PASSWORD=xxx [OO_RECOVERED=url] node tools/replay-batch-oo-verify.js
+// 用法：ERP_PASSWORD=xxx [OO_ACTUAL=url] node tools/replay-batch-oo-verify.js
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18901";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18901";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 const NIL = "00000000-0000-0000-0000-000000000001";
@@ -23,7 +23,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -90,7 +90,7 @@ const CASES = [
 const rows = [];
 for (const c of CASES) {
   const o = await call(ORIG, c.anon ? "" : origToken, c.m, c.p, c.b);
-  const r = await call(RECOVERED, c.anon ? "" : recToken, c.m, c.p, c.b);
+  const r = await call(ACTUAL, c.anon ? "" : recToken, c.m, c.p, c.b);
   const so = shape(o), sr = shape(r);
   rows.push({ ...c, orig: so, rec: sr, same: same(so, sr) });
   process.stdout.write(".");
@@ -108,7 +108,7 @@ for (const r of rows) {
 }
 const text =
   `批次 OO 复验：改完之后的两端对照\n` +
-  `原版=${ORIG} 恢复端=${RECOVERED}  共 ${rows.length} 条，一致 ${pass} 条，仍不一致 ${rows.length - pass} 条\n\n` +
+  `原版=${ORIG} 恢复端=${ACTUAL}  共 ${rows.length} 条，一致 ${pass} 条，仍不一致 ${rows.length - pass} 条\n\n` +
   out.join("\n") + "\n";
 console.log(text);
 writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-verify-20261015.txt", text);

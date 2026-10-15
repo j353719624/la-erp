@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = "http://127.0.0.1:18886";
+const ACTUAL = "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 const S = "00000000-0000-0000-0000-000000000001";
@@ -60,7 +60,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const to = await token(ORIG, true);
-const tr = await token(RECOVERED, false);
+const tr = await token(ACTUAL, false);
 if (!to || !tr) { console.error("两端登录失败"); process.exit(1); }
 
 async function probe(base, tk, path) {
@@ -83,7 +83,7 @@ async function probe(base, tk, path) {
 
 const both = [], diffs = [];
 for (const path of pairs) {
-  const [o, r] = [await probe(ORIG, to, path), await probe(RECOVERED, tr, path)];
+  const [o, r] = [await probe(ORIG, to, path), await probe(ACTUAL, tr, path)];
   if (o.kind !== "exists" || r.kind !== "exists") continue; // 只比对两边都有的
   const same = o.http === r.http && o.code === r.code && o.message === r.message;
   (same ? both : diffs).push({ path, original: o, actual: r });

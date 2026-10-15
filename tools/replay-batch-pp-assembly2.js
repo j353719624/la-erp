@@ -18,7 +18,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -31,7 +31,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -77,12 +77,12 @@ async function confirmWithQty(tag, base, tk, qty) {
 say("=== 用不同组件数量 confirm（两端对照）===");
 for (const qty of [1, 999999]) {
   say(`\n--- 组件数量 ${qty} ---`);
-  await confirmWithQty("恢复端", RECOVERED, rTk, qty);
+  await confirmWithQty("恢复端", ACTUAL, rTk, qty);
   await confirmWithQty("原版", ORIG, oTk, qty);
 }
 
 say("\n=== 库存快照（判断是数据差异还是逻辑差异）===");
-for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
   for (const p of ["/api/v1/inventory/balances?page=1&page_size=3", "/api/v1/inventory-balances?page=1&page_size=3"]) {
     const r = await call(base, tk, "GET", p);
     const l = r.json?.data?.list ?? r.json?.data ?? [];

@@ -25,7 +25,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -38,7 +38,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 if (!oTk || !rTk) { console.error("登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -69,7 +69,7 @@ async function probeAccounts(tag, base, tk) {
   return { list, found };
 }
 const O = await probeAccounts("原版", ORIG, oTk);
-const R = await probeAccounts("恢复端", RECOVERED, rTk);
+const R = await probeAccounts("恢复端", ACTUAL, rTk);
 
 // ---------- ② 各科目当前 balance（过账前基线，只读） ----------
 say("\n=== 过账前基线（balance 升序首条）===");
@@ -87,7 +87,7 @@ async function baseline(tag, base, tk, found) {
   return out;
 }
 await baseline("原版", ORIG, oTk, O.found);
-await baseline("恢复端", RECOVERED, rTk, R.found);
+await baseline("恢复端", ACTUAL, rTk, R.found);
 
 // ---------- ③ 场景 A：应收开票（建单即过账 借1122/贷6001） ----------
 say("\n=== 场景 A：POST /ar-invoices（应收开票确认收入）===");
@@ -124,7 +124,7 @@ async function arInvoice(tag, base, tk, found, no) {
   }
   return r;
 }
-await arInvoice("恢复端", RECOVERED, rTk, R.found, "R" + stamp);
+await arInvoice("恢复端", ACTUAL, rTk, R.found, "R" + stamp);
 await arInvoice("原版", ORIG, oTk, O.found, "O" + stamp);
 
 // ---------- ④ 场景 B：工资计提（借6602/贷2211） ----------
@@ -164,7 +164,7 @@ async function payroll(tag, base, tk, found, no) {
     say(`  ${code} balance: ${d ? `${d.period} begin=${d.begin_balance} D=${d.debit_amount} C=${d.credit_amount} end=${d.end_balance}` : "null"}`);
   }
 }
-await payroll("恢复端", RECOVERED, rTk, R.found, "R" + stamp);
+await payroll("恢复端", ACTUAL, rTk, R.found, "R" + stamp);
 await payroll("原版", ORIG, oTk, O.found, "O" + stamp);
 
 // ---------- ⑤ 场景 C：费用报销审批（借6602/贷2211） ----------
@@ -192,7 +192,7 @@ async function expense(tag, base, tk, found, no) {
     say(`  ${code} balance: ${d ? `${d.period} begin=${d.begin_balance} D=${d.debit_amount} C=${d.credit_amount} end=${d.end_balance}` : "null"}`);
   }
 }
-await expense("恢复端", RECOVERED, rTk, R.found, "R" + stamp);
+await expense("恢复端", ACTUAL, rTk, R.found, "R" + stamp);
 await expense("原版", ORIG, oTk, O.found, "O" + stamp);
 
 writeFileSync(

@@ -23,7 +23,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.OO_RECOVERED ?? "http://127.0.0.1:18886";
+const ACTUAL = process.env.OO_ACTUAL ?? "http://127.0.0.1:18886";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -36,7 +36,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const oTk = await token(ORIG, true);
-const rTk = await token(RECOVERED, false);
+const rTk = await token(ACTUAL, false);
 
 async function call(base, tk, method, path, body) {
   const res = await fetch(base + path, {
@@ -66,13 +66,13 @@ async function seeds(base, tk) {
     taxAccount: accounts.find((a) => String(a.code).startsWith("2221")) ?? accounts[0],
   };
 }
-const S = { 原版: await seeds(ORIG, oTk), 恢复端: await seeds(RECOVERED, rTk) };
+const S = { 原版: await seeds(ORIG, oTk), 恢复端: await seeds(ACTUAL, rTk) };
 
 // 两端是各自独立的库，`startsWith("2221")` 取到的第一条可能不同（原版是 2221、
 // 恢复端是 2221.07），会让凭证分录科目对不上 —— 属**种子数据差异**而非逻辑差异。
 // 故税费科目统一取「两端都存在」的代码（优先 2221，其次任一交集）。
 {
-  const list = async (tag) => ((await call(tag === "原版" ? ORIG : RECOVERED,
+  const list = async (tag) => ((await call(tag === "原版" ? ORIG : ACTUAL,
     tag === "原版" ? oTk : rTk, "GET", "/api/v1/accounts?page=1&page_size=500")).json?.data?.list ?? []);
   const codes = (await Promise.all([list("原版"), list("恢复端")]))
     .map((l) => new Set(l.map((a) => String(a.code))));
@@ -241,7 +241,7 @@ let diff = 0;
 for (const tc of CASES) {
   say(`\n=== ${tc.name} ===`);
   const out = {};
-  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, rTk]]) {
+  for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", ACTUAL, rTk]]) {
     const sd = S[tag];
     // 税金缴纳的凭证 remark 会**原样带上**传入的 remark，若带 O/R 后缀
     // 会让两端 remark 不同 → 假不一致。故统一用一个取样戳。

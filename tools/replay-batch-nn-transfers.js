@@ -21,7 +21,7 @@
 import { writeFileSync } from "node:fs";
 
 const ORIG = "http://192.168.110.97:18886";
-const RECOVERED = process.env.NN_RECOVERED ?? "http://127.0.0.1:18899";
+const ACTUAL = process.env.NN_ACTUAL ?? "http://127.0.0.1:18899";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
 
@@ -35,7 +35,7 @@ async function token(base, withCompany) {
   return (await r.json())?.data?.access_token ?? "";
 }
 const origToken = await token(ORIG, true);
-const recToken = await token(RECOVERED, false);
+const recToken = await token(ACTUAL, false);
 if (!origToken || !recToken) { console.error("两端登录失败"); process.exit(1); }
 
 async function call(base, tk, method, path, body) {
@@ -68,12 +68,12 @@ async function firstWarehouse(base, tk) {
   const list = r.json?.data?.list ?? r.json?.data?.items ?? [];
   return list[0]?.id ?? "";
 }
-const [origWh, recWh] = [await firstWarehouse(ORIG, origToken), await firstWarehouse(RECOVERED, recToken)];
+const [origWh, recWh] = [await firstWarehouse(ORIG, origToken), await firstWarehouse(ACTUAL, recToken)];
 console.log(`仓库 id：原版=${origWh || "(空)"} 恢复端=${recWh || "(空)"}`);
 
 // 运行前库状态
 const beforeOrig = await call(ORIG, origToken, "GET", "/api/v1/stock-transfers?page=1&page_size=500");
-const beforeRec = await call(RECOVERED, recToken, "GET", "/api/v1/stock-transfers?page=1&page_size=500");
+const beforeRec = await call(ACTUAL, recToken, "GET", "/api/v1/stock-transfers?page=1&page_size=500");
 const before = {
   orig: { http: beforeOrig.http, total: beforeOrig.json?.data?.total ?? null },
   actual: { http: beforeRec.http, total: beforeRec.json?.data?.total ?? null },
@@ -105,7 +105,7 @@ const cases = [
 const records = [];
 for (const c of cases) {
   const o = await call(ORIG, origToken, "POST", "/api/v1/stock-transfers", c.build(origWh));
-  const r = await call(RECOVERED, recToken, "POST", "/api/v1/stock-transfers", c.build(recWh));
+  const r = await call(ACTUAL, recToken, "POST", "/api/v1/stock-transfers", c.build(recWh));
   const so = shape(o), sr = shape(r);
   records.push({
     case: c.name,
@@ -134,7 +134,7 @@ const idCases = [
 const idRecords = [];
 for (const c of idCases) {
   const o = await call(ORIG, origToken, c.method, c.path, c.body);
-  const r = await call(RECOVERED, recToken, c.method, c.path, c.body);
+  const r = await call(ACTUAL, recToken, c.method, c.path, c.body);
   const so = shape(o), sr = shape(r);
   idRecords.push({
     case: c.name, orig: so, actual: sr,
@@ -151,7 +151,7 @@ const total = records.length + idRecords.length;
 const out = {
   generated: new Date().toISOString(),
   purpose: "批次 NN：stock-transfers 写路径与 notFound 形态的两端对照",
-  base: { orig: ORIG, actual: RECOVERED },
+  base: { orig: ORIG, actual: ACTUAL },
   warehouseIds: { orig: origWh, actual: recWh },
   before,
   cases: records,
