@@ -78,12 +78,11 @@ func (s *Server) registerPrintTemplates() {
 		row["created_at"] = now
 		row["updated_at"] = now
 		row["deleted_at"] = nil
-		if text(row, "doc_type") == "" {
-			fail(w, 400, "缺少单据类型")
-			return
-		}
-		if text(row, "name") == "" {
-			fail(w, 400, "缺少模板名称")
+		// 回放 NN（2026-10-15）：原版对缺 doc_type / 缺 name / 两者都缺**一律**
+		// 回同一句 400「doc_type 与 name 必填」，不区分缺哪个。
+		// 原恢复端的「缺少单据类型」「缺少模板名称」是自造文案，已替换。
+		if text(row, "doc_type") == "" || text(row, "name") == "" {
+			fail(w, 400, "doc_type 与 name 必填")
 			return
 		}
 		if row["is_default"] == true {
@@ -101,9 +100,13 @@ func (s *Server) registerPrintTemplates() {
 		respond(w, 200, s.public(r, printTemplateResource, saved))
 	})))
 	s.mux.Handle("PUT /api/v1/print-templates/{id}", s.protected("print_template_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		row, err := s.Store.Get(r.Context(), "print_templates", r.PathValue("id"))
+		row, err := s.printTemplateAny(r, r.PathValue("id"))
 		if err != nil {
 			s.failure(w, err, "打印模板")
+			return
+		}
+		if row == nil {
+			printTemplateNotFound(w)
 			return
 		}
 		body, err := decode(w, r)
@@ -111,11 +114,10 @@ func (s *Server) registerPrintTemplates() {
 			fail(w, 400, err.Error())
 			return
 		}
+		// 回放 NN（2026-10-15）：原版 `PUT` 空载荷返回 **200 code 0** 并回传原记录，
+		// 不是 400。原恢复端的「没有可更新的字段」是自造文案，已移除 ——
+		// 空载荷只写 updated_at，仍走正常返回路径。
 		changes := printTemplateRow(body)
-		if len(changes) == 0 {
-			fail(w, 400, "没有可更新的字段")
-			return
-		}
 		changes["updated_at"] = database.Now()
 		if changes["is_default"] == true {
 			s.clearPrintTemplateDefault(r, text(row, "doc_type"))
@@ -132,26 +134,39 @@ func (s *Server) registerPrintTemplates() {
 		respond(w, 200, s.public(r, printTemplateResource, saved))
 	})))
 	s.mux.Handle("DELETE /api/v1/print-templates/{id}", s.protected("print_template_delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		row, err := s.Store.Get(r.Context(), "print_templates", r.PathValue("id"))
+		row, err := s.printTemplateAny(r, r.PathValue("id"))
 		if err != nil {
 			s.failure(w, err, "打印模板")
+			return
+		}
+		if row == nil {
+			printTemplateNotFound(w)
 			return
 		}
 		if row["is_system"] == true || row["is_system"] == int64(1) {
 			fail(w, 400, "系统内置模板不允许删除")
 			return
 		}
+		// 回放 NN（2026-10-15）：DELETE 是**幂等**的 —— 对已软删的 id 再删一次
+		// 仍返回 200 code 0，而对从未存在的 id 返回 500。
+		// Store.Update 的 WHERE 带 `deleted_at IS NULL`，会把已软删判成不存在，
+		// 故此处直接走 SQL（与 printTemplateAny 的「不过滤软删」同口径）。
 		now := database.Now()
-		if err = s.Store.Update(r.Context(), "print_templates", text(row, "id"), map[string]any{"deleted_at": now, "updated_at": now}); err != nil {
+		if _, err = s.Store.DB.ExecContext(r.Context(),
+			"UPDATE print_templates SET deleted_at=?, updated_at=? WHERE id=?", now, now, text(row, "id")); err != nil {
 			s.failure(w, err, "打印模板")
 			return
 		}
 		respond(w, 200, nil)
 	})))
 	s.mux.Handle("POST /api/v1/print-templates/{id}/duplicate", s.protected("print_template_create", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		row, err := s.Store.Get(r.Context(), "print_templates", r.PathValue("id"))
+		row, err := s.printTemplateAny(r, r.PathValue("id"))
 		if err != nil {
 			s.failure(w, err, "打印模板")
+			return
+		}
+		if row == nil {
+			printTemplateNotFound(w)
 			return
 		}
 		dup := map[string]any{}
@@ -177,6 +192,35 @@ func (s *Server) registerPrintTemplates() {
 		}
 		respond(w, 200, s.public(r, printTemplateResource, saved))
 	})))
+}
+
+// printTemplateNotFound 是打印模板**写路径**在记录不存在时原版的降级形态。
+//
+// 回放 NN（2026-10-15，evidence/backend-runtime/audit-batch-nn-piecework-20261015.json）：
+// PUT / DELETE / duplicate 在不存在的 id 上**全部**返回
+// 500「系统内部错误，请稍后重试或联系管理员」，而 GET 详情返回
+// 404「打印模板不存在」——同一资源两套形态，勿统一。
+//
+// 成因推断：原版这些写路径直接 UPDATE / SELECT，命中不到行时落到通用 500，
+// 与调拨单的仓库引用（外键兜底落成 500）是同一类降级。
+func printTemplateNotFound(w http.ResponseWriter) {
+	fail(w, 500, "系统内部错误，请稍后重试或联系管理员")
+}
+
+// printTemplateAny 按 id 取打印模板，**不过滤软删**。
+//
+// 回放：DELETE 一个已软删的 id → 200 code 0（原版是裸 UPDATE，命中行即成功），
+// 而 DELETE 一个从未存在的 id → 500。这两者只有「不过滤软删」才能区分 ——
+// Store.Get 会过滤 deleted_at，用它会把已软删也判成不存在。
+func (s *Server) printTemplateAny(r *http.Request, id string) (map[string]any, error) {
+	rows, err := s.Store.Rows(r.Context(), "SELECT * FROM print_templates WHERE id=?", id)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return rows[0], nil
 }
 
 // clearPrintTemplateDefault 同一单据类型只保留一个默认模板。

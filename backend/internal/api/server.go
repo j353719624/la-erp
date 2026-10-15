@@ -58,8 +58,12 @@ var Resources = map[string]Resource{
 	"training-records":        {"training_records", "training", "培训记录", []string{"code", "title", "training_date"}, true},
 	"perf-templates":          {"perf_templates", "performance", "绩效模板", []string{"name"}, true},
 	"perf-assessments":        {"perf_assessments", "performance", "绩效考核", []string{"code", "employee_name", "period"}, true},
-	"piecework-rates":         {"piece_rates", "piecework", "计件工资标准", []string{"name"}, true},
-	"piecework-records":       {"piecework_records", "piecework", "计件工资记录", []string{"code", "employee_name", "item_name", "qty", "work_date"}, true},
+	// 计件两张表的 Required 置空：原版**没有**这套通用必填 400，业务校验走
+	// preparePieceRate / preparePieceworkRecord（回放 NN，2026-10-15）。
+	// 尤其中 piecework_records 的 code 是原版自动生成的 JJ 流水号，
+	// 把它列为必填会让所有建单在第一步就被 400 挡掉。
+	"piecework-rates":         {"piece_rates", "piecework", "计件工资标准", nil, true},
+	"piecework-records":       {"piecework_records", "piecework", "计件工资记录", nil, true},
 	"approval-flows":          {"approval_flows", "approval", "审批流", []string{"code", "name", "biz_type"}, true},
 	"approval-records":        {"approval_records", "approval", "审批记录", []string{"biz_type"}, true},
 	"payrolls":                {"payroll_batches", "payroll", "工资批次", []string{"batch_no", "period"}, true},
@@ -171,6 +175,7 @@ func New(store *database.Store, secret string) *Server {
 	s.registerSpuActions()
 	s.registerImportExport()
 	s.registerGapKKWrites()
+	s.registerImportableProcesses()
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 501, "该业务接口尚未恢复："+r.Method+" "+r.URL.Path)
 	})
@@ -2315,6 +2320,13 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		businessFailure(w, errors.New("商机名称不能为空"), false)
 		return
 	}
+	// 计件：原版的业务校验链取代通用必填（详见 gapNN_piecework.go）
+	if res.Table == "piece_rates" && !s.preparePieceRate(w, r, data, "") {
+		return
+	}
+	if res.Table == "piecework_records" && !s.preparePieceworkRecord(w, r, data, true) {
+		return
+	}
 	if res.Table == "accounting_periods" {
 		if ok := s.prepareAccountingPeriod(w, r, data); !ok {
 			return
@@ -2431,6 +2443,13 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 			return
 		}
 		respond(w, 200, row)
+		return
+	}
+	// 计件：与 create 同一套校验，PUT 时同名检查排除自身（详见 gapNN_piecework.go）
+	if res.Table == "piece_rates" && !s.preparePieceRate(w, r, data, id) {
+		return
+	}
+	if res.Table == "piecework_records" && !s.preparePieceworkRecord(w, r, data, false) {
 		return
 	}
 	record, err := s.record(r, res, data, false)
