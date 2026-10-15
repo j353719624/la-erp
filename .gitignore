@@ -2,6 +2,10 @@ node_modules/
 frontend/dist/
 # WorkBuddy 本地工作目录（含记忆日志与取证凭据），属本机私有，不进版本库
 .workbuddy/
+# 逆向取证产物（原版运行捕获、反编译伪代码、二进制字符串表），不随仓库分发。
+# 需要跑原版回放比对时放到仓库外或本地另存，见 backend/internal/api/evidence_snapshot_test.go
+evidence/
+docs/original-*
 *.fpk
 *.tgz
 *.zip
