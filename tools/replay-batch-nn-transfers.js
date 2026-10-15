@@ -76,7 +76,7 @@ const beforeOrig = await call(ORIG, origToken, "GET", "/api/v1/stock-transfers?p
 const beforeRec = await call(RECOVERED, recToken, "GET", "/api/v1/stock-transfers?page=1&page_size=500");
 const before = {
   orig: { http: beforeOrig.http, total: beforeOrig.json?.data?.total ?? null },
-  recovered: { http: beforeRec.http, total: beforeRec.json?.data?.total ?? null },
+  actual: { http: beforeRec.http, total: beforeRec.json?.data?.total ?? null },
 };
 
 // 探测组：两个仓库 id 各自用本端的真实值，保证「仓库存在」这一维度两端一致
@@ -110,7 +110,7 @@ for (const c of cases) {
   records.push({
     case: c.name,
     orig: so,
-    recovered: sr,
+    actual: sr,
     same: so.http === sr.http && so.code === sr.code && so.message === sr.message,
     // 500 不作为语义证据
     origIs500: so.http === 500,
@@ -137,7 +137,7 @@ for (const c of idCases) {
   const r = await call(RECOVERED, recToken, c.method, c.path, c.body);
   const so = shape(o), sr = shape(r);
   idRecords.push({
-    case: c.name, orig: so, recovered: sr,
+    case: c.name, orig: so, actual: sr,
     same: so.http === sr.http && so.code === sr.code && so.message === sr.message,
     origIs500: so.http === 500, recIs500: sr.http === 500,
   });
@@ -151,8 +151,8 @@ const total = records.length + idRecords.length;
 const out = {
   generated: new Date().toISOString(),
   purpose: "批次 NN：stock-transfers 写路径与 notFound 形态的两端对照",
-  base: { orig: ORIG, recovered: RECOVERED },
-  warehouseIds: { orig: origWh, recovered: recWh },
+  base: { orig: ORIG, actual: RECOVERED },
+  warehouseIds: { orig: origWh, actual: recWh },
   before,
   cases: records,
   idCases: idRecords,

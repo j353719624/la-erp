@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"la-erp-recovered/backend/internal/business"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/business"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Server) registerFinance() {

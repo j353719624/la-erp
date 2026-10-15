@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"net/http"
 	"net/url"
 )

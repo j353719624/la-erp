@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) GetRework(ctx context.Context, id string) (map[string]any, error) {

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // SetOpeningBalances 返回写入后的科目余额行。

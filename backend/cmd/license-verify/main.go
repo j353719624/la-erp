@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"la-erp-recovered/backend/license"
+	"la-erp/backend/license"
 )
 
 func main() {

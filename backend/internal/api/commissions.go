@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // 佣金计算基数：revenue=按销售额，profit=按毛利额。
@@ -135,7 +135,7 @@ func (s *Server) registerCommissions() {
 	// 结算单
 	//
 	// GET /settlements 与 GET /settlements/{id} 已由 read_resources.json 的通用读
-	// 资源注册（registerRecoveredReads），此处不再重复注册（Go 1.22 ServeMux 对
+	// 资源注册（registerSrcReads），此处不再重复注册（Go 1.22 ServeMux 对
 	// 重复 pattern 直接 panic）。期间过滤所需 period 条件已并入 Store.List 的
 	// 过滤字段表，通用列表即支持 ?period=&status=。
 	s.mux.Handle("POST "+base+"/settlements/generate", s.protected("sales_commission_create", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

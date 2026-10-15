@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 var printTemplateResource = Resource{Table: "print_templates", Permission: "print_template", Label: "打印模板"}

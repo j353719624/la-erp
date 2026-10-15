@@ -3,13 +3,13 @@ package api
 import (
 	_ "embed"
 	"encoding/json"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"net/http"
 	"strings"
 )
 
 //go:embed read_resources.json
-var recoveredReadResources []byte
+var srcReadResources []byte
 
 type readResource struct {
 	Route      string `json:"route"`
@@ -42,7 +42,7 @@ type notFoundStyle struct {
 
 // notFoundStyles 以**表名**为键。read_resources.json 与 Resources 表（server.go）
 // 存在重叠（如 production_equipments / toolings / assemblies 两边都有），
-// 用表名做键可让 s.register 与 registerRecoveredReads 共用同一套配置。
+// 用表名做键可让 s.register 与 registerSrcReads 共用同一套配置。
 var notFoundStyles = map[string]notFoundStyle{}
 
 func loadNotFoundStyles(raw []byte) {
@@ -134,7 +134,7 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 	fail(w, style.HTTP, style.Message)
 }
 
-// recoveredTableLabels 把单据表名映射为原版 404 文案用的中文单据名。
+// srcTableLabels 把单据表名映射为原版 404 文案用的中文单据名。
 // 原版回放 JJ3（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）
 // 逐个 GET 不存在的记录得到：
 //
@@ -149,7 +149,7 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 // 恢复端原先直接把表名当 label（如「stock_ins不存在」），与原版逐字不符。
 // 注意 `assemblies` 原版返回 500 无业务文案、`rework-orders`/`subcontract-orders`
 // 返回 200+code:10000，由各自的专用处理器负责，此处不纳入映射。
-var recoveredTableLabels = map[string]string{
+var srcTableLabels = map[string]string{
 	"stock_ins":        "入库单",
 	"stock_outs":       "出库单",
 	"sales_orders":     "销售订单",
@@ -161,7 +161,7 @@ var recoveredTableLabels = map[string]string{
 	"vouchers":         "凭证",
 }
 
-func (s *Server) registerRecoveredReads() {
+func (s *Server) registerSrcReads() {
 	for _, table := range []string{"ar_invoices", "ap_invoices"} {
 		route := strings.ReplaceAll(table, "_", "-")
 		s.mux.Handle("GET /api/v1/"+route, s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,16 +186,16 @@ func (s *Server) registerRecoveredReads() {
 		})))
 	}
 	var resources []readResource
-	if err := json.Unmarshal(recoveredReadResources, &resources); err != nil {
+	if err := json.Unmarshal(srcReadResources, &resources); err != nil {
 		panic(err)
 	}
-	loadNotFoundStyles(recoveredReadResources)
+	loadNotFoundStyles(srcReadResources)
 	for _, item := range resources {
 		if _, registered := Resources[item.Route]; registered {
 			continue
 		}
 		res := Resource{Table: item.Table, Permission: item.Permission, Label: item.Table}
-		if name, ok := recoveredTableLabels[item.Table]; ok {
+		if name, ok := srcTableLabels[item.Table]; ok {
 			res.Label = name
 		}
 		// notifications 的列表由 lead_notifications.go 的专用处理器提供，此处只补详情。

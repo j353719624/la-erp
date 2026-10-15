@@ -3,7 +3,7 @@
 //
 // 现象：抽查时误打 /api/v1/periods/2026-09/opening-balances，
 //   原版 → 404「路由不存在」
-//   恢复端 → 501「该业务接口尚未恢复：...」
+//   恢复端 → 501「该业务接口尚未实现：...」
 // 若原版对所有未注册 /api/ 路径都是 404「路由不存在」，则恢复端兜底 501 属差异，需对齐。
 //
 // 用例设计（各路径互不相同，取原版绝不存在的名字）：
@@ -70,6 +70,6 @@ for (const [method, path] of cases) {
 say(`\n不一致条数 = ${diff} / ${cases.length}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-catchall-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-catchall-20261015.txt",
   log.join("\n") + "\n",
 );

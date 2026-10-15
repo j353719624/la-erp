@@ -109,7 +109,7 @@ for (const c of cases) {
   const r = await call(RECOVERED, recToken, "POST", "/api/v1/stock-transfers", rb);
   const so = shape(o), sr = shape(r);
   records.push({
-    case: c.name, sentOrig: ob, sentRec: rb, orig: so, recovered: sr,
+    case: c.name, sentOrig: ob, sentRec: rb, orig: so, actual: sr,
     same: so.http === sr.http && so.code === sr.code && so.message === sr.message,
     origIs500: so.http === 500, recIs500: sr.http === 500,
   });
@@ -124,7 +124,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-transfers2-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第二轮：stock-transfers 校验顺序与明细字段名",
-  base: { orig: ORIG, recovered: RECOVERED },
+  base: { orig: ORIG, actual: RECOVERED },
   ids: { whOrig, whRec, prdOrig, prdRec },
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },

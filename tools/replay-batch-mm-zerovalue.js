@@ -87,7 +87,7 @@ async function probeZeroValue(label, baseBody) {
     base: baseBody ? { start: baseBody.start_date, end: baseBody.end_date } : null,
     request: req,
     original: { http: a.http, code: a.json.code, message: a.json.message, norm: norm(a) },
-    recovered: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
+    actual: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
     same,
   });
   console.log(`  ${same ? "✓" : "✗"} ${label.padEnd(30)} 原版=${norm(a).padEnd(8)} 恢复端=${norm(r)}`);
@@ -126,7 +126,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-zerovalue-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, recovered: RECOVERED },
+    base: { original: ORIG, actual: RECOVERED },
     note: `「缺 start_date/end_date」在四种库状态下的原版行为。period 固定两位月份：基准依次用 ${BASE_MONTHS.join("/")}、被测固定 ${probePeriod}。原版无 DELETE 路由，基准期（YEAR=${YEAR}）永久留在原版库中作为残数据。`,
     summary: { total: rows.length, same, differ: rows.length - same },
     rows,

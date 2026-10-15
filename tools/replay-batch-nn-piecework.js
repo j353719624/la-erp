@@ -62,7 +62,7 @@ const before = {};
 for (const res of RESOURCES) {
   before[res] = {
     orig: (await call(ORIG, origToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
-    recovered: (await call(RECOVERED, recToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
+    actual: (await call(RECOVERED, recToken, "GET", `/api/v1/${res}?page=1&page_size=500`)).json?.data?.total ?? null,
   };
 }
 console.log("运行前 total:", JSON.stringify(before));
@@ -99,7 +99,7 @@ for (const c of cases) {
   const same = o.http === r.http && o.code === r.code && o.message === r.message;
   records.push({
     resource: c.res, case: c.name, method: c.method, path: c.path,
-    orig: o, recovered: r, same,
+    orig: o, actual: r, same,
     origIs500: o.http === 500, recIs500: r.http === 500,
   });
   console.log(`\n[${c.res} · ${c.name}] ${same ? "一致" : "★差异"}`);
@@ -111,7 +111,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-piecework-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN：piecework-rates / piecework-records / print-templates 写路径与 notFound 形态对照",
-  base: { orig: ORIG, recovered: RECOVERED },
+  base: { orig: ORIG, actual: RECOVERED },
   before,
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },

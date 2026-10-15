@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // ppStock 给「商品 + 仓库」准备一行库存余额。

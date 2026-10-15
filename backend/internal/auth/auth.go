@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"strings"
 	"sync"
 	"time"

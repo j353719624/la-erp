@@ -123,7 +123,7 @@ dest=pathlib.Path(sys.argv[2]);(dest/'database-schema.json').write_text(json.dum
 (dest/'accounts-including-deleted.json').write_text(json.dumps([dict(x) for x in db.execute('SELECT * FROM accounts ORDER BY created_at')],ensure_ascii=False,indent=2),encoding='utf8')
 (dest/'currencies-including-deleted.json').write_text(json.dumps([dict(x) for x in db.execute('SELECT * FROM currencies ORDER BY created_at')],ensure_ascii=False,indent=2),encoding='utf8')
 for table in ['bank_accounts','bank_statements','bo_ms','bom_items','routings','routing_steps','work_centers','work_orders','work_order_materials','work_order_processes','subcontract_orders','subcontract_order_material_lines','subcontract_receive_logs']:(dest/(table+'-including-deleted.json')).write_text(json.dumps([dict(x) for x in db.execute('SELECT * FROM '+table+' ORDER BY created_at')],ensure_ascii=False,indent=2),encoding='utf8')
-print('Recovered tables:',len(tables))
+print('Actual tables:',len(tables))
 `;
   const dump = spawnSync('python3', ['-c', schemaScript, path.join(temp, 'data/la-erp.db'), output], { encoding: 'utf8' });
   if (dump.status !== 0) throw Error(dump.stderr);

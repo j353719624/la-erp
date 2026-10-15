@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 )
 
 func TestOpeningBalancesTransactionalUpdate(t *testing.T) {

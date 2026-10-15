@@ -35,7 +35,7 @@ upload:
 license:
   # ⚠️ 默认 true：生产模式（不带 -dev）会读取 license.file 并校验签名，
   #    文件缺失或校验失败会**直接启动失败**：
-  #    "recovered server currently requires a valid license file;
+  #    "actual server currently requires a valid license file;
   #     trial subsystem not yet restored"
   #    也就是说——没有授权文件就起不来，且**试用期子系统尚未恢复**。
   #

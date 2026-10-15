@@ -95,7 +95,7 @@ for (const c of cases) {
     rLines = rd.json?.data?.edges?.lines?.length ?? 0;
   }
   const same = ro.http === rr.http && ro.code === rr.code && ro.message === rr.message && oLines === rLines;
-  records.push({ case: c.n, orig: ro, recovered: rr, origLines: oLines, recLines: rLines, same });
+  records.push({ case: c.n, orig: ro, actual: rr, origLines: oLines, recLines: rLines, same });
   console.log(`\n[${c.n}] ${same ? "一致" : "★差异"}`);
   console.log(`  原版  http=${ro.http} code=${ro.code} msg=${JSON.stringify(ro.message)} lines=${oLines}`);
   console.log(`  恢复端 http=${rr.http} code=${rr.code} msg=${JSON.stringify(rr.message)} lines=${rLines}`);
@@ -110,7 +110,7 @@ const delRec = [];
   const ro = flat(await call(ORIG, origToken, "DELETE", `/api/v1/stock-transfers/${oid}`));
   const rr = flat(await call(RECOVERED, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
   const same = ro.http === rr.http && ro.code === rr.code && ro.message === rr.message;
-  delRec.push({ case: "DELETE cancelled", orig: ro, recovered: rr, same });
+  delRec.push({ case: "DELETE cancelled", orig: ro, actual: rr, same });
   console.log(`\n[DELETE cancelled] ${same ? "一致" : "★差异"}`);
   console.log(`  原版  http=${ro.http} code=${ro.code} msg=${JSON.stringify(ro.message)}`);
   console.log(`  恢复端 http=${rr.http} code=${rr.code} msg=${JSON.stringify(rr.message)}`);
@@ -121,7 +121,7 @@ const delRec = [];
   const ro = flat(await call(ORIG, origToken, "DELETE", `/api/v1/stock-transfers/${oid}`));
   const rr = flat(await call(RECOVERED, recToken, "DELETE", `/api/v1/stock-transfers/${rid}`));
   const same = ro.http === rr.http && ro.code === rr.code && ro.message === rr.message;
-  delRec.push({ case: "DELETE draft", orig: ro, recovered: rr, same });
+  delRec.push({ case: "DELETE draft", orig: ro, actual: rr, same });
   console.log(`\n[DELETE draft] ${same ? "一致" : "★差异"}`);
   console.log(`  原版  http=${ro.http} code=${ro.code} msg=${JSON.stringify(ro.message)}`);
   console.log(`  恢复端 http=${rr.http} code=${rr.code} msg=${JSON.stringify(rr.message)}`);
@@ -132,7 +132,7 @@ const same = all.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-transfers3-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第三轮：PUT 与 DELETE 语义的两端对照",
-  base: { orig: ORIG, recovered: RECOVERED },
+  base: { orig: ORIG, actual: RECOVERED },
   put: records,
   del: delRec,
   expectedMessages: {

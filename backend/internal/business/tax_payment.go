@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) PayTaxes(ctx context.Context, input map[string]any) (map[string]any, error) {

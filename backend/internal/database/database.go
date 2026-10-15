@@ -1,4 +1,4 @@
-// Package database uses the schema recovered from the original 1.4.51 runtime.
+// Package database uses the schema src from the original 1.4.51 runtime.
 package database
 
 import (
@@ -87,7 +87,7 @@ func Open(filename string) (*Store, error) {
 		// Existing databases are opened as-is. No automatic schema rewrite is made.
 		var found int
 		if err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sys_users'").Scan(&found); err != nil || found != 1 {
-			return failure(errors.New("existing database does not match recovered ERP schema"))
+			return failure(errors.New("existing database does not match src ERP schema"))
 		}
 	}
 	return s, nil

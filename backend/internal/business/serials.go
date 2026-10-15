@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -31,8 +31,8 @@ func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (ma
 			//   数字 123 → 400    对象 {a:1} → 400    布尔 true → 400
 			//   **null → code:0 放行**（被当作空串跳过）
 			// 原恢复端返回 ErrUnsupported（映射 501），HTTP 语义与原版 400 不一致；
-			// 改用 ErrOriginalNoMessage 携带原版状态码与原文案，不自造 message。
-			return nil, ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+			// 改用 ErrKnownNoMessage 携带原版状态码与原文案，不自造 message。
+			return nil, ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		if no == "" {
 			continue

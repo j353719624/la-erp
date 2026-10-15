@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 )
 
 func (s *Server) registerAccounts() {

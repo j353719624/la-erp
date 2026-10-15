@@ -1,5 +1,5 @@
 // Package license reconstructs the 1.4.51 license file format and verification.
-// It is recovered logic, not the original full ERP backend source.
+// It is src logic, not the original full ERP backend source.
 package license
 
 import (

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func isReturn(d Document) bool { return d.Table == "sales_returns" || d.Table == "purchase_returns" }

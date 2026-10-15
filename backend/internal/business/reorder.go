@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // The original ignores product_id and counts available stock separately from

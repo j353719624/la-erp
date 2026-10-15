@@ -4,7 +4,7 @@
 //
 // 判定：
 //   原版 absent  → 前端调用了原版也没有的端点（前端自身问题，不算后端缺口）
-//   原版 exists  → ★真实缺口：后端 501「尚未恢复」
+//   原版 exists  → ★真实缺口：后端 501「尚未实现」
 //
 // 用法：ERP_PASSWORD=xxx node tools/audit-gap-confirm.js
 import { readFileSync, writeFileSync } from "node:fs";
@@ -47,7 +47,7 @@ async function probe(base, tk, method, path, attempt = 0) {
     let code, message = null;
     try { const p = JSON.parse(text); code = p.code; message = p.message; } catch { /* 非 JSON */ }
     if (res.status === 404 && /路由不存在/.test(text)) return { kind: "absent" };
-    if (res.status === 501 || /尚未恢复/.test(text)) return { kind: "unrecovered", http: res.status, code, message };
+    if (res.status === 501 || /尚未实现/.test(text)) return { kind: "unimplemented", http: res.status, code, message };
     return { kind: "exists", http: res.status, code, message };
   } catch (err) {
     if (attempt < 2) { await new Promise((r) => setTimeout(r, 700 * (attempt + 1))); return probe(base, tk, method, path, attempt + 1); }
@@ -87,14 +87,14 @@ for (const b of matrix.broken) {
   // 即便响应形态有差异（如 JSON 键序不同）也不算缺口 —— 那是形态问题，另行审计。
   const verdict = orig.kind === "absent"
     ? "FRONTEND_ONLY"                                  // 原版也没这个端点 → 前端的错调用
-    : rec.kind === "unrecovered" || rec.kind === "absent"
+    : rec.kind === "unimplemented" || rec.kind === "absent"
       ? "BACKEND_GAP"                                  // 原版有、恢复端没有 → 真缺口
       : "ALREADY_OK";                                  // 两端都可用 → 非缺口
   rows.push({
     method: b.method,
     path: path.replace(SAMPLE, "{id}"),
     original: orig,
-    recovered: rec,
+    actual: rec,
     verdict,
     frontendFile: (b.files[0] ?? "").split("\\").pop(),
   });
@@ -110,7 +110,7 @@ console.log("=== ★ 后端真实缺口（原版有实现，恢复端 501）==="
 for (const g of gaps) {
   console.log(`  ${g.method.padEnd(6)} ${g.path}`);
   console.log(`         原版: HTTP ${g.original.http} code=${g.original.code} ${JSON.stringify(g.original.message ?? "")}`);
-  console.log(`         恢复端: ${g.recovered.kind}   ← frontend/src/api/${g.frontendFile}`);
+  console.log(`         恢复端: ${g.actual.kind}   ← frontend/src/api/${g.frontendFile}`);
 }
 if (feOnly.length) {
   console.log("\n=== 前端调用了原版也没有的端点（前端问题，非后端缺口）===");

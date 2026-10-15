@@ -89,6 +89,6 @@ for (const [name, lines] of SHAPES) {
 say(`\n不一致 = ${diff} / ${SHAPES.length}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-lines-shape-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-lines-shape-20261015.txt",
   log.join("\n") + "\n",
 );

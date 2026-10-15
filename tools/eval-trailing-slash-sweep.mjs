@@ -50,7 +50,7 @@ async function probe(base, tk, path) {
 
 console.log(`扫描 ${list.length} 个资源：尾斜杠 vs 无尾斜杠\n`);
 const rows = [];
-let recoveredBad = 0, origBad = 0, crossDiff = 0;
+let srcBad = 0, origBad = 0, crossDiff = 0;
 for (const res of list) {
   const plain = `/api/v1/${res}`;
   const slash = `/api/v1/${res}/`;
@@ -63,7 +63,7 @@ for (const res of list) {
   // 跨端一致性：恢复端尾斜杠应与原版尾斜杠同形态
   const cross = oS === rS;
   if (!oSelf) origBad++;
-  if (!rSelf) recoveredBad++;
+  if (!rSelf) srcBad++;
   if (!cross) crossDiff++;
   if (!rSelf || !cross) {
     rows.push(`  ${res.padEnd(30)} 原版 ${oP}→${oS}   恢复端 ${rP}→${rS}`);
@@ -71,7 +71,7 @@ for (const res of list) {
 }
 console.log("=== 不一致明细 ===");
 console.log(rows.length ? rows.join("\n") : "  （无）");
-console.log(`\n恢复端自身不一致 ${recoveredBad} / ${list.length}`);
+console.log(`\n恢复端自身不一致 ${srcBad} / ${list.length}`);
 console.log(`恢复端与原版不一致 ${crossDiff} / ${list.length}`);
 console.log(`（原版自身不一致 ${origBad} / ${list.length} 作参考，原版自身应全部一致）`);
 
@@ -79,7 +79,7 @@ writeFileSync(
   new URL(`../evidence/backend-runtime/eval-trailing-slash-sweep-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.txt`, import.meta.url),
   `资源\t原版无斜杠\t原版尾斜杠\t恢复端无斜杠\t恢复端尾斜杠\n` +
   rows.join("\n") +
-  `\n恢复端自身不一致 ${recoveredBad}/${list.length}｜跨端不一致 ${crossDiff}/${list.length}\n`,
+  `\n恢复端自身不一致 ${srcBad}/${list.length}｜跨端不一致 ${crossDiff}/${list.length}\n`,
   "utf8",
 );
 console.log("证据已落盘。");

@@ -31,7 +31,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 const (
@@ -250,7 +250,7 @@ func comboQty(raw any) (decimal.Decimal, error) {
 	// 不用 business.Number，后者返回的是单据文案「数值格式错误…」。
 	qty, err := decimal.NewFromString(fmt.Sprint(raw))
 	if err != nil {
-		return decimal.Zero, ErrOriginalNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
+		return decimal.Zero, ErrKnownNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
 	}
 	return qty, nil
 }
@@ -265,7 +265,7 @@ func (s *Service) SaveCombo(ctx context.Context, id string, input map[string]any
 		// 回放：lines 传对象/非数组 → 400「系统内部错误，请稍后重试或联系管理员」；
 		// 但**完全不传** lines 时原版走业务文案「组合配方至少需要一行配件」（与空数组同）。
 		if input["lines"] != nil {
-			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 	}
 	if len(raw) == 0 {
@@ -280,12 +280,12 @@ func (s *Service) SaveCombo(ctx context.Context, id string, input map[string]any
 		for i, item := range raw {
 			line, ok := item.(map[string]any)
 			if !ok {
-				return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+				return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 			}
 			componentID := strings.TrimSpace(value(line, "component_id"))
 			if _, err := uuid.Parse(componentID); err != nil {
 				// 回放：component_id="" → 400「请求参数错误: invalid UUID length: 0」
-				return ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
+				return ErrKnownNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 			}
 			component, err := s.Store.GetWith(ctx, tx, "products", componentID)
 			if err != nil {

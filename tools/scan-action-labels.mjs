@@ -72,7 +72,7 @@ async function probe(base, tk, path) {
     });
     const text = await res.text();
     if (res.status === 404 && /路由不存在/.test(text)) return { kind: "absent" };
-    if (res.status === 501 || /尚未恢复/.test(text)) return { kind: "unrecovered" };
+    if (res.status === 501 || /尚未实现/.test(text)) return { kind: "unimplemented" };
     let code = null, message = "";
     try { const p = JSON.parse(text); code = p.code; message = p.message ?? ""; } catch { /* 非 JSON */ }
     return { kind: "exists", http: res.status, code, message };
@@ -86,14 +86,14 @@ for (const path of pairs) {
   const [o, r] = [await probe(ORIG, to, path), await probe(RECOVERED, tr, path)];
   if (o.kind !== "exists" || r.kind !== "exists") continue; // 只比对两边都有的
   const same = o.http === r.http && o.code === r.code && o.message === r.message;
-  (same ? both : diffs).push({ path, original: o, recovered: r });
+  (same ? both : diffs).push({ path, original: o, actual: r });
 }
 
 console.log(`两端都存在并比对: ${both.length + diffs.length}｜形态一致 ${both.length}｜不一致 ${diffs.length}\n`);
 for (const d of diffs) {
   console.log(`${d.path.replace(S, "{id}")}`);
   console.log(`       原版   ${d.original.http} code=${d.original.code} ${JSON.stringify(d.original.message)}`);
-  console.log(`       恢复端 ${d.recovered.http} code=${d.recovered.code} ${JSON.stringify(d.recovered.message)}`);
+  console.log(`       恢复端 ${d.actual.http} code=${d.actual.code} ${JSON.stringify(d.actual.message)}`);
 }
 
 writeFileSync(

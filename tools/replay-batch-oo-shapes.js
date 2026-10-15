@@ -132,5 +132,5 @@ const text =
   `原版=${ORIG} 恢复端=${RECOVERED}  共 ${rows.length} 条，不一致 ${diff} 条\n` +
   `注：原版 500 按铁律④不作为语义证据，仅记录形态\n\n` + out.join("\n") + "\n";
 console.log(text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-shapes-20261015.txt", text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-shapes-20261015.json", JSON.stringify(rows, null, 2));
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-shapes-20261015.txt", text);
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-shapes-20261015.json", JSON.stringify(rows, null, 2));

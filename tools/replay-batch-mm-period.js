@@ -58,7 +58,7 @@ async function compare(tag, body) {
   rows.push({
     tag, request: body,
     original: { http: a.http, code: a.json.code, message: a.json.message },
-    recovered: { http: b.http, code: b.json.code, message: b.json.message },
+    actual: { http: b.http, code: b.json.code, message: b.json.message },
     same,
   });
   console.log(`  ${same ? "✓" : "✗"} ${tag.padEnd(24)} 原版=${a.http}/${a.json.code} ${JSON.stringify(a.json.message)}`);
@@ -117,7 +117,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-period-crosscheck-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, recovered: RECOVERED },
+    base: { original: ORIG, actual: RECOVERED },
     note: "原版无 DELETE /api/v1/accounting-periods/{id}，本轮基准期（year=" + Y + "）留在原版库中作为残数据",
     summary: { total: rows.length, same: pass, differ: fail, textDiff: textDiffCount },
     rows,

@@ -130,5 +130,5 @@ const text =
   `原版=${ORIG} 恢复端=${RECOVERED}  共 ${rows.length} 条，不一致 ${diff} 条\n` +
   `原版首个科目=${origAcc} 恢复端首个科目=${recAcc}\n\n` + out.join("\n") + "\n";
 console.log(text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-shapes2-20261015.txt", text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-shapes2-20261015.json", JSON.stringify(rows, null, 2));
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-shapes2-20261015.txt", text);
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-shapes2-20261015.json", JSON.stringify(rows, null, 2));

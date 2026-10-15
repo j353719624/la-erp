@@ -13,7 +13,7 @@ const evidenceRoot = "../../../evidence/"
 // readEvidenceSnapshot loads one capture file. When the capture tree is absent
 // the replay test that depends on it is skipped instead of failing, so a clean
 // checkout still runs green. Recreate the tree (or point evidenceRoot at a
-// local copy) to re-enable the deep original-vs-recovered comparisons.
+// local copy) to re-enable the deep original-vs-src comparisons.
 func readEvidenceSnapshot(t *testing.T, rel string) ([]byte, error) {
 	t.Helper()
 	raw, err := os.ReadFile(evidenceRoot + rel)

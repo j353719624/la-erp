@@ -85,6 +85,6 @@ await run("原版", ORIG, origToken, "OO-BAL-ORIG");
 await run("恢复端", RECOVERED, recToken, "OO-BAL-REC");
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-balance-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-balance-20261015.txt",
   log.join("\n") + "\n",
 );

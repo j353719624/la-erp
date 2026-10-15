@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 type ProductionDocument struct{ Table, Lines, FK, Number, Prefix, Date, Kind string }
@@ -184,14 +184,14 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			//   退料 qty=-1 → 2026-10-13 实测 169：qty_returned 变为 -1、库存余额被虚增
 			// 两者是**同一类原版缺陷**（负数调整库存），按交接文档
 			// 「不伪造成功、不复制未证实的错误行为」原则，恢复端保留拒绝，
-			// 用 ErrOriginalDefect 标识为**终态决策**（非待办），不返回自造中文文案。
+			// 用 ErrKnownDefect 标识为**终态决策**（非待办），不返回自造中文文案。
 			// 证据：evidence/backend-runtime/audit-workorder-return-reason-20261013.json 的 M2、
 			// evidence/backend-runtime/audit-batch-p-20261014.json。
 			if !qty.IsPositive() {
-				return ErrOriginalDefect
+				return ErrKnownDefect
 			}
 			if cost.IsNegative() {
-				return ErrOriginalDefect
+				return ErrKnownDefect
 			}
 
 			row := s.base(d.Lines)

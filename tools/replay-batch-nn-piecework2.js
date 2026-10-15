@@ -60,7 +60,7 @@ const records = [];
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/piecework-rates", c.b()));
     const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/piecework-rates", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
-    records.push({ res: "piecework-rates", case: c.n, orig: o, recovered: r, same });
+    records.push({ res: "piecework-rates", case: c.n, orig: o, actual: r, same });
     console.log(`[piecework-rates · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
@@ -100,7 +100,7 @@ const records = [];
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/piecework-records", c.b()));
     const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/piecework-records", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
-    records.push({ res: "piecework-records", case: c.n, orig: o, recovered: r, same });
+    records.push({ res: "piecework-records", case: c.n, orig: o, actual: r, same });
     console.log(`[piecework-records · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
@@ -124,7 +124,7 @@ const records = [];
     const o = flat(await call(ORIG, origToken, "POST", "/api/v1/print-templates", c.b()));
     const r = flat(await call(RECOVERED, recToken, "POST", "/api/v1/print-templates", c.b()));
     const same = o.http === r.http && o.code === r.code && o.message === r.message;
-    records.push({ res: "print-templates", case: c.n, orig: o, recovered: r, same });
+    records.push({ res: "print-templates", case: c.n, orig: o, actual: r, same });
     console.log(`[print-templates · ${c.n}] ${same ? "一致" : "★差异"}`);
     if (!same) console.log(`  原版 ${o.http}/${o.code} ${JSON.stringify(o.message)}\n  恢复端 ${r.http}/${r.code} ${JSON.stringify(r.message)}`);
   }
@@ -144,7 +144,7 @@ const same = records.filter((x) => x.same).length;
 writeFileSync("evidence/backend-runtime/audit-batch-nn-piecework2-20261015.json", JSON.stringify({
   generated: new Date().toISOString(),
   purpose: "批次 NN 第二轮：计件两张表与打印模板的完整校验链",
-  base: { orig: ORIG, recovered: RECOVERED },
+  base: { orig: ORIG, actual: RECOVERED },
   cases: records,
   summary: { total: records.length, same, differ: records.length - same },
 }, null, 2));

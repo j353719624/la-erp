@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // contractProgress 汇总一张合同关联订单的「已执行 / 已收款」金额。

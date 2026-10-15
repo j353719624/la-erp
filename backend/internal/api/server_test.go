@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -73,7 +73,7 @@ func setup(t *testing.T) (*client, *Server) {
 	c.token = login["access_token"].(string)
 	return c, s
 }
-func TestRecoveredSchemaAndDefaults(t *testing.T) {
+func TestSourceSchemaAndDefaults(t *testing.T) {
 	c, s := setup(t)
 	var tables int
 	if err := s.Store.DB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
@@ -176,7 +176,7 @@ func TestBasicCRUDAndDepartmentCycles(t *testing.T) {
 	// 批次 PP（2026-10-15）：原版对一切未注册 /api/ 路径逐字返回
 	// 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，8 条对照 100%）。
 	if status, body := c.request("POST", "/api/v1/work-orders/unknown/finish", map[string]any{}); status != 404 || body["message"] != "路由不存在" {
-		t.Fatalf("unrecovered operation = %d %v, want 404 路由不存在", status, body)
+		t.Fatalf("unimplemented operation = %d %v, want 404 路由不存在", status, body)
 	}
 }
 func fields(value map[string]any) []string {

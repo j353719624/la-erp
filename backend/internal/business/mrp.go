@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"sort"
 )
 
@@ -55,7 +55,7 @@ func (s *Service) RunMRP(ctx context.Context) (map[string]any, error) {
 				// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
 				// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
 				if scrap.IsNegative() {
-					return ErrOriginalDefect
+					return ErrKnownDefect
 				}
 				quantity := readDecimal(order, "qty").Mul(readDecimal(item, "qty")).Mul(decimal.NewFromInt(1).Add(scrap))
 				if err = s.explodeMRP(ctx, tx, value(item, "product_id"), quantity, 1, map[string]bool{value(order, "product_id"): true}, add); err != nil {
@@ -301,7 +301,7 @@ func (s *Service) explodeMRP(ctx context.Context, tx *sql.Tx, productID string, 
 		// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
 		// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
 		if scrap.IsNegative() {
-			return ErrOriginalDefect
+			return ErrKnownDefect
 		}
 		amount := qty.Mul(readDecimal(item, "qty")).Mul(decimal.NewFromInt(1).Add(scrap))
 		if err = s.explodeMRP(ctx, tx, value(item, "product_id"), amount, depth+1, path, add); err != nil {

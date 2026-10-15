@@ -45,7 +45,7 @@ func TestPPBadIDGuard(t *testing.T) {
 }
 
 // TestPPCatchAll404 未注册 /api/ 路径逐字返回 404 +「路由不存在」。
-// 此前恢复端是自造的 501「该业务接口尚未恢复」，已按原版对齐。
+// 此前恢复端是自造的 501「该业务接口尚未实现」，已按原版对齐。
 func TestPPCatchAll404(t *testing.T) {
 	c, _ := setup(t)
 	for _, path := range []string{

@@ -1,4 +1,4 @@
-// Reads recovered TS syntax only; this inventory does not probe a live server.
+// Reads actual TS syntax only; this inventory does not probe a live server.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';

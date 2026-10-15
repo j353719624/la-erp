@@ -10,28 +10,28 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"regexp"
 	"strings"
 	"time"
 )
 
-// ErrUnsupported 表示「该业务分支尚未恢复」——对外是 HTTP 501，
+// ErrUnsupported 表示「该业务分支尚未实现」——对外是 HTTP 501，
 // 含义是「原版行为未知或未取证，恢复端选择不实现」。
-var ErrUnsupported = errors.New("该业务分支尚未恢复")
+var ErrUnsupported = errors.New("该业务分支尚未实现")
 
-// ErrOriginalDefect 表示「原版此处存在缺陷，恢复端有意不对齐」。
+// ErrKnownDefect 表示「原版此处存在缺陷，恢复端有意不对齐」。
 //
 // 与 ErrUnsupported 的区别很重要：
 //   - ErrUnsupported  = 「不知道原版怎么做 / 还没做」，属于**待办**；
-//   - ErrOriginalDefect = 「知道原版怎么做，且原版做法有害，恢复端有意拒绝」，属于**终态决策**。
+//   - ErrKnownDefect = 「知道原版怎么做，且原版做法有害，恢复端有意拒绝」，属于**终态决策**。
 //
 // 两者对外都返回 501，但语义不同：前者在台账里是可推进的存量，
 // 后者已结案（见 docs/UNSUPPORTED-AUDIT-LOG.md 各批「不对齐」结论）。
 // 之所以仍用 501 而非 4xx：这类输入在原版能成功建单，给 4xx 会与原版
-// 行为产生表面冲突；但**绝不能复用「尚未恢复」的说法**，否则把终态决策
+// 行为产生表面冲突；但**绝不能复用「尚未实现」的说法**，否则把终态决策
 // 混进待办存量，反复审计也推不动。
-var ErrOriginalDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
+var ErrKnownDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
 
 // ErrAccountNotFound 标识「科目不存在」，供 API 层区分形态。
 //
@@ -44,7 +44,7 @@ var ErrOriginalDefect = errors.New("原版该行为存在数据风险，恢复�
 // 统一处理，需要一个可判定的错误值。
 var ErrAccountNotFound = errors.New("科目不存在")
 
-// ErrOriginalNoMessage 表示「原版此处会失败但**不返回业务文案**」。
+// ErrKnownNoMessage 表示「原版此处会失败但**不返回业务文案**」。
 //
 // 原版有若干路径返回裸 HTTP 400 / 500（既非 code:0 也非 10000，也没有 message），
 // 典型如：外协 material_lines 传非数组 → 400；product_id 指向不存在的商品 → 500
@@ -56,14 +56,14 @@ var ErrAccountNotFound = errors.New("科目不存在")
 //
 // 故用本错误携带原版的**状态码**（0 表示沿用调用点的默认语义），
 // 由 API 层原样输出 status 而不给 message。
-type ErrOriginalNoMessage struct {
+type ErrKnownNoMessage struct {
 	// Status 是原版的 HTTP 状态码（400 / 500）。
 	Status int
 	// Note 是内部说明，**不返回给客户端**，仅供日志与代码注释追溯。
 	Note string
 }
 
-func (e ErrOriginalNoMessage) Error() string {
+func (e ErrKnownNoMessage) Error() string {
 	if e.Note != "" {
 		return e.Note
 	}
@@ -71,7 +71,7 @@ func (e ErrOriginalNoMessage) Error() string {
 }
 
 // Status 返回原版状态码；0 表示调用方应沿用自身默认。
-func (e ErrOriginalNoMessage) StatusCode() int { return e.Status }
+func (e ErrKnownNoMessage) StatusCode() int { return e.Status }
 
 var decimalSyntax = regexp.MustCompile(`^-?[0-9]{1,20}(\.[0-9]{1,12})?$`)
 
@@ -403,7 +403,7 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					// 用 RFC3339Nano 会让文案对不上；② 是 400 解析错误，
 					// 不是业务 10000 —— 原恢复端的「日期格式错误」是自造文案。
 					if _, err := time.Parse(time.RFC3339, v); err != nil {
-						return ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
+						return ErrKnownNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 					}
 				}
 				h[k] = v
@@ -421,7 +421,7 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 		if raw, ok := input["expected_date"]; ok && raw != nil {
 			v := fmt.Sprint(raw)
 			if _, err := time.Parse(time.RFC3339, v); err != nil {
-				return ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
+				return ErrKnownNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 			}
 			if s.Store.Has(d.Table, "expected_date") {
 				h["expected_date"] = v
@@ -468,7 +468,7 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			// 恢复端此前完全放行，等于允许手工造出本该由调拨单产生的出入库单。
 			if t := value(input, "type"); t != "" {
 				if t == "transfer" {
-					return ErrOriginalNoMessage{Status: 400, Note: transferOrderGuard(d.Incoming)}
+					return ErrKnownNoMessage{Status: 400, Note: transferOrderGuard(d.Incoming)}
 				}
 				h["type"] = t
 			}
@@ -742,7 +742,7 @@ func (s *Service) trackingBalance(ctx context.Context, tx *sql.Tx, product, ware
 	//     COALESCE(location_id,'000…0'), COALESCE(rack_id,'000…0'), COALESCE(batch_no,''))
 	// 用 COALESCE 把 NULL 归一化，正是为保证「无库位/无货架/无批次」这一组不重复。
 	// 原版库实测 52 条余额行、同键多行组数 0；
-	// 恢复端 TestRecoveredBalanceRowIsUniquePerKey / …BatchedBalance… 亦验证索引生效。
+	// 恢复端 TestSourceBalanceRowIsUniquePerKey / …BatchedBalance… 亦验证索引生效。
 	//
 	// 故 `len(rows) > 1` **永不可达**（2026-10-14 DUP-A/DUP-B 注释里「无取舍证据」的顾虑，
 	// 已由数据库约束消解）。属**防御性断言**，保留兜底但不再当作待办推进项：
@@ -1228,7 +1228,7 @@ func rejectSerialNosType(line map[string]any) error {
 			continue
 		}
 		if _, ok := v.(string); !ok {
-			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 	}
 	return nil

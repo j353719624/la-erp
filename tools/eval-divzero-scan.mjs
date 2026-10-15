@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = "C:/Users/35371/Desktop/11111/la-erp-recovered/backend/internal";
+const ROOT = "C:/Users/35371/Desktop/11111/la-erp/backend/internal";
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {

@@ -4,7 +4,7 @@
 // 核对三个契约点：
 //   HH-A 列表形状：GET /api/v1/{route}?page=1&page_size=2 的 data 形状（{total,list} / 数组 / 其它）
 //   HH-B 详情路由是否存在：GET /api/v1/{route}/{零UUID}，401=不存在(未注册)、其它=存在
-//   HH-C 详情不存在时的状态码与文案（原版逐个取证，用于校正 recoveredTableLabels）
+//   HH-C 详情不存在时的状态码与文案（原版逐个取证，用于校正 srcTableLabels）
 //
 // 安全约定：口令只经环境变量传入，不落盘。
 //   用法：ERP_PASSWORD=xxx node tools/replay-batch-hh.js

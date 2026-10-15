@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 )
 
 var ooPeriodRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}$`)
@@ -115,7 +115,7 @@ func (s *Server) prepareApprovalFlow(w http.ResponseWriter, data map[string]any)
 		missing = "biz_type"
 	}
 	if missing != "" {
-		businessFailure(w, business.ErrOriginalNoMessage{
+		businessFailure(w, business.ErrKnownNoMessage{
 			Status: 500,
 			Note:   "系统内部错误，请稍后重试或联系管理员",
 		}, false)

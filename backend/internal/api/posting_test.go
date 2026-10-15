@@ -39,7 +39,7 @@ func verifyOriginalPostingState(t *testing.T, s *Server, fixture ...string) {
 			t.Fatal(err)
 		}
 		if actual != count {
-			t.Fatalf("%s original=%d recovered=%d", table, count, actual)
+			t.Fatalf("%s original=%d src=%d", table, count, actual)
 		}
 	}
 	aggregate := func(rows []map[string]any, fields []string, numeric string) map[string]string {
@@ -73,7 +73,7 @@ func verifyOriginalPostingState(t *testing.T, s *Server, fixture ...string) {
 		}
 		want, got := aggregate(spec.Rows, spec.Fields, spec.Numeric), aggregate(actual, spec.Fields, spec.Numeric)
 		if !reflect.DeepEqual(want, got) {
-			t.Fatalf("%s SQL postings differ: original=%v recovered=%v", spec.Table, want, got)
+			t.Fatalf("%s SQL postings differ: original=%v src=%v", spec.Table, want, got)
 		}
 	}
 	actual, err := s.Store.Rows(context.Background(), "SELECT b.*,a.code FROM account_balances b JOIN accounts a ON a.id=b.account_id")
@@ -97,7 +97,7 @@ func verifyOriginalPostingState(t *testing.T, s *Server, fixture ...string) {
 				t.Fatal(err)
 			}
 			if !a.Equal(b) {
-				t.Fatalf("account %s %s original=%s recovered=%s", code, k, a, b)
+				t.Fatalf("account %s %s original=%s src=%s", code, k, a, b)
 			}
 		}
 	}

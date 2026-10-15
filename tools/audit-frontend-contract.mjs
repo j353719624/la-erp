@@ -4,20 +4,20 @@
 // 用**实际探测**得出恢复端真正提供哪些 (方法, 路径)。
 //
 // 三个产物：
-//   1. 前端调用但恢复端落到 501「尚未恢复」或 404 的端点 —— 真实功能缺口
+//   1. 前端调用但恢复端落到 501「尚未实现」或 404 的端点 —— 真实功能缺口
 //   2. 前端发送但恢复端不识别的查询参数 —— 筛选点了没反应
 //   3. 全量矩阵落盘，供后续批次复用
 //
-// 用法：ERP_PASSWORD=xxx node tools/audit-frontend-contract.mjs [--recovered URL]
+// 用法：ERP_PASSWORD=xxx node tools/audit-frontend-contract.mjs [--actual URL]
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = "C:/Users/35371/Desktop/11111/la-erp-recovered";
+const ROOT = "C:/Users/35371/Desktop/11111/la-erp";
 const arg = (flag, def) => {
   const i = process.argv.indexOf(flag);
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
 };
-const RECOVERED = arg("--recovered", "http://127.0.0.1:18886");
+const RECOVERED = arg("--actual", "http://127.0.0.1:18886");
 const SAMPLE = "00000000-0000-0000-0000-000000000001";
 const PASS = process.env.ERP_PASSWORD;
 if (!PASS) { console.error("缺少 ERP_PASSWORD"); process.exit(1); }
@@ -127,7 +127,7 @@ async function probe(method, path, attempt = 0) {
     const body = await res.text();
     let kind, message = "";
     if (res.status === 404 && /路由不存在/.test(body)) kind = "absent";
-    else if (res.status === 501 || /尚未恢复/.test(body)) kind = "unrecovered";
+    else if (res.status === 501 || /尚未实现/.test(body)) kind = "unimplemented";
     else {
       try {
         const parsed = JSON.parse(body);
@@ -166,7 +166,7 @@ for (let i = 0; i < keys.length; i++) {
 }
 
 // ---------- 3. 汇总 ----------
-const broken = rows.filter((r) => r.kind === "absent" || r.kind === "unrecovered");
+const broken = rows.filter((r) => r.kind === "absent" || r.kind === "unimplemented");
 const errored = rows.filter((r) => r.kind === "error");
 
 // 已知后端不识别的查询参数（取自批次 JJ 实测）
@@ -181,7 +181,7 @@ for (const r of rows) {
 
 const out = {
   generated: new Date().toISOString(),
-  recovered: RECOVERED,
+  actual: RECOVERED,
   summary: {
     frontendCalls: rows.length,
     served: rows.length - broken.length - errored.length,

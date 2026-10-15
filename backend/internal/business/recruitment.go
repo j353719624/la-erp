@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) HireRecruitmentCandidate(ctx context.Context, id string, input map[string]any) (map[string]any, error) {

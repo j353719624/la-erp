@@ -103,6 +103,6 @@ for (const [tag, base, tk] of [["原版", ORIG, oTk], ["恢复端", RECOVERED, r
 }
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-assembly3-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-assembly3-20261015.txt",
   log.join("\n") + "\n",
 );

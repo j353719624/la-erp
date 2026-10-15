@@ -45,4 +45,4 @@ types=list({x['address']:x for x in types}.values())
 dest=destdir/'go-structs.json';dest.write_text(json.dumps(types,ensure_ascii=False,indent=2),encoding='utf8')
 matches=[x for x in types if 'uVLmU1J' in x['name'] or any(re.search(r'json:"machine_id"|mapstructure:"trial_days"',f['tag']) for f in x['fields'])]
 (destdir/'license-types.json').write_text(json.dumps(matches,ensure_ascii=False,indent=2),encoding='utf8')
-print('Recovered tagged structs:',len(types));print(json.dumps(matches,ensure_ascii=True,indent=2))
+print('Actual tagged structs:',len(types));print(json.dumps(matches,ensure_ascii=True,indent=2))

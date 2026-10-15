@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 var ErrBOMMissing = errors.New("BOM不存在")
@@ -136,17 +136,17 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 			// 但极端负值（≤ -100）会产生零/负需求，属原版校验缺失。
 			//
 			// 批次 BB 修正（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
-			// 原先两项都返回 ErrOriginalDefect（语义是「原版行为已确认有害的终态决策」）。
+			// 原先两项都返回 ErrKnownDefect（语义是「原版行为已确认有害的终态决策」）。
 			// 但批次 T 的实测表明 scrap_rate 的危害**需极端输入才触发**，
-			// 用 ErrOriginalDefect 标记过重 —— 已改为按项区分：
+			// 用 ErrKnownDefect 标记过重 —— 已改为按项区分：
 			//   · qty <= 0        → 原版放行且原样落库（实测 qty=0 / -1 均 code:0）；
 			//                      qty=0 会让该组件需求恒为 0、qty<0 产生负需求，
-			//                      属**可被正常输入触发**的实质缺陷 → 保留 ErrOriginalDefect。
+			//                      属**可被正常输入触发**的实质缺陷 → 保留 ErrKnownDefect。
 			//   · scrap_rate < 0  → 实测 -0.5 时材料需求 19.9（= 10×2×(1-0.005)），
 			//                      仅 0.5% 级偏差，与原版一致放行；恢复端亦放行
 			//                      （workorders.go 侧的 IsNegative 守卫已在批次 BB 移除）。
 			if !qty.IsPositive() {
-				return ErrOriginalDefect
+				return ErrKnownDefect
 			}
 
 			row := s.base("bom_items")

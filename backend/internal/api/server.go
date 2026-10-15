@@ -1,4 +1,4 @@
-// Package api contains recovered, explicitly implemented HTTP contracts.
+// Package api contains src, explicitly implemented HTTP contracts.
 // Missing business operations return 501; they never report a fabricated success.
 package api
 
@@ -13,9 +13,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log"
-	"la-erp-recovered/backend/internal/auth"
-	"la-erp-recovered/backend/internal/business"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/auth"
+	"la-erp/backend/internal/business"
+	"la-erp/backend/internal/database"
 	"net/http"
 	"net/url"
 	"os"
@@ -181,7 +181,7 @@ func New(store *database.Store, secret string) *Server {
 	s.mux.Handle("POST /api/v1/users/{id}/reset-password", s.protected("user_edit", http.HandlerFunc(s.resetPassword)))
 	s.mux.Handle("POST /api/v1/roles/{id}/permissions", s.protected("role_permission_assign", http.HandlerFunc(s.assignRolePermissions)))
 	s.mux.Handle("GET /api/v1/categories/tree", s.protected("product_list", http.HandlerFunc(s.categoryTree)))
-	s.registerRecoveredReads()
+	s.registerSrcReads()
 	s.registerBusiness()
 	s.registerInventorySettings()
 	s.registerFinance()
@@ -228,7 +228,7 @@ func New(store *database.Store, secret string) *Server {
 	s.ooRegisterFixedHandlers()
 	// 批次 PP（2026-10-15）：原版对一切未注册的 /api/ 路径逐字返回
 	// 404 + code 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，
-	// 8 条对照 100% 一致）。恢复端此前的 501「该业务接口尚未恢复」是自造占位形态。
+	// 8 条对照 100% 一致）。恢复端此前的 501「该业务接口尚未实现」是自造占位形态。
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "路由不存在")
 	})
@@ -1552,7 +1552,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//   · 直接掐断连接 → 客户端拿到空响应，无法区分「服务挂了」和「网络抖了」
 	//   · 只往标准错误打堆栈 → 没有请求上下文，无法定位是哪个接口/参数触发的
 	// 故在此统一兜底：记录带请求上下文的日志，并对客户端返回原版已取证的
-	// 通用 500 形态（与 business.ErrOriginalNoMessage 一致，不自造文案）。
+	// 通用 500 形态（与 business.ErrKnownNoMessage 一致，不自造文案）。
 	defer func() {
 		rec := recover()
 		if rec == nil {

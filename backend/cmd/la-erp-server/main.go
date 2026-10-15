@@ -1,4 +1,4 @@
-// Standalone recovered source backend. It does not invoke the original binary.
+// LA-ERP backend service: standalone HTTP API over SQLite.
 package main
 
 import (
@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"go.yaml.in/yaml/v3"
 	"io"
-	"la-erp-recovered/backend/internal/api"
-	"la-erp-recovered/backend/internal/database"
-	"la-erp-recovered/backend/license"
+	"la-erp/backend/internal/api"
+	"la-erp/backend/internal/database"
+	"la-erp/backend/license"
 	"log"
 	"net"
 	"net/http"
@@ -97,7 +97,7 @@ func run() error {
 	cfg.Server.Port = 18887
 	cfg.Server.Host = "127.0.0.1"
 	cfg.Database.Driver = "sqlite"
-	cfg.Database.DSN = "data/la-erp-recovered.db"
+	cfg.Database.DSN = "data/la-erp.db"
 	cfg.JWT.AccessTTL = 7200
 	cfg.JWT.RefreshTTL = 604800
 	cfg.License.Enabled = true
@@ -151,7 +151,7 @@ func run() error {
 		}
 		raw, err := os.ReadFile(cfg.License.File)
 		if err != nil {
-			return fmt.Errorf("recovered server currently requires a valid license file; trial subsystem not yet restored: %w", err)
+			return fmt.Errorf("server requires a valid license file; trial subsystem not yet available: %w", err)
 		}
 		var record license.File
 		if err = json.Unmarshal(raw, &record); err != nil {
@@ -331,7 +331,7 @@ func run() error {
 		defer cancel()
 		server.Shutdown(ctx)
 	}()
-	log.Printf("Recovered source backend listening on %s; SQLite=%s; unrecovered operations return 501", addr, cfg.Database.DSN)
+	log.Printf("LA-ERP backend listening on %s; SQLite=%s; unimplemented operations return 501", addr, cfg.Database.DSN)
 	err = server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

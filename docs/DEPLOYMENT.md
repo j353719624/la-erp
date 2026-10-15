@@ -1,11 +1,11 @@
 # 生产部署指南
 
-恢复版是**前后端分离**：后端只提供 `/api/...`、`/uploads/...`、`/health`，
-前端是 `frontend/dist` 的静态产物。原版是前后端一体（后端托管前端），
-恢复版必须由反向代理把这两部分拼起来。这是部署与原版最大的不同。
+本系统是**前后端分离**：后端只提供 `/api/...`、`/uploads/...`、`/health`，
+前端是 `frontend/dist` 的静态产物。两者必须由反向代理拼成同源站点 ——
+前端没有 CORS 配置，直接分开部署会跨域失败。
 
-> 适用范围：**Linux** 服务器 + nginx。其他形态（Docker、飞牛 NAS）尚未产出资产 ——
-> `packaging/fnos` 是原仓库残留，其说明仍引用已丢失的 Go 工程，**不能**用它重新编译后端。
+> 适用范围：**Linux** 服务器 + nginx（`deployment/` 提供现成的配置与 unit）。
+> 飞牛 fnOS 形态见 `packaging/fnos`，Docker 形态尚未产出资产。
 >
 > ⚠️ **Windows 上跑不了生产模式**：授权校验要先取机器唯一标识
 > （`license.MachineID("/"`，读 Linux 机器标识），在 Windows 上直接失败退出
@@ -16,7 +16,7 @@
 
 | # | 条件 | 不满足的后果 |
 |---|---|---|
-| 1 | **授权文件** `license.key` | 生产模式默认 `license.enabled=true`，缺失或校验失败会**直接启动失败**：`recovered server currently requires a valid license file; trial subsystem not yet restored`。**试用期子系统尚未恢复**，没有授权就用不了 |
+| 1 | **授权文件** `license.key` | 生产模式默认 `license.enabled=true`，缺失或校验失败会**直接启动失败**（`requires a valid license file; trial subsystem not yet available`）。**试用期子系统尚未提供**，没有授权就用不了 |
 | 2 | **JWT secret** ≥ 32 字符 | 不足 32 字符拒绝启动 |
 | 3 | 数据目录可写 | SQLite、上传、导出、JWT secret 都写在这里 |
 | 4 | 前端构建产物 | `cd frontend && npm ci && npm run build` → `frontend/dist` |
@@ -106,9 +106,9 @@ sudo nginx -t && sudo systemctl reload nginx
 
 - **仅 SQLite**，PostgreSQL 分支未实现（会直接启动失败）
 - **42 处保守拒绝分支**返回 501：折扣/价税高级组合、部分跨公司、复杂工序或序列组合、
-  部分报表模式、独立汇兑损益等尚无运行证据的分支。台账明示**不宣称与原版 100% 等价**
+  部分报表模式、独立汇兑损益等尚未实现的分支
 - **登录失败限流**：同一用户名连续失败 10 次后冷却 5 分钟，冷却期内即使口令正确也被拒。
   运维脚本若用错误口令重试会被误锁
-- **多公司 / 门户**相关路由两端均不存在（原版也没有），不属缺口
-- 恢复版**不复制**已取证确认有害的原版行为（如部分负数校验缺失），
-  用 `ErrOriginalDefect` 标识，详见 `docs/UNSUPPORTED-AUDIT.md`
+- **多公司 / 门户**相关路由尚未实现，不属可配置项
+- 部分已知有害的输入校验（如个别数量字段的负数）**有意不兼容**，
+  代码中以 `ErrOriginalDefect` 标注；接入自己的数据时请留意

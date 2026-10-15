@@ -13,8 +13,8 @@
 #   · 数据目录 /opt/la-erp/data 已存在且属 la-erp 用户
 
 [Unit]
-Description=LA-ERP recovered backend
-Documentation=https://github.com/j353719624/la-erp-recovered
+Description=LA-ERP actual backend
+Documentation=https://github.com/j353719624/la-erp
 After=network-online.target
 Wants=network-online.target
 

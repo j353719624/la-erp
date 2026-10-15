@@ -15,7 +15,7 @@ for record in records:
  table=aliases.get(route,route.replace('-','_'))
  if table not in tables:raise ValueError('No verified table mapping for '+route)
  # Only super_admin may access newly reconstructed business reads until each
- # original route's precise permission/data-scope policy has been recovered.
+ # original route's precise permission/data-scope policy has been actual.
  routes.append({'route':route,'table':table,'permission':'*','original_endpoint':record['endpoint'],'original_total':data['total']})
 dest=root/'backend/internal/api/read_resources.json';dest.write_text(json.dumps(routes,indent=2)+'\n',encoding='utf8')
 print('Generated',len(routes),'read-only resource mappings from original responses.')

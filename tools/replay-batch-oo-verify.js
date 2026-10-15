@@ -111,5 +111,5 @@ const text =
   `原版=${ORIG} 恢复端=${RECOVERED}  共 ${rows.length} 条，一致 ${pass} 条，仍不一致 ${rows.length - pass} 条\n\n` +
   out.join("\n") + "\n";
 console.log(text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-verify-20261015.txt", text);
-writeFileSync("C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-verify-20261015.json", JSON.stringify(rows, null, 2));
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-verify-20261015.txt", text);
+writeFileSync("C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-verify-20261015.json", JSON.stringify(rows, null, 2));

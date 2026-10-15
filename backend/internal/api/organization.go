@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"net/http"
 	"net/url"
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) GetAccount(ctx context.Context, id string) (map[string]any, error) {
@@ -109,7 +109,7 @@ func (s *Service) DeleteAccount(ctx context.Context, id string) error {
 		// 而上面的 SELECT **不过滤 deleted_at**，所以软删记录仍会走到下面继续处理。
 		// 只有「查无此行」才是真的从未存在。
 		if len(rows) == 0 {
-			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		// Preserve account UUIDs and all posting references. The original releases
 		// the unique code by appending ~del~ plus the first eight UUID characters;

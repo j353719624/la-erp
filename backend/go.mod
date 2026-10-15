@@ -1,4 +1,4 @@
-module la-erp-recovered/backend
+module la-erp/backend
 
 go 1.26.0
 

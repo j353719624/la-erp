@@ -67,7 +67,7 @@ async function probe(label, startDate, endDate) {
   rows.push({
     label, start: startDate, end: endDate,
     original: { http: a.http, code: a.json.code, message: a.json.message, norm: norm(a) },
-    recovered: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
+    actual: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
     same,
   });
   console.log(`  ${same ? "✓" : "✗"} ${label.padEnd(30)} 原版=${norm(a).padEnd(4)} 恢复端=${norm(r)}`);
@@ -98,7 +98,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-period-granularity-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, recovered: RECOVERED },
+    base: { original: ORIG, actual: RECOVERED },
     note: `基准为全天区间 ${DAY} 00:00:00..23:59:59。原版无 DELETE 路由，基准期（YEAR=${YEAR}）留在原版库中作为残数据。`,
     summary: { total: rows.length, same, differ: rows.length - same },
     rows,

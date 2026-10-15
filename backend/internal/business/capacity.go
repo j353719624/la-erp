@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) CapacityLoad(ctx context.Context, requestedDays string) (map[string]any, error) {

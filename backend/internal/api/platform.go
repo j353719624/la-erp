@@ -31,7 +31,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Server) registerPlatform() {
@@ -147,7 +147,7 @@ func (s *Server) registerPlatform() {
 	// 恢复端由 cmd 注入激活器（写授权文件 + 热更新状态），未注入时返回 501。
 	s.mux.Handle("POST /api/v1/license/activate", s.protected("license_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.licenseActivate == nil {
-			fail(w, 501, "该业务接口尚未恢复：POST /api/v1/license/activate")
+			fail(w, 501, "该业务接口尚未实现：POST /api/v1/license/activate")
 			return
 		}
 		var content []byte
@@ -333,7 +333,7 @@ func (s *Server) machineCode() string {
 
 // ConfigureLicense 注入机器码算法与授权激活器（由 cmd 提供，避免 api 层依赖
 // 授权文件的落盘位置与公钥来源）。未注入时机器码退化为宿主名哈希，
-// 激活端点返回 501（与「尚未恢复」兜底一致）。
+// 激活端点返回 501（与「尚未实现」兜底一致）。
 func (s *Server) ConfigureLicense(machineCode func() string, activate func(name string, content []byte) (map[string]any, error)) {
 	s.machineCodeFn = machineCode
 	s.licenseActivate = activate

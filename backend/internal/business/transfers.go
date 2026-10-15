@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -63,7 +63,7 @@ func transferDecimal(raw any) (decimal.Decimal, error) {
 	}
 	d, err := decimal.NewFromString(fmt.Sprint(raw))
 	if err != nil {
-		return decimal.Zero, ErrOriginalNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
+		return decimal.Zero, ErrKnownNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
 	}
 	return d, nil
 }
@@ -74,7 +74,7 @@ func transferDecimal(raw any) (decimal.Decimal, error) {
 // 「系统内部错误，请稍后重试或联系管理员」（原版 JSON 绑定失败后套了通用文案）。
 // 注意与「完全不传 lines」区分：后者走业务校验（POST「调拨明细不能为空」、
 // PUT 清空明细），不是本形态。
-var transferLinesShapeFailure = ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+var transferLinesShapeFailure = ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 // transferRefFailure 是仓库引用不存在时原版的降级形态。
 //
@@ -84,7 +84,7 @@ var transferLinesShapeFailure = ErrOriginalNoMessage{Status: 400, Note: "系统�
 //
 // 这是**降级行为**对齐，不是语义对齐 —— 500 不作为语义证据，此处对齐的是
 // 「引用缺失 → 通用 500」这一原版既有表现。
-var transferRefFailure = ErrOriginalNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
+var transferRefFailure = ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 func (s *Service) WriteTransfer(ctx context.Context, id string, input map[string]any, user string) (map[string]any, error) {
 	creating := id == ""

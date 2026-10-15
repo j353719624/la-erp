@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 var defaultProductionSettings = map[string]any{"allow_over_issue": false, "allow_no_workorder_pick": false, "allow_return_after_complete": false}

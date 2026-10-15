@@ -77,7 +77,7 @@ for (const [name, steps] of CASES) {
 }
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-expense2-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-expense2-20261015.txt",
   log.join("\n") + "\n",
 );
 say("\n证据已落盘。");

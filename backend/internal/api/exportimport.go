@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
-	"la-erp-recovered/backend/internal/auth"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/auth"
+	"la-erp/backend/internal/database"
 )
 
 // ── 列定义 ───────────────────────────────────────────────────────────────────
@@ -528,7 +528,7 @@ func (s *Server) importData(w http.ResponseWriter, r *http.Request, kind string)
 		spec.Table = table
 	}
 	if spec.Table == "" {
-		fail(w, 501, "该导入对象尚未恢复")
+		fail(w, 501, "该导入对象尚未实现")
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {

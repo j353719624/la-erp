@@ -67,18 +67,18 @@ async function snapshot(base, tk) {
 // ── ① 运行前的两端库状态清单 ──
 const snapBefore = {
   original: await snapshot(ORIG, origToken),
-  recovered: await snapshot(RECOVERED, recToken),
+  actual: await snapshot(RECOVERED, recToken),
 };
 console.log(`=== 运行前库状态 ===`);
 console.log(`  原版   ${snapBefore.original.total} 条`);
-console.log(`  恢复端 ${snapBefore.recovered.total} 条`);
-for (const p of [...snapBefore.original.periods, ...snapBefore.recovered.periods]) {
+console.log(`  恢复端 ${snapBefore.actual.total} 条`);
+for (const p of [...snapBefore.original.periods, ...snapBefore.actual.periods]) {
   if (String(p.period).startsWith(String(YEAR))) {
     console.log(`  ⚠ ${YEAR} 年已有占用：${p.period}  ${p.start.slice(0, 19)} → ${p.end.slice(0, 19)}`);
   }
 }
 if (snapBefore.original.periods.some((p) => String(p.period).startsWith(String(YEAR)))
-  || snapBefore.recovered.periods.some((p) => String(p.period).startsWith(String(YEAR)))) {
+  || snapBefore.actual.periods.some((p) => String(p.period).startsWith(String(YEAR)))) {
   console.error(`\n${YEAR} 年已被占用 —— 本轮结论不可信，请换 MM_YEAR（原版无 DELETE 路由）`);
   process.exit(2);
 }
@@ -142,13 +142,13 @@ for (const group of GROUPS) {
       group: group.name,
       label,
       request: req,
-      periodOccupiedBefore: { original: occupiedBefore(period, "original"), recovered: occupiedBefore(period, "recovered") },
+      periodOccupiedBefore: { original: occupiedBefore(period, "original"), actual: occupiedBefore(period, "actual") },
       original: { http: a.http, code: a.json.code, message: a.json.message, norm: norm(a) },
-      recovered: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
+      actual: { http: r.http, code: r.json.code, message: r.json.message, norm: norm(r) },
       same: norm(a) === norm(r),
     };
     rows.push(row);
-    console.log(`  ${row.same ? "✓" : "✗"} ${label.padEnd(22)} 原版=${row.original.norm.padEnd(8)} 恢复端=${row.recovered.norm}  (period 运行前未被占用)`);
+    console.log(`  ${row.same ? "✓" : "✗"} ${label.padEnd(22)} 原版=${row.original.norm.padEnd(8)} 恢复端=${row.actual.norm}  (period 运行前未被占用)`);
   }
   console.log("");
 }
@@ -160,7 +160,7 @@ writeFileSync(
   "evidence/backend-runtime/audit-batch-mm-selfprove-20261015.json",
   JSON.stringify({
     generated: new Date().toISOString(),
-    base: { original: ORIG, recovered: RECOVERED },
+    base: { original: ORIG, actual: RECOVERED },
     year: YEAR,
     snapshotBefore: snapBefore,
     note: "本文件含运行前两端库状态清单与每条探测的 periodOccupiedBefore，"

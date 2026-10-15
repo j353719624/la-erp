@@ -2,8 +2,8 @@ package api
 
 import (
 	"errors"
-	"la-erp-recovered/backend/internal/business"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/business"
+	"la-erp/backend/internal/database"
 	"net/http"
 )
 

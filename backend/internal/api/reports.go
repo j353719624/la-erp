@@ -83,7 +83,7 @@ func (s *Server) registerReports() {
 		case "fulfillment-summary":
 			data, err = s.business().FulfillmentSummary(r.Context())
 		default:
-			fail(w, 501, "该报表导出类型尚未恢复")
+			fail(w, 501, "该报表导出类型尚未实现")
 			return
 		}
 		if err != nil {

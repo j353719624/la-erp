@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) ToolingAction(ctx context.Context, id, action string, input map[string]any) (map[string]any, error) {

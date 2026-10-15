@@ -28,4 +28,4 @@ for (const [relative, record] of sources) {
 }
 fs.mkdirSync(output, { recursive: true });
 fs.writeFileSync(path.join(output, 'source-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log(`Recovered ${manifest.length} verbatim source files`);
+console.log(`Actual ${manifest.length} verbatim source files`);

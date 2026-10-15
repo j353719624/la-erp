@@ -8,12 +8,12 @@
 // 差集 = 本轮自造，必须撤回。
 //
 // 唯一豁免：ErrOriginalDefect 的标识文本本身 —— 它是**分类标记**而非业务文案，
-// 用于区分「有意不对齐原版缺陷」（终态决策）与「尚未恢复」（待办）。
+// 用于区分「有意不对齐原版缺陷」（终态决策）与「尚未实现」（待办）。
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = "C:/Users/35371/Desktop/11111/la-erp-recovered";
+const ROOT = "C:/Users/35371/Desktop/11111/la-erp";
 const EXEMPT = new Set([
   "原版该行为存在数据风险，恢复端有意拒绝而非复刻", // ErrOriginalDefect 标识文本
 ]);

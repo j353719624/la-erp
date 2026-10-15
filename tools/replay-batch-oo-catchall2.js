@@ -3,7 +3,7 @@
 //
 // ## 背景
 // 抽查时发现两类差异，需逐条递增取证后才能动手（避免凭直觉排列）：
-//   A. 未注册 /api/ 路径：原版 404「路由不存在」，恢复端 501「该业务接口尚未恢复：...」
+//   A. 未注册 /api/ 路径：原版 404「路由不存在」，恢复端 501「该业务接口尚未实现：...」
 //   B. GET /accounts/{非UUID}：原版 400「无效的ID格式」，恢复端 404「科目不存在」
 //
 // ## 取证设计
@@ -107,6 +107,6 @@ for (const p of ["/nope-root-ii", "/health", "/nope/deep/jj"]) {
 
 say(`\n不一致 = ${diff} / ${total}`);
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-catchall2-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-catchall2-20261015.txt",
   log.join("\n") + "\n",
 );

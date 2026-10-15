@@ -115,6 +115,6 @@ for (const [name, mk] of STEPS) {
 say(`\n不一致 = ${diff} / ${STEPS.length}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-put-lines-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-put-lines-20261015.txt",
   log.join("\n") + "\n",
 );

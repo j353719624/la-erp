@@ -153,7 +153,7 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			// Go 结构体绑定失败，非业务校验）。
 			// 恢复端原先返回自造文案「工序编码和名称不能为空」，已按原版改为 500 + 原文案。
 			if value(l, "process_code") == "" || value(l, "process_name") == "" {
-				return ErrOriginalNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
+				return ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 			}
 			row := s.base("routing_steps")
 			// 批次 Y 精确取证（2026-10-14，evidence/backend-runtime/audit-batch-y-20261014.json）：
@@ -163,7 +163,7 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			//   小数 1.5                → HTTP **400** 同上
 			// 即原版要求 sequence **要么不传，要么是 JSON 整数**。
 			//
-			// ⚠ 归因教训（本批次踩过的坑）：早期测试 TestRecoveredRoutingSequenceRequiresJSONInteger
+			// ⚠ 归因教训（本批次踩过的坑）：早期测试 TestSourceRoutingSequenceRequiresJSONInteger
 			// 用的键是 `steps`，结论正确；但批次 Y 首次取证时误用了 `lines` 键 ——
 			// 原版**只处理 `steps`，传 `lines` 会被完全忽略**（返回 code:0 且明细不落库），
 			// 于是得出「原版不校验 sequence」的相反结论。
@@ -175,11 +175,11 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			if raw := l["sequence"]; raw != nil {
 				number, isNumeric := raw.(json.Number)
 				if !isNumeric {
-					return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+					return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 				}
 				parsed, err := decimal.NewFromString(number.String())
 				if err != nil || !parsed.IsInteger() {
-					return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+					return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 				}
 				sequence = parsed
 			}

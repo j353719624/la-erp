@@ -71,7 +71,7 @@ for (const { route } of routes) {
     const rMissing = r.code === 404 || r.code === 10000;
     if (!oMissing || !rMissing) continue;
     if (o.http === r.http && o.code === r.code && o.message === r.message) { same.push(`${method} ${route}`); continue; }
-    diffs.push({ method, route, original: o, recovered: r });
+    diffs.push({ method, route, original: o, actual: r });
   }
 }
 
@@ -79,7 +79,7 @@ console.log(`两端一致: ${same.length}｜形态不一致: ${diffs.length}\n`)
 for (const d of diffs) {
   console.log(`${d.method.padEnd(6)} /api/v1/${d.route}/{id}`);
   console.log(`       原版   ${d.original.http} code=${d.original.code} ${JSON.stringify(d.original.message)}`);
-  console.log(`       恢复端 ${d.recovered.http} code=${d.recovered.code} ${JSON.stringify(d.recovered.message)}`);
+  console.log(`       恢复端 ${d.actual.http} code=${d.actual.code} ${JSON.stringify(d.actual.message)}`);
 }
 
 // 落盘：供后续按实测配置 notFound 形态

@@ -74,7 +74,7 @@ for (const res of RESOURCES) {
     const of = `${o.http}|${o.json?.code ?? "-"} | ${o.json?.message ?? ""}`;
     const rf = `${r.http}|${r.json?.code ?? "-"} | ${r.json?.message ?? ""}`;
     const same = of === rf;
-    results.push({ res, method, path, orig: of, recovered: rf, same });
+    results.push({ res, method, path, orig: of, actual: rf, same });
     say(`${same ? "  " : "!!"} ${method.padEnd(6)} ${path}`);
     say(`     原版 : ${of}`);
     say(`     恢复端: ${rf}`);
@@ -95,10 +95,10 @@ say(`\n==== 原版 GET 非法 ID 文案（逐资源）====`);
 for (const [k, v] of Object.entries(byRes)) say(`  ${k.padEnd(26)} ${v}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-badid-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-badid-20261015.txt",
   log.join("\n") + "\n",
 );
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-badid-20261015.json",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-badid-20261015.json",
   JSON.stringify(results, null, 2),
 );

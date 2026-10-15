@@ -34,7 +34,7 @@ go build -o la-erp-server.exe ./cmd/la-erp-server
 ./la-erp-server -c config.yaml -public-key /secure/public.key -license /data/license.key
 ```
 
-仓库根目录可跑真实进程冒烟：`node tests/recovered-server-smoke.mjs backend/la-erp-server`
+仓库根目录可跑真实进程冒烟：`node tests/server-smoke.mjs backend/la-erp-server`
 （Windows 把路径改 `backend/la-erp-server.exe`）。
 
 前端开发代理指向本服务：

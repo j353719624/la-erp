@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[string]any, error) {
@@ -168,13 +168,13 @@ const (
 // lines 传非数组、或数组元素是标量（数字/字符串）→ **HTTP 400**，但文案是通用
 // 「系统内部错误，请稍后重试或联系管理员」（原版 JSON 绑定失败后套了通用文案）。
 // 与 transfers.go 的 transferLinesShapeFailure 同款。
-var AssemblyShapeFailure = ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+var AssemblyShapeFailure = ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 // AssemblyGhostProductFailure 是 F 段：product_id 是**合法 UUID 但查无此商品**。
 //
 // 注意与 E 段区分：E（缺 product_id）走业务文案 200+10000，F（有合法 UUID 但查不到）
 // 走通用 500 —— 原版实测确实是两套不同形态，不是同一分支的两种写法，故不能合并。
-var AssemblyGhostProductFailure = ErrOriginalNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
+var AssemblyGhostProductFailure = ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 // AssemblyLineSet 是校验通过后待落库的规范化明细（数值已解码，避免二次解析）。
 type AssemblyLineSet struct {
@@ -208,7 +208,7 @@ func (s *Service) ValidateAssemblyLines(ctx context.Context, raw []any, requireQ
 			continue
 		}
 		if _, err := uuid.Parse(fmt.Sprint(rawID)); err != nil {
-			return nil, ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
+			return nil, ErrKnownNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 		}
 	}
 	// ── D：qty / unit_cost 必须是数值。C 先于 D（⑨ 单行两者皆非法 → 报 UUID 错）。──
@@ -263,7 +263,7 @@ func assemblyDecimal(raw any) (decimal.Decimal, error) {
 	}
 	d, err := decimal.NewFromString(fmt.Sprint(raw))
 	if err != nil {
-		return decimal.Zero, ErrOriginalNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
+		return decimal.Zero, ErrKnownNoMessage{Status: 400, Note: fmt.Sprintf("请求参数错误: error decoding string '%v': %v", raw, err)}
 	}
 	return d, nil
 }
@@ -312,7 +312,7 @@ func (s *Service) AssemblyBOMComponents(ctx context.Context, productID string) (
 	// 裸 400 + 「无效的商品ID」；只有合法 UUID（哪怕查无数据）才返回 200 + 空数组。
 	// 恢复端原来只判空，且用业务错误形态（200/10000「产品不能为空」），两处都不同。
 	if _, err := uuid.Parse(productID); err != nil {
-		return nil, ErrOriginalNoMessage{Status: 400, Note: "无效的商品ID"}
+		return nil, ErrKnownNoMessage{Status: 400, Note: "无效的商品ID"}
 	}
 	rows, err := s.Store.Rows(ctx, "SELECT bi.* FROM bom_items bi JOIN bo_ms b ON b.id=bi.bom_id WHERE b.product_id=? AND b.status='active' AND b.deleted_at IS NULL AND bi.deleted_at IS NULL ORDER BY bi.line_no", productID)
 	if err != nil {

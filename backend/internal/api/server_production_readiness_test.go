@@ -29,7 +29,7 @@ func TestServeHTTPRecoversPanic(t *testing.T) {
 	if status != 500 {
 		t.Fatalf("期望 panic 被兜底为 500，实际 http=%d body=%v", status, body)
 	}
-	// 形态与已取证的原版通用 500 一致（business.ErrOriginalNoMessage 同文案）
+	// 形态与已取证的原版通用 500 一致（business.ErrKnownNoMessage 同文案）
 	if text, _ := body["message"].(string); !strings.Contains(text, "系统内部错误，请稍后重试或联系管理员") {
 		t.Fatalf("期望原版通用 500 文案，实际 %v", body["message"])
 	}

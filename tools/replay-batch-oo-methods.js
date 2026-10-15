@@ -9,7 +9,7 @@
 //
 // ## 判定口径（无 token 探测）
 //   原版     401「未提供认证令牌」→ 存在；404「路由不存在」→ 不存在；其它 → 记形态
-//   恢复端   401 → 存在；501「该业务接口尚未恢复」→ 不存在；其它 → 记形态
+//   恢复端   401 → 存在；501「该业务接口尚未实现」→ 不存在；其它 → 记形态
 // 注意：少数原版入口不鉴权（license/*、portal/*），会直接回 200，也视为存在。
 //
 // 用法：node tools/replay-batch-oo-methods.js
@@ -103,10 +103,10 @@ const text =
   out.join("\n") + "\n";
 console.log(text);
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-methods-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-methods-20261015.txt",
   text,
 );
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-methods-20261015.json",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-methods-20261015.json",
   JSON.stringify(rows, null, 2),
 );

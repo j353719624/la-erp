@@ -119,7 +119,7 @@ if (oDraft2 && oDraft2.id !== oDraft?.id) {
 }
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-oo-vstatus-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-oo-vstatus-20261015.txt",
   log.join("\n") + "\n",
 );
 say("\n证据已落盘。");

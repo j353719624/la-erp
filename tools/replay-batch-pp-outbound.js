@@ -122,6 +122,6 @@ for (const [label, stockUp] of [["① 先铺货再出库（受控）", true], ["
 
 say(`\n不一致 = ${diff} / ${total}`);
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-outbound-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-outbound-20261015.txt",
   log.join("\n") + "\n",
 );

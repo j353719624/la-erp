@@ -4,7 +4,7 @@ import "context"
 
 // GetPartnerDocument returns the partner document with its active detail rows.
 // This preserves the frontend's detail contract while action accounting is
-// still being recovered from the original runtime.
+// still being src from the original runtime.
 func (s *Service) GetPartnerDocument(ctx context.Context, table, id string) (map[string]any, error) {
 	h, err := s.Store.Get(ctx, table, id)
 	if err != nil {

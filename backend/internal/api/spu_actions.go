@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // spuDim 商品款(SPU)的规格维度（product_spus.dims 的 json 结构）。

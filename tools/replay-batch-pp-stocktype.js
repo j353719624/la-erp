@@ -121,6 +121,6 @@ for (const sw of SWEEP) {
 say(`\n不一致 = ${diff} / ${total}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-stocktype-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-stocktype-20261015.txt",
   log.join("\n") + "\n",
 );

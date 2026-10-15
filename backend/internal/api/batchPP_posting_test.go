@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 )
 
 // 批次 PP（2026-10-15）· 剩余 4 处自动过账点的形态对齐。

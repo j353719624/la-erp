@@ -4,7 +4,7 @@
 // ## 首版错在哪
 // replay-batch-pp-outbound.js 得出「原版出库不过账」，并据此删掉了恢复端的
 // 出库过账。但随后 `TestOriginalBusinessFlowReplay` 报
-// `journal_entries original=56 recovered=48` —— 原版回放快照里
+// `journal_entries original=56 actual=48` —— 原版回放快照里
 // **sales_outbound 有 8 条分录 / 4 张凭证**，证明原版出库**是过账的**。
 //
 // 回头查原版业务流（business-flow-contracts.json）才发现：
@@ -126,6 +126,6 @@ for (const type of TYPES) {
 say(`\n不一致 = ${diff} / ${TYPES.length}`);
 
 writeFileSync(
-  "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-pp-outbound2-20261015.txt",
+  "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-pp-outbound2-20261015.txt",
   log.join("\n") + "\n",
 );

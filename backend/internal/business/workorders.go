@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) GetWorkOrder(ctx context.Context, id string) (map[string]any, error) {

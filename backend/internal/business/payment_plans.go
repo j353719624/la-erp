@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) ReceivePaymentPlan(ctx context.Context, id string, input map[string]any) (map[string]any, error) {

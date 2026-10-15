@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // 本文件承载批次 KK 恢复的写路径（2026-10-15 原版回放 192.168.110.97:18886）。
 //
 // 起因：批次 KK 把路由对账从「只看路由存在性」升级为「逐方法语义比对」后，
-// 暴露出 4 组写路径在恢复端完全没有实现（落到 /api/ 兜底 → 501「尚未恢复」），
+// 暴露出 4 组写路径在恢复端完全没有实现（落到 /api/ 兜底 → 501「尚未实现」），
 // 而前端在 `frontend/src/api/` 里确实调用它们：
 //
 //	① price-lists（POST/PUT/DELETE + price 子资源）

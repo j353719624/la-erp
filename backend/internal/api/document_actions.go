@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/business"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/business"
+	"la-erp/backend/internal/database"
 )
 
 // docActionSpec 描述一个「改状态」类单据动作：

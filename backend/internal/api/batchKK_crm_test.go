@@ -21,7 +21,7 @@ import (
 // 终态锁定文案也不同：原版是「已赢单/已输单的商机不可再推进（当前：已赢单）」
 // 且**同阶段**也拒绝，恢复端原先只拦「不同阶段」。
 func TestKKCrmOpportunityStageMachine(t *testing.T) {
-	c, _, _, party := recoveredFixture(t, "KK-CRM")
+	c, _, _, party := testFixture(t, "KK-CRM")
 	cid := party["customer"].(map[string]any)["id"].(string)
 
 	// ① 只校验 name，不校验 code
@@ -86,7 +86,7 @@ func TestKKCrmOpportunityStageMachine(t *testing.T) {
 
 // TestKKCrmOpportunityCannotRegress 商机阶段**不可回退**（原版只允许向前，跳级允许）。
 func TestKKCrmOpportunityCannotRegress(t *testing.T) {
-	c, _, _, party := recoveredFixture(t, "KK-CRM-REG")
+	c, _, _, party := testFixture(t, "KK-CRM-REG")
 	cid := party["customer"].(map[string]any)["id"].(string)
 	created := c.ok("POST", "/api/v1/crm-opportunities", map[string]any{
 		"name": "KK商机", "customer_id": cid,
@@ -114,7 +114,7 @@ func TestKKCrmOpportunityCannotRegress(t *testing.T) {
 // TestKKReconciliationDelete 对账单删除路径。
 // 前端 purchaseReconApi.remove(id) 会调它，恢复端此前落 501。
 func TestKKReconciliationDelete(t *testing.T) {
-	c, _, _, party := recoveredFixture(t, "KK-RECON-DEL")
+	c, _, _, party := testFixture(t, "KK-RECON-DEL")
 	supplierID := party["supplier"].(map[string]any)["id"].(string)
 
 	// 记录不存在 → 200/10000「对账单不存在」

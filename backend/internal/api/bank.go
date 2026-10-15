@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 	"net/http"
 	"time"
 )
 
 func bankFailure(w http.ResponseWriter, err error) {
-	if errors.Is(err, business.ErrUnsupported) || errors.Is(err, business.ErrOriginalDefect) {
+	if errors.Is(err, business.ErrUnsupported) || errors.Is(err, business.ErrKnownDefect) {
 		fail(w, 501, err.Error())
 		return
 	}

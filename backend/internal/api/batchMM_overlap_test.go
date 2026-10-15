@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // 本文件把批次 MM 的**两端对照取证结果**固化成回归测试。

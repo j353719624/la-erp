@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/shopspring/decimal"
 
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Service) GetSubcontract(ctx context.Context, id string) (map[string]any, error) {
@@ -234,7 +234,7 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 					//   S5 发料后 cancel -> code=10000「外协单已发料，请先退回多余材料后再取消」
 					//   S6 return-material 2 件 -> code=0
 					//   S7 退料后 cancel -> code=0（允许）
-					// 恢复端原先返回 ErrUnsupported（「该业务分支尚未恢复」），
+					// 恢复端原先返回 ErrUnsupported（「该业务分支尚未实现」），
 					// 行为对但文案不符，按原版实际业务错误对齐。
 					if !readDecimal(material, "issued_qty").IsZero() || !readDecimal(material, "consumed_qty").IsZero() || !readDecimal(material, "returned_qty").IsZero() {
 						if !readDecimal(material, "returned_qty").IsZero() && readDecimal(material, "consumed_qty").IsZero() &&
@@ -529,7 +529,7 @@ func (s *Service) replaceSubcontractMaterials(ctx context.Context, tx *sql.Tx, o
 	}
 	rows, ok := raw.([]any)
 	if !ok {
-		return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+		return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 	}
 	if len(rows) == 0 {
 		return errors.New("带料外协必须至少指定一种发料材料")
@@ -550,17 +550,17 @@ func (s *Service) replaceSubcontractMaterials(ctx context.Context, tx *sql.Tx, o
 		//     → 同样先被数量校验拦下，未观察到 500
 		//
 		// 原实现对前三类返回 ErrUnsupported（映射 HTTP 501），与原版 400 不一致，
-		// 会让前端错误处理分流错误。改用 ErrOriginalNoMessage 携带原版状态码与**原文案**。
+		// 会让前端错误处理分流错误。改用 ErrKnownNoMessage 携带原版状态码与**原文案**。
 		if !ok {
-			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
+			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		productID := value(line, "product_id")
 		if productID == "" {
 			// 原版对空 product_id 返回 UUID 解析错误（400），非本守卫的商品查找失败。
-			return ErrOriginalNoMessage{Status: 400, Note: "参数错误: invalid UUID length: 0"}
+			return ErrKnownNoMessage{Status: 400, Note: "参数错误: invalid UUID length: 0"}
 		}
 		if _, err := s.Store.GetWith(ctx, tx, "products", productID); err != nil {
-			return ErrOriginalNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
+			return ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		// 原版 EE8：同一材料出现两行 → 10000「发料材料不能重复」，与恢复端一致。
 		if seen[productID] {

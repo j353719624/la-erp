@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // simpleDoc 描述一类「主表 + 明细表」的轻量单据（采购申请 / 询价单 / 报价单 /

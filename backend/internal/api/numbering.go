@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 // 单号规则（设置便利性改进 B-05，2026-09-13）：

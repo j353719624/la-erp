@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"la-erp-recovered/backend/internal/business"
+	"la-erp/backend/internal/business"
 	"testing"
 )
 

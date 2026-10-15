@@ -2,8 +2,8 @@ package api
 
 import (
 	"errors"
-	"la-erp-recovered/backend/internal/business"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/business"
+	"la-erp/backend/internal/database"
 	"net/http"
 )
 
@@ -54,14 +54,14 @@ func businessFailureLabeled(w http.ResponseWriter, err error, stock bool, label 
 		return
 	}
 	// 原版该路径返回裸状态码且**无业务文案** —— 原样输出 status，不自造 message。
-	var noMsg business.ErrOriginalNoMessage
+	var noMsg business.ErrKnownNoMessage
 	if errors.As(err, &noMsg) && noMsg.StatusCode() != 0 {
 		fail(w, noMsg.StatusCode(), noMsg.Error())
 		return
 	}
-	// ErrOriginalDefect 是**终态决策**（已知原版缺陷、有意不对齐），不是待办存量。
-	// 对外同样 501，但文案不同，避免把已结案的决策混进「尚未恢复」里反复审计。
-	if errors.Is(err, business.ErrOriginalDefect) {
+	// ErrKnownDefect 是**终态决策**（已知原版缺陷、有意不对齐），不是待办存量。
+	// 对外同样 501，但文案不同，避免把已结案的决策混进「尚未实现」里反复审计。
+	if errors.Is(err, business.ErrKnownDefect) {
 		fail(w, 501, err.Error())
 		return
 	}

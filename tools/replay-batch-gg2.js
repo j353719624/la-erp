@@ -170,7 +170,7 @@ async function main() {
   }
 
   writeFileSync(
-    "C:/Users/35371/Desktop/11111/la-erp-recovered/evidence/backend-runtime/audit-batch-gg2-20261014.json",
+    "C:/Users/35371/Desktop/11111/la-erp/evidence/backend-runtime/audit-batch-gg2-20261014.json",
     JSON.stringify({ generated: new Date().toISOString(), source: "原版回放 192.168.110.97:18886", templates, records: log }, null, 2),
   );
   console.log("\n已写入 evidence/backend-runtime/audit-batch-gg2-20261014.json");

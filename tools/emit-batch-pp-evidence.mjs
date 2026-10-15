@@ -12,7 +12,7 @@
 // 用法：node tools/emit-batch-pp-evidence.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 
-const ROOT = "C:/Users/35371/Desktop/11111/la-erp-recovered";
+const ROOT = "C:/Users/35371/Desktop/11111/la-erp";
 const EVIDENCE = ROOT + "/evidence/backend-runtime";
 
 const FILES = [

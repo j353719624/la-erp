@@ -52,7 +52,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"la-erp-recovered/backend/internal/database"
+	"la-erp/backend/internal/database"
 )
 
 func (s *Server) registerMetadata() {
