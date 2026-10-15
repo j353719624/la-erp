@@ -32,9 +32,9 @@ backend/     Go 服务：internal/api（路由与业务）、internal/business�
 frontend/   React 前端（Vite）
 deployment/ nginx 配置、systemd unit、备份脚本
 packaging/  飞牛 fnOS 应用打包源码
-tools/      命令行工具：授权签发、代码审计与接口盘点脚本
+tools/      授权签发工具与本地静态审计脚本
 tests/      端到端冒烟脚本
-docs/       设计与运维文档
+docs/       部署与项目范围文档
 ```
 
 ## 快速开始
