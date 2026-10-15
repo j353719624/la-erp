@@ -1,5 +1,7 @@
 node_modules/
 frontend/dist/
+# WorkBuddy 本地工作目录（含记忆日志与取证凭据），属本机私有，不进版本库
+.workbuddy/
 *.fpk
 *.tgz
 *.zip
