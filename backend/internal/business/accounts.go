@@ -97,8 +97,14 @@ func (s *Service) DeleteAccount(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
+		// 回放 OO（2026-10-15）：原版删除**从未存在**的科目返回裸 400 + 通用文案，
+		// 恢复端原来 return nil（→ 200/code0）。
+		// 注意这里不能改成「不存在就报错」的通用写法：已软删的科目重复删除在原版是
+		// 200/code0（evidence/backend-runtime/account-flow-contracts.json case 31），
+		// 而上面的 SELECT **不过滤 deleted_at**，所以软删记录仍会走到下面继续处理。
+		// 只有「查无此行」才是真的从未存在。
 		if len(rows) == 0 {
-			return nil
+			return ErrOriginalNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		// Preserve account UUIDs and all posting references. The original releases
 		// the unique code by appending ~del~ plus the first eight UUID characters;

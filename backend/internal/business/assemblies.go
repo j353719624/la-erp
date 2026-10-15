@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/google/uuid"
 	"la-erp-recovered/backend/internal/database"
 )
 
@@ -48,8 +50,11 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 }
 
 func (s *Service) AssemblyBOMComponents(ctx context.Context, productID string) ([]map[string]any, error) {
-	if productID == "" {
-		return nil, errors.New("产品不能为空")
+	// 回放 OO（2026-10-15）：原版 product_id 缺失**或不是合法 UUID**都返回
+	// 裸 400 + 「无效的商品ID」；只有合法 UUID（哪怕查无数据）才返回 200 + 空数组。
+	// 恢复端原来只判空，且用业务错误形态（200/10000「产品不能为空」），两处都不同。
+	if _, err := uuid.Parse(productID); err != nil {
+		return nil, ErrOriginalNoMessage{Status: 400, Note: "无效的商品ID"}
 	}
 	rows, err := s.Store.Rows(ctx, "SELECT bi.* FROM bom_items bi JOIN bo_ms b ON b.id=bi.bom_id WHERE b.product_id=? AND b.status='active' AND b.deleted_at IS NULL AND bi.deleted_at IS NULL ORDER BY bi.line_no", productID)
 	if err != nil {

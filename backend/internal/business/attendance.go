@@ -59,8 +59,12 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 }
 
 func (s *Service) AttendanceSummary(ctx context.Context, period string) ([]map[string]any, error) {
+	// 回放 OO（2026-10-15）：原版 period 缺失或非法一律返回
+	// 200 + code 10000 + 「期间格式无效（应为 YYYY-MM）」，与恢复端原来的
+	// 「period 必须为 YYYY-MM」文案不同。注意这里的文案是逐字取自原版，
+	// 与期初余额的「期间格式错误，应为 YYYY-MM」是两句不同的话，不要合并。
 	if len(period) != 7 {
-		return nil, errors.New("period 必须为 YYYY-MM")
+		return nil, errors.New("期间格式无效（应为 YYYY-MM）")
 	}
 	rows, err := s.Store.Rows(ctx, `SELECT employee_id, employee_name,
         COALESCE(SUM(CASE WHEN request_type='leave' AND status='approved' THEN days ELSE 0 END),0) leave_days,

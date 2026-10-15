@@ -143,7 +143,9 @@ func (s *Service) postVoucherEntries(ctx context.Context, tx *sql.Tx, voucher ma
 
 func (s *Service) AccountBalance(ctx context.Context, id, period string) (map[string]any, error) {
 	if _, err := s.Store.Get(ctx, "accounts", id); err != nil {
-		return nil, err
+		// 见 service.go 里 ErrAccountNotFound 的注释：本路由的 notFound 形态是
+		// 200 + code 10000，与 GET /accounts/{id} 的 404 不同。
+		return nil, ErrAccountNotFound
 	}
 	if period == "" {
 		var err error

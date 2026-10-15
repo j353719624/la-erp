@@ -1,15 +1,20 @@
 package api
 
 import (
-	"la-erp-recovered/backend/internal/business"
+	"errors"
 	"net/http"
+
+	"la-erp-recovered/backend/internal/business"
+	"la-erp-recovered/backend/internal/database"
 )
 
 func (s *Server) registerFinance() {
 	for _, table := range []string{"ar_invoices", "ap_invoices"} {
 		route := "ar-invoices"
+		label := "应收单"
 		if table == "ap_invoices" {
 			route = "ap-invoices"
+			label = "应付单"
 		}
 		for _, method := range []string{"PUT", "POST"} {
 			path := "/api/v1/" + route + "/{id}"
@@ -27,6 +32,16 @@ func (s *Server) registerFinance() {
 				}
 				data, err := s.business().UpdateInvoice(r.Context(), table, r.PathValue("id"), input, method == "POST")
 				if err != nil {
+					// 开票（POST /{id}/issue）的「记录不存在」在原版是**业务错误形态**
+					// 200 + code 10000 + 「应付单不存在」/「应收单不存在」（回放 OO
+					// 2026-10-15），而恢复端统一走 404「记录不存在」。
+					// PUT 分支的原版形态是 500，按铁律④不作语义证据，故保持原样。
+					if method == "POST" {
+						if errors.Is(err, database.ErrNotFound) {
+							write(w, 200, map[string]any{"code": 10000, "message": label + "不存在", "data": nil})
+							return
+						}
+					}
 					businessFailure(w, err, false)
 					return
 				}
@@ -128,6 +143,13 @@ func (s *Server) registerFinance() {
 	s.mux.Handle("GET /api/v1/accounts/{id}/balance", s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, err := s.business().AccountBalance(r.Context(), r.PathValue("id"), r.URL.Query().Get("period"))
 		if err != nil {
+			// 回放 OO：原版科目不存在时返回 200 + code 10000 + 「科目不存在」，
+			// 与 GET /accounts/{id} 的 404「科目不存在」是**两套形态**，不能共用
+			// businessFailure 的默认分支（那个会输出 404「记录不存在」）。
+			if errors.Is(err, business.ErrAccountNotFound) {
+				write(w, 200, map[string]any{"code": 10000, "message": "科目不存在", "data": nil})
+				return
+			}
 			businessFailure(w, err, false)
 			return
 		}

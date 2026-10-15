@@ -52,7 +52,9 @@ var Resources = map[string]Resource{
 	"assemblies":              {"assembly_orders", "assembly", "装配单", []string{"assembly_no", "warehouse_id", "product_id"}, true},
 	"employees":               {"employees", "employee", "员工档案", []string{"code", "name", "hire_date"}, true},
 	"labor-contracts":         {"labor_contracts", "labor_contract", "劳动合同", []string{"code", "employee_id", "start_date"}, true},
-	"attendance-requests":     {"attendance_requests", "attendance", "考勤申请", []string{"code", "employee_name", "request_type", "start_date"}, true},
+	// 考勤申请的 code 是原版自动生成的流水号，列为必填会让所有建单在第一步就被
+	// 通用 400 挡掉；业务校验链见 prepareAttendanceRequest（回放 OO，2026-10-15）。
+	"attendance-requests":     {"attendance_requests", "attendance", "考勤申请", []string{"employee_name", "request_type", "start_date"}, true},
 	"recruitment-positions":   {"recruitment_positions", "recruitment", "招聘职位", []string{"code", "title"}, true},
 	"recruitment-candidates":  {"recruitment_candidates", "recruitment", "招聘候选人", []string{"code", "name"}, true},
 	"training-records":        {"training_records", "training", "培训记录", []string{"code", "title", "training_date"}, true},
@@ -176,6 +178,10 @@ func New(store *database.Store, secret string) *Server {
 	s.registerImportExport()
 	s.registerGapKKWrites()
 	s.registerImportableProcesses()
+	// 必须在通用注册之后：这两组子路径会被 Resources 的 PUT/DELETE 抢先匹配，
+	// 只有后注册也无效（Go ServeMux 以**更具体的模式**优先），故改为显式注册
+	// 具体方法 + 具体路径，覆盖通用注册器铺出来的形态（详见 gapOO_align.go）。
+	s.ooRegisterFixedHandlers()
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 501, "该业务接口尚未恢复："+r.Method+" "+r.URL.Path)
 	})
@@ -189,12 +195,14 @@ func (s *Server) registerAccountingPeriodActions() {
 			fail(w, 400, err.Error())
 			return
 		}
-		period := text(input, "period")
-		raw, ok := input["entries"].([]any)
-		if period == "" || !ok {
-			fail(w, 400, "period 和 entries 必填")
+		// 原版校验顺序：period 格式 → entries 非空 → 科目存在（回放 OO）。
+		// 这里不能沿用原来的「period 和 entries 必填」：那是 400 + 自造文案，
+		// 与原版的 200/10000 + 逐字文案形态不同。
+		if !s.prepareOpeningBalances(w, input) {
 			return
 		}
+		period := text(input, "period")
+		raw, _ := input["entries"].([]any)
 		entries := make([]map[string]any, 0, len(raw))
 		for _, v := range raw {
 			m, ok := v.(map[string]any)
@@ -470,9 +478,15 @@ func (s *Server) registerPortalAdminActions() {
 		}
 		account, _ := input["account"].(string)
 		password, _ := input["password"].(string)
+		// 回放 OO：缺任一项 → 400「请输入账号和密码」；账号或密码错 → 400「账号或密码错误」。
+		// 原版两者都是 400（不是 401），且与恢复端原来的「客户账号或密码错误」文案不同。
+		if account == "" || password == "" {
+			fail(w, 400, "请输入账号和密码")
+			return
+		}
 		data, err := s.Auth.CustomerLogin(r.Context(), account, password)
 		if err != nil {
-			fail(w, 401, err.Error())
+			fail(w, 400, "账号或密码错误")
 			return
 		}
 		respond(w, 200, data)
@@ -570,6 +584,11 @@ func (s *Server) registerPortalAdminActions() {
 		respond(w, 200, map[string]any{"total": len(rows), "list": rows})
 	}))
 	s.mux.Handle("GET /api/v1/portal/categories", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 原版门户商品/分类必须持客户 token（回放 OO）：无 token→401「登录状态无效」，
+		// 主站 token→401「非客户登录，无权访问门户」。恢复端原来完全不鉴权。
+		if _, ok := s.ooPortalCustomer(w, r); !ok {
+			return
+		}
 		rows, err := s.Store.Rows(r.Context(), "SELECT c.id,c.name,COUNT(p.id) product_count FROM categories c JOIN products p ON p.category_id=c.id AND p.deleted_at IS NULL AND p.status='active' WHERE c.deleted_at IS NULL GROUP BY c.id,c.name ORDER BY c.name")
 		if err != nil {
 			fail(w, 500, err.Error())
@@ -578,6 +597,9 @@ func (s *Server) registerPortalAdminActions() {
 		respond(w, 200, rows)
 	}))
 	s.mux.Handle("GET /api/v1/portal/products", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.ooPortalCustomer(w, r); !ok {
+			return
+		}
 		keyword, category := r.URL.Query().Get("keyword"), r.URL.Query().Get("category_id")
 		q := "SELECT id,code,name,spec,sale_price,category_id,unit_id,image_url,images,description,min_order_qty,safety_stock FROM products WHERE deleted_at IS NULL AND status='active'"
 		args := []any{}
@@ -599,6 +621,9 @@ func (s *Server) registerPortalAdminActions() {
 		respond(w, 200, map[string]any{"total": len(rows), "list": rows})
 	}))
 	s.mux.Handle("GET /api/v1/portal/products/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.ooPortalCustomer(w, r); !ok {
+			return
+		}
 		row, err := s.Store.Get(r.Context(), "products", r.PathValue("id"))
 		if err != nil {
 			fail(w, 404, "product not found")
@@ -1686,6 +1711,10 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	// 缺 refresh_token 走 gin 的 required 形态，值无效才走下面的 401（回放 OO）
+	if !ooRefreshRequired(w, data) {
+		return
+	}
 	result, err := s.Auth.Refresh(r.Context(), text(data, "refresh_token"))
 	if err != nil {
 		fail(w, 401, "刷新令牌无效或已过期")
@@ -2327,12 +2356,20 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "piecework_records" && !s.preparePieceworkRecord(w, r, data, true) {
 		return
 	}
+	// 考勤申请：与计件同因 —— code 由后端生成，业务校验链取代通用必填（gapOO_align.go）
+	if res.Table == "attendance_requests" && !s.prepareAttendanceRequest(w, data) {
+		return
+	}
 	if res.Table == "accounting_periods" {
 		if ok := s.prepareAccountingPeriod(w, r, data); !ok {
 			return
 		}
 	}
 	if res.Table == "approval_flows" {
+		// 缺 code/name/biz_type 时原版返回裸 500，恢复端不能再把 NOT NULL 约束原文回给客户端
+		if !s.prepareApprovalFlow(w, data) {
+			return
+		}
 		row, e := s.business().CreateApprovalFlow(r.Context(), data)
 		if e != nil {
 			businessFailure(w, e, false)
@@ -2452,6 +2489,10 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 	if res.Table == "piecework_records" && !s.preparePieceworkRecord(w, r, data, false) {
 		return
 	}
+	// 考勤申请：PUT 与 POST 同一套业务校验链（gapOO_align.go）
+	if res.Table == "attendance_requests" && !s.prepareAttendanceRequest(w, data) {
+		return
+	}
 	record, err := s.record(r, res, data, false)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -2480,6 +2521,8 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 }
 func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
+	// 注：会计科目的删除守卫不在这里 —— registerAccounts 里的
+	// DELETE /api/v1/accounts/{id} 比本通用注册更早命中，守卫写在 accounts.go。
 	// 同 update：记录不存在与越权必须分开判断，理由见上。
 	row, err := s.Store.Get(r.Context(), res.Table, id)
 	if err != nil {

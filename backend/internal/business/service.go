@@ -33,6 +33,17 @@ var ErrUnsupported = errors.New("该业务分支尚未恢复")
 // 混进待办存量，反复审计也推不动。
 var ErrOriginalDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
 
+// ErrAccountNotFound 标识「科目不存在」，供 API 层区分形态。
+//
+// 同一张 accounts 表在两条路由上有**两套**原版形态（回放 OO，2026-10-15）：
+//
+//	GET /accounts/{id}          → 404「科目不存在」
+//	GET /accounts/{id}/balance  → 200 + code 10000「科目不存在」
+//
+// 文案相同但状态码/code 不同，所以不能只靠 errors.New 的文案让 businessFailure
+// 统一处理，需要一个可判定的错误值。
+var ErrAccountNotFound = errors.New("科目不存在")
+
 // ErrOriginalNoMessage 表示「原版此处会失败但**不返回业务文案**」。
 //
 // 原版有若干路径返回裸 HTTP 400 / 500（既非 code:0 也非 10000，也没有 message），
