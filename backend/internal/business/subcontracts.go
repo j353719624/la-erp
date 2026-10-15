@@ -426,7 +426,7 @@ func (s *Service) SubcontractMaterials(ctx context.Context, id string, inputs []
 			}
 			seen[lineID] = true
 			line, err := s.Store.GetWith(ctx, tx, "subcontract_order_material_lines", lineID)
-			if errors.Is(err, database.ErrNotFound) || value(line, "subcontract_order_id") != id || value(line, "deleted_at") != "" {
+			if errors.Is(err, database.ErrNotFound) || value(line, "subcontract_order_id") != id || dateText(line, "deleted_at") != "" {
 				return errors.New("材料明细不存在")
 			}
 			if err != nil {

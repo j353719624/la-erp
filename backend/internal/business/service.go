@@ -89,6 +89,39 @@ func Number(value any) (decimal.Decimal, error) {
 	}
 	return decimal.NewFromString(text)
 }
+// dateText 读取**可能是 time.Time** 的日期列，按 RFC3339Nano 归一化。
+//
+// ## 为什么需要它（批次 NN 实测，2026-10-15）
+// SQLite 驱动会按**列声明类型**自动转换：声明为 datetime 的列，即使写入的是
+// RFC3339Nano 字符串，读回来也是 Go 的 `time.Time`
+// （实测 `Store.Rows` 取到的 created_at 是
+// `2026-10-08 08:05:06.795086258 +0800 CST`）。
+//
+// 由此产生两个坑：
+//   · `api.text()` 做 `.(string)` 断言 → **静默返回空串**（批次 MM 的会计期间
+//     重叠判定就栽在这里：拿到空串 → 解析全失败 → 恒不重叠）
+//   · `business.value()` 用 `fmt.Sprint` 不报错，但输出是
+//     `2006-01-02 15:04:05.999999999 -0700 MST`，**不是 RFC3339** ——
+//     后续按 RFC3339 解析同样全失败
+//
+// ## 已定位的真实缺陷
+// `reports.go` 的 `FulfillmentReport` / `FulfillmentSummary` 读
+// `sales_orders.expected_date`（datetime 列）后按 RFC3339Nano 解析，
+// 解析恒失败 → **逾期天数与逾期金额恒为 0**。
+// 同文件 `TradeReport` 里已有一处针对 `order_date` 的 time.Time 兼容，
+// 但只修了那一个字段，另两个报表漏了。本函数把这件事收成一处。
+//
+// 零值 time.Time（0001-01-01）按空串返回 —— 与「列为空」的语义一致。
+func dateText(m map[string]any, k string) string {
+	if t, ok := m[k].(time.Time); ok {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format(time.RFC3339Nano)
+	}
+	return value(m, k)
+}
+
 func value(m map[string]any, k string) string {
 	if m[k] == nil {
 		return ""
@@ -342,11 +375,34 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 		for _, k := range []string{d.Date, "remark"} {
 			if v := value(input, k); v != "" {
 				if k == d.Date {
-					if _, err := time.Parse(time.RFC3339Nano, v); err != nil {
-						return errors.New("日期格式错误")
+					// 回放 NN（2026-10-15）：原版订单日期非法时是 **400** +
+					// 「请求参数错误: parsing time "…" as "2006-01-02T15:04:05Z07:00": …」。
+					// 两个要点：① layout 是 **RFC3339**（错误信息里没有 .999999999），
+					// 用 RFC3339Nano 会让文案对不上；② 是 400 解析错误，
+					// 不是业务 10000 —— 原恢复端的「日期格式错误」是自造文案。
+					if _, err := time.Parse(time.RFC3339, v); err != nil {
+						return ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 					}
 				}
 				h[k] = v
+			}
+		}
+		// expected_date（预计交货/到货日期）：原版**落库并回读**，销售订单与采购
+		// 订单都一致（回放 NN，2026-10-15）。恢复端此前不在任何表头白名单里，
+		// 请求带了这个字段会被**静默丢弃** —— 直接后果是履约报表的逾期天数与
+		// 逾期金额恒为 0（报表按 expected_date 计算）。
+		//
+		// 校验语义同样是原版的：
+		//   传了就按 RFC3339 解析，非法（**含空串**）→ 400 parsing time 原文
+		//   传 null 或完全不传 → 不校验、code:0
+		// 表无此列的单据（库存单等）保持静默忽略，与 advancedHeaderFields 同口径。
+		if raw, ok := input["expected_date"]; ok && raw != nil {
+			v := fmt.Sprint(raw)
+			if _, err := time.Parse(time.RFC3339, v); err != nil {
+				return ErrOriginalNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
+			}
+			if s.Store.Has(d.Table, "expected_date") {
+				h["expected_date"] = v
 			}
 		}
 		if existingID == "" {

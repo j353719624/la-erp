@@ -42,7 +42,7 @@ func (s *Service) Aging(ctx context.Context, q url.Values, kind string) (map[str
 		if !bal.IsPositive() {
 			continue
 		}
-		due := value(row, "due_date")
+		due := dateText(row, "due_date")
 		if len(due) > 10 {
 			due = due[:10]
 		}
@@ -66,7 +66,7 @@ func (s *Service) Aging(ctx context.Context, q url.Values, kind string) (map[str
 		b["count"] = b["count"].(int) + 1
 		total = total.Add(bal)
 		parties[value(row, party+"_id")] = true
-		details = append(details, map[string]any{"party_id": value(row, party+"_id"), "party_name": value(row, party+"_name"), "invoice_no": value(row, "invoice_no"), "invoice_date": value(row, "invoice_date"), "due_date": due, "balance": bal.String(), "days_overdue": days, "bucket": label})
+		details = append(details, map[string]any{"party_id": value(row, party+"_id"), "party_name": value(row, party+"_name"), "invoice_no": value(row, "invoice_no"), "invoice_date": dateText(row, "invoice_date"), "due_date": due, "balance": bal.String(), "days_overdue": days, "bucket": label})
 	}
 	return map[string]any{"type": kind, "as_of": asOf, "total": total.String(), "buckets": buckets, "details": details, "party_count": len(parties)}, nil
 }

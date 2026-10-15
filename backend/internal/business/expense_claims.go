@@ -68,7 +68,7 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 			if err != nil {
 				return err
 			}
-			if err := s.post(ctx, tx, "expense_claim", id, value(row, "claim_no"), expensePostingDate(value(row, "claim_date")), "费用报销审批", []Posting{{expenseCode, "debit", amount}, {"2211", "credit", amount}}); err != nil {
+			if err := s.post(ctx, tx, "expense_claim", id, value(row, "claim_no"), expensePostingDate(dateText(row, "claim_date")), "费用报销审批", []Posting{{expenseCode, "debit", amount}, {"2211", "credit", amount}}); err != nil {
 				return err
 			}
 			changes["status"] = "approved"
@@ -85,7 +85,7 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 			if err != nil {
 				return err
 			}
-			if err := s.post(ctx, tx, "expense_payment", id, value(row, "claim_no"), expensePostingDate(value(row, "claim_date")), "费用报销付款", []Posting{{"2211", "debit", amount}, {cash, "credit", amount}}); err != nil {
+			if err := s.post(ctx, tx, "expense_payment", id, value(row, "claim_no"), expensePostingDate(dateText(row, "claim_date")), "费用报销付款", []Posting{{"2211", "debit", amount}, {cash, "credit", amount}}); err != nil {
 				return err
 			}
 			changes["status"], changes["payment_status"] = "paid", "paid"

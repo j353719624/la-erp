@@ -43,9 +43,6 @@ func (s *Service) TradeReport(ctx context.Context, q url.Values, family, mode st
 	}
 	groups := map[string]*group{}
 	for _, r := range rows {
-		if date, ok := r["order_date"].(time.Time); ok {
-			r["order_date"] = date.Format(time.RFC3339)
-		}
 		key := value(r, "product_id")
 		date := value(r, "order_date")
 		if len(date) > 7 {
@@ -124,7 +121,7 @@ func (s *Service) TradeReport(ctx context.Context, q url.Values, family, mode st
 		nowDate := time.Now()
 		limit := nowDate.AddDate(0, 0, days)
 		for _, r := range rows {
-			expiry := value(r, "expiry_date")
+			expiry := dateText(r, "expiry_date")
 			if expiry == "" {
 				continue
 			}
@@ -297,7 +294,7 @@ func (s *Service) FulfillmentReport(ctx context.Context, q url.Values) ([]map[st
 		if !remaining.IsPositive() {
 			continue
 		}
-		expected := value(r, "expected_date")
+		expected := dateText(r, "expected_date")
 		overdue := 0
 		if expected != "" {
 			if t, e := time.Parse(time.RFC3339Nano, expected); e == nil && nowDate.After(t) {
@@ -333,7 +330,7 @@ func (s *Service) FulfillmentSummary(ctx context.Context) ([]map[string]any, err
 		qty, delivered := readDecimal(r, "qty"), readDecimal(r, "delivered_qty")
 		g.qty = g.qty.Add(qty)
 		g.delivered = g.delivered.Add(delivered)
-		if expected := value(r, "expected_date"); expected != "" {
+		if expected := dateText(r, "expected_date"); expected != "" {
 			if t, e := time.Parse(time.RFC3339Nano, expected); e == nil && nowDate.After(t) && delivered.LessThan(qty) {
 				g.overdueOrders[value(r, "id")] = true
 				g.overdue = g.overdue.Add(qty.Sub(delivered).Mul(readDecimal(r, "price")))
@@ -362,7 +359,7 @@ func (s *Service) SalesForecast(ctx context.Context, q url.Values) ([]map[string
 	}
 	groups := map[string]*group{}
 	for _, r := range rows {
-		month := value(r, "order_date")
+		month := dateText(r, "order_date")
 		if len(month) >= 7 {
 			month = month[:7]
 		}
