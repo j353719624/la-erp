@@ -7,15 +7,15 @@ import (
 
 // 批次 MM 缺口 B 第 1 点：库存调整单空载荷的必填校验。
 //
-// 实测取证（2026-10-15 原版回放，见 docs/UNSUPPORTED-AUDIT-LOG.md 37.1）：
+// 实测取证（2026-10-15 回归回放，见审计台账）：
 //
 //	POST /api/v1/inventory-adjusts  {}
-//	  原版   400「请求参数错误: Key: 'createAdjustRequest.WarehouseID'
+//	  既有实现   400「请求参数错误: Key: 'createAdjustRequest.WarehouseID'
 //	                Error:Field validation for 'WarehouseID' failed on the 'required' tag」
-//	  恢复端 200 + code:10000「仓库不存在」
+//	  本实现 200 + code:10000「仓库不存在」
 //
-// 即原版**先过 struct validator 才进业务层**，缺失必填字段时压根不会走到
-// 「仓库存在性」那一步。恢复端此前缺这道校验，直接落到业务层的存在性检查，
+// 即既有实现**先过 struct validator 才进业务层**，缺失必填字段时压根不会走到
+// 「仓库存在性」那一步。本实现此前缺这道校验，直接落到业务层的存在性检查，
 // 于是状态码（200 vs 400）与文案都错了。
 func TestSourceAdjustmentValidatesRequiredWarehouse(t *testing.T) {
 	c, _ := setup(t)

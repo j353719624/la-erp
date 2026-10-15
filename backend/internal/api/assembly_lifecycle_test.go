@@ -12,7 +12,7 @@ import (
 
 // ppStock 给「商品 + 仓库」准备一行库存余额。
 //
-// 批次 PP（2026-10-15）：原版 confirm 会校验组件库存，库存为 0 时回
+// 批次 PP（2026-10-15）：既有实现 confirm 会校验组件库存，库存为 0 时回
 // 200 + 10000「库存不足」。测试库默认无库存行，故先铺一行。
 // 注：inventory_balances 表**没有 deleted_at 列**（见 schema.sql）。
 func ppStock(t *testing.T, s *Server, productID, warehouseID, qty string) {
@@ -39,9 +39,9 @@ func TestAssemblyOrderLifecycleGuards(t *testing.T) {
 	}
 	// confirm 会扣组件库存，先铺货（组件 qty=1）
 	ppStock(t, s, fmt.Sprint(products[0]["id"]), fmt.Sprint(warehouses[0]["id"]), "100")
-	// 批次 PP（2026-10-15）：原版建装配单**必须带组件明细**，缺 lines 或空数组
+	// 批次 PP（2026-10-15）：既有实现建装配单**必须带组件明细**，缺 lines 或空数组
 	// 一律回 200 + 10000「组件明细不能为空」（audit-batch-pp-assembly-20261015.txt）。
-	// 恢复端原先不校验也不落库，建单成功但组件清单为空。
+	// 本实现原先不校验也不落库，建单成功但组件清单为空。
 	order := c.ok("POST", "/api/v1/assemblies", map[string]any{
 		"assembly_no": "ASM-2099-01",
 		"warehouse_id": warehouses[0]["id"],
@@ -65,8 +65,8 @@ func TestAssemblyOrderLifecycleGuards(t *testing.T) {
 }
 
 // TestAssemblyLinesRequiredAndPersisted 装配单组件明细的两个缺口：
-//   ① 缺 lines / 空数组 → 200 + 10000「组件明细不能为空」（原版同形）
-//   ② 带 lines 建单后明细**必须落库**（恢复端原先恒为空）
+//   ① 缺 lines / 空数组 → 200 + 10000「组件明细不能为空」（既有实现同形）
+//   ② 带 lines 建单后明细**必须落库**（本实现原先恒为空）
 func TestAssemblyLinesRequiredAndPersisted(t *testing.T) {
 	c, s := setup(t)
 	products, _ := s.Store.Rows(context.Background(), "SELECT id,name,code FROM products WHERE deleted_at IS NULL LIMIT 1")
@@ -102,7 +102,7 @@ func TestAssemblyLinesRequiredAndPersisted(t *testing.T) {
 	got := c.ok("GET", "/api/v1/assemblies/"+id, nil).(map[string]any)
 	lines, _ := got["edges"].(map[string]any)["lines"].([]any)
 	if len(lines) != 1 {
-		t.Fatalf("明细条数 = %d, want 1（原版落库，恢复端原先为 0）", len(lines))
+		t.Fatalf("明细条数 = %d, want 1（既有实现落库，本实现原先为 0）", len(lines))
 	}
 	line := lines[0].(map[string]any)
 	if fmt.Sprint(line["qty"]) != "2" || fmt.Sprint(line["unit_cost"]) != "3.5" {
@@ -115,11 +115,11 @@ func TestAssemblyLinesRequiredAndPersisted(t *testing.T) {
 
 // TestAssemblyConfirmStockEffects 装配单 confirm 的库存副作用（批次 PP）。
 //
-// 原版 confirm 不只是改状态：
+// 既有实现 confirm 不只是改状态：
 //   ① 组件库存不足 → 200 + 10000「库存不足」，整体回滚
 //   ② 成功后产生**两条** stock_movements：组件出（dir=-1）+ 成品入（dir=1）
 //   ③ 成品入库 unit_cost = 组件总成本 ÷ 成品数量
-// 恢复端原先三者全缺：只改状态，库存与流水纹丝不动。
+// 本实现原先三者全缺：只改状态，库存与流水纹丝不动。
 func TestAssemblyConfirmStockEffects(t *testing.T) {
 	c, s := setup(t)
 	products, _ := s.Store.Rows(context.Background(), "SELECT id,name,code FROM products WHERE deleted_at IS NULL LIMIT 1")

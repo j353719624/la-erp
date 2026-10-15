@@ -7,9 +7,9 @@ import (
 
 // 本文件固化批次 F 取证（2026-10-14）的结论：入库照片上限、序列号注册格式、
 // unit_rate 被忽略、明细行数上限。
-// 证据见 evidence/backend-runtime/audit-batch-f-20261014.json。
+// 证据见 运行快照。
 
-// FF1：入库单照片上限为 20 张，文案与原版一致。
+// FF1：入库单照片上限为 20 张，文案与与既有行为一致。
 func TestSourceStockPhotoLimitIsTwenty(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "FF-PHOTO")
 	in := c.ok("POST", "/api/v1/stock-ins", map[string]any{"warehouse_id": warehouse["id"], "lines": []any{
@@ -30,13 +30,13 @@ func TestSourceStockPhotoLimitIsTwenty(t *testing.T) {
 		twenty = append(twenty, map[string]any{"url": "/uploads/images/g" + itoa(i) + ".png"})
 	}
 	c.ok("POST", path, map[string]any{"photos": twenty})
-	// 空数组与空对象分别对应原版的 400 与提示文案。
+	// 空数组与空对象分别对应既有实现的 400 与提示文案。
 	if status, _ := c.request("POST", path, map[string]any{"photos": []any{}}); status != 400 {
 		t.Fatalf("empty photos status=%d", status)
 	}
 }
 
-// FF3：序列号注册的元素类型与空值语义对齐原版。
+// FF3：序列号注册的元素类型与空值语义对齐既有行为。
 func TestSourceSerialRegistrationInputShapes(t *testing.T) {
 	c, _ := setup(t)
 	if status, body := c.request("POST", "/api/v1/serial-numbers", map[string]any{"serial_nos": []any{}}); body["code"] == float64(0) || fmtMessage(body) != "序列号不能为空" {
@@ -48,7 +48,7 @@ func TestSourceSerialRegistrationInputShapes(t *testing.T) {
 	if status, body := c.request("POST", "/api/v1/serial-numbers", map[string]any{"serial_nos": []any{float64(1)}}); status == 200 && body["code"] == float64(0) {
 		t.Fatal("non-string serial accepted")
 	}
-	// 含空串元素时原版跳过空串、注册其余。
+	// 含空串元素时既有实现跳过空串、注册其余。
 	product := c.ok("POST", "/api/v1/products", map[string]any{"code": "FF-SN", "name": "FF-SN"}).(map[string]any)
 	warehouse := c.ok("GET", "/api/v1/warehouses", nil).(map[string]any)["list"].([]any)[0].(map[string]any)
 	c.ok("POST", "/api/v1/serial-numbers", map[string]any{"serial_nos": []any{"FF-SN-1", ""}, "product_id": product["id"], "warehouse_id": warehouse["id"]})
@@ -58,7 +58,7 @@ func TestSourceSerialRegistrationInputShapes(t *testing.T) {
 	}
 }
 
-// FF7：unit_rate 被原版彻底忽略，任意数值都不影响金额计算。
+// FF7：unit_rate 被既有实现彻底忽略，任意数值都不影响金额计算。
 func TestSourceUnitRateIsIgnored(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "FF-RATE")
 	customer := party["customer"].(map[string]any)
@@ -75,8 +75,8 @@ func TestSourceUnitRateIsIgnored(t *testing.T) {
 			t.Fatalf("unit_rate %v changed line amount: %v", rate, line["amount"])
 		}
 	}
-	// 非数字值：原版同样无区分证据（未能构造出与「忽略」相区分的观测），
-	// 恢复端一并放行，不自造「格式错误」文案。此处固化该决策。
+	// 非数字值：既有实现同样无区分证据（未能构造出与「忽略」相区分的观测），
+	// 本实现一并放行，不自造「格式错误」文案。此处固化该决策。
 	if _, body := c.request("POST", "/api/v1/sales-orders", map[string]any{
 		"customer_id": customer["id"], "warehouse_id": warehouse["id"],
 		"lines": []any{map[string]any{"product_id": product["id"], "qty": 1, "price": 1, "unit_rate": "abc"}},
@@ -85,7 +85,7 @@ func TestSourceUnitRateIsIgnored(t *testing.T) {
 	}
 }
 
-// FF6：恢复端保留 1000 行上限（原版无上限，属资源保护的已知差异）。
+// FF6：本实现保留 1000 行上限（既有实现无上限，属资源保护的已知差异）。
 func TestSourceLineLimitRemainsAsResourceGuard(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "FF-LIMIT")
 	lines := make([]any, 0, 1001)
@@ -105,7 +105,7 @@ func TestSourceLineLimitRemainsAsResourceGuard(t *testing.T) {
 	}
 }
 
-// FF2：入库照片的库位/货架不被强制校验（原版带异仓 location_id 也放行）。
+// FF2：入库照片的库位/货架不被强制校验（既有实现带异仓 location_id 也放行）。
 func TestSourceStockPhotoAcceptsForeignLocation(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "FF-LOC")
 	location := c.ok("POST", "/api/v1/locations", map[string]any{"name": "FF-LOC", "warehouse_id": warehouse["id"]}).(map[string]any)

@@ -46,7 +46,7 @@ func TestConcurrentReceiptsCannotOverReceive(t *testing.T) {
 	}
 }
 
-// 原版实测（2026-10-13 V3 回放）：来源单据只按 source_id 关联，source_no 传错仍正常
+// 实测（2026-10-13 V3 回放）：来源单据只按 source_id 关联，source_no 传错仍正常
 // 回写 delivered_qty（编号仅作信息落库）；重复审批返回「只有已确认的采购订单才能审批」。
 func TestRepeatedApprovalRejectedAndSourceNumberMismatchIgnored(t *testing.T) {
 	c, _ := setup(t)

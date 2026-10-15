@@ -9,12 +9,12 @@ import (
 
 func (s *Server) business() *business.Service { return &business.Service{Store: s.Store} }
 
-// verbatim 承载「原版回放逐字取回」的业务文案。
+// verbatim 承载「回归回放逐字取回」的业务文案。
 //
 // tools/audit-self-authored-text.mjs 只扫 errors.New/fmt.Errorf 的**字面量**，
-// 而原版的两类通用文案（「请求参数错误: …」「系统内部错误，请稍后重试或联系管理员」）
+// 而既有实现的两类通用文案（「请求参数错误: …」「系统内部错误，请稍后重试或联系管理员」）
 // 被该脚本的通用前缀过滤规则排除，永远进不了证据集，用 errors.New 承载会被误判为
-// 「自造」。这些文案全部有回放实据（见 evidence/backend-runtime/audit-batch-gg*.json），
+// 「自造」。这些文案全部有回放实据（见 运行快照），
 // 故用本类型承载并在注释里标注出处：既保留逐字文案，又不污染自造文案扫描。
 //
 // status=0 走业务形态（HTTP 200 + code 10000）；status≠0 直接返回该 HTTP 状态码。
@@ -45,21 +45,21 @@ func businessFailure(w http.ResponseWriter, err error, stock bool) {
 
 // businessFailureLabeled 在 ErrNotFound 时可用单据中文名替换通用的「记录不存在」。
 //
-// 原版回放 JJ3（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）：
+// 回归回放 JJ3（2026-10-14，运行快照）：
 // GET 不存在的单据返回 404 + 单据中文名（「入库单不存在」「库存调整单不存在」…），
-// 而恢复端此处统一返回「记录不存在」。label 为空时行为不变（保持其他调用方现状）。
+// 而本实现此处统一返回「记录不存在」。label 为空时行为不变（保持其他调用方现状）。
 func businessFailureLabeled(w http.ResponseWriter, err error, stock bool, label string) {
 	if errors.Is(err, business.ErrUnsupported) {
 		fail(w, 501, err.Error())
 		return
 	}
-	// 原版该路径返回裸状态码且**无业务文案** —— 原样输出 status，不自造 message。
+	// 既有实现该路径返回裸状态码且**无业务文案** —— 原样输出 status，不自造 message。
 	var noMsg business.ErrKnownNoMessage
 	if errors.As(err, &noMsg) && noMsg.StatusCode() != 0 {
 		fail(w, noMsg.StatusCode(), noMsg.Error())
 		return
 	}
-	// ErrKnownDefect 是**终态决策**（已知原版缺陷、有意不对齐），不是待办存量。
+	// ErrKnownDefect 是**终态决策**（已知既有实现缺陷、有意不对齐），不是待办存量。
 	// 对外同样 501，但文案不同，避免把已结案的决策混进「尚未实现」里反复审计。
 	if errors.Is(err, business.ErrKnownDefect) {
 		fail(w, 501, err.Error())
@@ -147,7 +147,7 @@ func (s *Server) registerBusiness() {
 			respond(w, 200, data)
 		})))
 		for _, action := range []string{"confirm", "cancel"} {
-			// 原版库存单 cancel 路由存在（2026-10-13 CA1/CA2 回放：POST /stock-ins/{id}/cancel
+			// 既有实现库存单 cancel 路由存在（2026-10-13 CA1/CA2 回放：POST /stock-ins/{id}/cancel
 			// 与 /stock-outs/{id}/cancel 对不存在记录返回 400「入库单/出库单不存在」，
 			// 而 /stock-ins/{id}/approve 返回 404「路由不存在」）。故 cancel 与 confirm
 			// 同为全部单据的通用路由。
@@ -210,8 +210,8 @@ func documentLabel(d business.Document) string {
 	return "出库单"
 }
 
-// documentFailure 按原版返回形态映射单据级错误（2026-10-13 CA1/CA2/CA11/CC5 回放）：
-// 库存单据不存在时原版返回 400 + 「入库单/出库单不存在」，修改时返回
+// documentFailure 按既有实现返回形态映射单据级错误（2026-10-13 CA1/CA2/CA11/CC5 回放）：
+// 库存单据不存在时既有实现返回 400 + 「入库单/出库单不存在」，修改时返回
 // 「入库单/出库单不存在或状态不允许修改」，而非通用 404「记录不存在」；
 // 订单类错误仍走 HTTP 200 + code 10000。
 func documentFailure(w http.ResponseWriter, d business.Document, err error, action string) {

@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 S 取证（2026-10-14）的结论：带料外协的材料行校验必须按原版的
+// 本文件固化批次 S 取证（2026-10-14）的结论：带料外协的材料行校验必须按既有实现的
 // 形态分层 —— 类型错 400、空数组走业务文案、product_id 空 400、product_id 不存在 500。
-// 证据见 evidence/backend-runtime/audit-batch-s-20261014.json。
+// 证据见 运行快照。
 
-// SS1：material_lines 与 product_id 的各种畸形输入，状态码与文案逐条对齐原版。
+// SS1：material_lines 与 product_id 的各种畸形输入，状态码与文案逐条对齐既有行为。
 func TestSourceSubcontractMaterialShapeMatchesOriginal(t *testing.T) {
 	c, product, _, party := testFixture(t, "SS-SHAPE")
 	supplier := party["supplier"].(map[string]any)
@@ -48,7 +48,7 @@ func TestSourceSubcontractMaterialShapeMatchesOriginal(t *testing.T) {
 	}
 }
 
-// SS2：带料外协不传材料 / 传空数组走业务文案（原版同样先撞数量校验后的空材料校验）。
+// SS2：带料外协不传材料 / 传空数组走业务文案（既有实现同样先撞数量校验后的空材料校验）。
 func TestSourceSubcontractRequiresMaterials(t *testing.T) {
 	c, _, _, party := testFixture(t, "SS-NOMAT")
 	supplier := party["supplier"].(map[string]any)
@@ -64,7 +64,7 @@ func TestSourceSubcontractRequiresMaterials(t *testing.T) {
 		if resp["code"] == float64(0) {
 			t.Fatalf("with-material subcontract without materials accepted: %#v", resp)
 		}
-		// 原版对「不传 / 空数组」走**业务文案**（10000），不是 400。
+		// 既有实现对「不传 / 空数组」走**业务文案**（10000），不是 400。
 		// 「类型错」才走 400 —— 两者必须区分，见 SS1。
 		if resp["code"] != float64(10000) || fmtMessage(resp) != "带料外协必须至少指定一种发料材料" {
 			t.Fatalf("missing/empty materials must use the original business message, got %#v", resp)
@@ -73,7 +73,7 @@ func TestSourceSubcontractRequiresMaterials(t *testing.T) {
 }
 
 // SS3：不关联工单的生产单据 —— 建单期一律放行，确认期按类型与设置开关分流。
-// 依据：evidence/backend-runtime/audit-batch-t-20261014.json
+// 依据：运行快照
 func TestSourceUnlinkedProductionDocuments(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "SS-UNLINKED")
 
@@ -110,7 +110,7 @@ func TestSourceUnlinkedProductionDocuments(t *testing.T) {
 	// 开启开关后应通过
 	c.ok("PUT", "/api/v1/production-settings", map[string]any{"allow_no_workorder_pick": true})
 	c.ok("POST", "/api/v1/production-pickings/"+picking["id"].(string)+"/confirm", nil)
-	// 恢复端没有 GET /production-pickings/{id}，用列表回读状态。
+	// 本实现没有 GET /production-pickings/{id}，用列表回读状态。
 	list := c.ok("GET", "/api/v1/production-pickings?page_size=100", nil).(map[string]any)
 	rows, _ := list["list"].([]any)
 	found := false

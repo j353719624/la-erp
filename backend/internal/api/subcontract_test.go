@@ -10,7 +10,7 @@ import (
 
 func TestOriginalSubcontractReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/subcontract/contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/subcontract/contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

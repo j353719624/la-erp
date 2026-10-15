@@ -4,15 +4,15 @@ package api
 //
 // ## 背景
 // tools/replay-batch-oo-badid.js 对 42 个资源 × GET/PUT/DELETE 全量取证
-// （129 条，evidence/backend-runtime/audit-batch-oo-badid-20261015.json）：
-// 恢复端通用 /api/v1/{res}/{id} 没有 UUID 格式守卫（或文案统一成「无效的 ID」），
+// （129 条，运行快照）：
+// 本实现通用 /api/v1/{res}/{id} 没有 UUID 格式守卫（或文案统一成「无效的 ID」），
 // 非法 ID 直接漏到业务层：
 //
-//	GET     → 404「<Label>不存在」          原版 → 400「无效的商品ID」...
-//	PUT     → 200|10000「<Label>不存在」    原版 → 400「无效的商品ID」...
-//	DELETE  → 200|10000「<Label>不存在」    原版 → 400「无效的商品ID」...
+//	GET     → 404「<Label>不存在」          既有实现 → 400「无效的商品ID」...
+//	PUT     → 200|10000「<Label>不存在」    既有实现 → 400「无效的商品ID」...
+//	DELETE  → 200|10000「<Label>不存在」    既有实现 → 400「无效的商品ID」...
 //
-// 且原版文案**逐资源不同**，实测三套：
+// 且既有文案**逐资源不同**，实测三套：
 //
 //	无效的<Label>ID   —— 多数资源（商品/客户/供应商/...）
 //	ID格式错误        —— payrolls / expense-claims / fixed-assets / leads / accounting-periods
@@ -22,7 +22,7 @@ package api
 // ## 铁律
 // 只映射实测到的表；查不到的表保持原行为（「无效的 ID」），**不得自造统一文案**。
 
-// badIDMessages 以表名为键：原版对 GET/PUT/DELETE /{res}/{非UUID} 的逐字文案。
+// badIDMessages 以表名为键：既有实现对 GET/PUT/DELETE /{res}/{非UUID} 的逐字文案。
 // 同一资源三个方法的文案完全一致（取证 129 条逐条核对）。
 var badIDMessages = map[string]string{
 	// ── 无效的<Label>ID ──────────────────────────────────────────────
@@ -71,7 +71,7 @@ var badIDMessages = map[string]string{
 	"leads":                   "ID格式错误",
 	"accounting_periods":      "ID格式错误",
 	// ── 仅写路径可见的文案 ──────────────────────────────────────────
-	// 这三张表的 GET/PUT 原版都是 404「路由不存在」（走 notFoundStyles /
+	// 这三张表的 GET/PUT 既有实现都是 404「路由不存在」（走 notFoundStyles /
 	// writeRouteAbsent 处理，早于本映射），故本条目只对 DELETE 生效，不会误伤读路径。
 	// 取证：audit-batch-oo-badid-20261015.json（DELETE 三方法逐条）。
 	"equipment_maintenances":  "无效的记录ID",
@@ -79,7 +79,7 @@ var badIDMessages = map[string]string{
 	"tax_accruals":            "无效的ID格式",
 }
 
-// badIDMessage 返回该表非法 UUID 时的原版文案；未取证的表回落原有「无效的 ID」。
+// badIDMessage 返回该表非法 UUID 时的既有文案；未取证的表回落原有「无效的 ID」。
 func badIDMessage(table string) string {
 	if msg, ok := badIDMessages[table]; ok {
 		return msg
@@ -87,11 +87,11 @@ func badIDMessage(table string) string {
 	return "无效的 ID"
 }
 
-// ppWriteNotFound 以路由名为键：原版对 PUT/DELETE /{res}/{合法UUID不存在} 的特殊 notFound 形态
+// ppWriteNotFound 以路由名为键：既有实现对 PUT/DELETE /{res}/{合法UUID不存在} 的特殊 notFound 形态
 // （HTTP 400 + code 400，与 writeNotFoundBusiness 的 200+10000 不同类，不能复用）。
 //
 // 取证：tools/replay-batch-oo-badid2.js（2026-10-15，
-// evidence/backend-runtime/audit-batch-oo-badid2-20261015.txt）：
+// 运行快照）：
 //
 //	DELETE /equipment-maintenances/{uuid} → 400「保养/维修记录不存在」
 //	DELETE /tax-accruals/{uuid}           → 400「计提记录不存在」

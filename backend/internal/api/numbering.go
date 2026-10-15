@@ -18,9 +18,9 @@ import (
 //	流水取「同前缀已用最大号 + 1」（含已删除记录，绝不撞号）
 //	重置策略与日期段配对：daily=20060102 / monthly=200601 / yearly=2006 / never=""
 //
-// 默认规则表 65 条按 biz_type 字典序，逐字取自 2026-10-08 原版回放
-// （evidence/backend-runtime/api-contracts.json → GET /api/v1/numbering-rules）。
-// 原版库内无编号规则表（system_settings 仅 date_midnight_migrated /
+// 默认规则表 65 条按 biz_type 字典序，逐字取自 2026-10-08 回归回放
+// （运行快照 → GET /api/v1/numbering-rules）。
+// 既有实现库内无编号规则表（system_settings 仅 date_midnight_migrated /
 // permission_split_version / demo_seed_injected 三个键），即 65 条为代码级默认值，
 // 自定义覆盖存 system_settings.numbering_rules（与 account_mapping /
 // portal_settings / tax_rate_defaults 同一套设置持久化模式）。

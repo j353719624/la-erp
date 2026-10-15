@@ -192,7 +192,7 @@ func (s *Service) ReconcileBank(ctx context.Context, id string) (int, error) {
 			if err != nil {
 				return err
 			}
-			// II1 取证：原版对「同额候选 > 1」是跳过该条而非整批报错。
+			// II1 取证：既有实现对「同额候选 > 1」是跳过该条而非整批报错。
 			// 保留 candidates 统计用于日志/调试，匹配时按付款单 created_at 顺序逐条尝试。
 			candidates := map[string]int{}
 			for _, payment := range payments {
@@ -200,7 +200,7 @@ func (s *Service) ReconcileBank(ctx context.Context, id string) (int, error) {
 			}
 			for _, payment := range payments {
 				if candidates[readDecimal(payment, "amount").String()] > 1 {
-					// 同额候选：原版实测不报错、不核销（II1）。保持与原版一致——
+					// 同额候选：实测不报错、不核销（II1）。保持与与既有行为一致——
 					// 不因歧义而让整批对账失败，该条流水留给人工处理。
 					continue
 				}
@@ -215,10 +215,10 @@ func (s *Service) ReconcileBank(ctx context.Context, id string) (int, error) {
 					if !readDecimal(statement, "amount").Equal(target) {
 						continue
 					}
-					// 原版回放 II1/II2（2026-10-14，evidence/backend-runtime/audit-batch-i2-20261014.json）：
+					// 回归回放 II1/II2（2026-10-14，运行快照）：
 					// 同一账户下两张同额（100/100）已确认付款单、以及一张 EUR@7.8 的非 CNY 付款单，
-					// 对账接口均返回 code:0 **没有失败**——原版对歧义与非 CNY 是「跳过该条」
-					// 而非整批报错。原恢复端 return ErrUnsupported 会让整批对账失败，属误拒，已移除。
+					// 对账接口均返回 code:0 **没有失败**——既有实现对歧义与非 CNY 是「跳过该条」
+					// 而非整批报错。原本实现 return ErrUnsupported 会让整批对账失败，属误拒，已移除。
 					if err := s.Store.UpdateWith(ctx, tx, "bank_statements", value(statement, "id"), map[string]any{"reconciled": true, "matched_ref": value(payment, spec.number), "updated_at": now()}); err != nil {
 						return err
 					}

@@ -59,9 +59,9 @@ func (s *Service) GetProductionDocument(ctx context.Context, d ProductionDocumen
 func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocument, input map[string]any, user string) (map[string]any, error) {
 	id := ""
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		// 原版回放 EE3（2026-10-14）：领料/退料/入库单的**表头 location_id 与明细
-		// batch_no/serial_nos 均 code:0 建单成功**；属原版的静默忽略。
-		// 恢复端按「原版已接受就不判未恢复」处理：这些字段一律摘出通用守卫，
+		// 回归回放 EE3（2026-10-14）：领料/退料/入库单的**表头 location_id 与明细
+		// batch_no/serial_nos 均 code:0 建单成功**；属既有实现的静默忽略。
+		// 本实现按「既有实现已接受就不判未恢复」处理：这些字段一律摘出通用守卫，
 		// 若表结构确有对应列（Store.Has 命中）则照常持久化。
 		header := map[string]any{}
 		for k, v := range input {
@@ -73,9 +73,9 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 		if err := rejectAdvanced(header); err != nil {
 			return err
 		}
-		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
-		// 生产领料单 / 入库单 / 退料单**不传 work_order_id 时原版三个端点全部 code:0
-		// 建单成功**。原恢复端返回 ErrUnsupported（501）属误拒，已移除 ——
+		// 批次 T 取证（2026-10-14，运行快照）：
+		// 生产领料单 / 入库单 / 退料单**不传 work_order_id 时既有实现三个端点全部 code:0
+		// 建单成功**。原本实现返回 ErrUnsupported（501）属误拒，已移除 ——
 		// 「不关联工单的领退料」是常见场景（如车间临时补料），不应被拦。
 		// 注意：空 work_order_id 不能直接查库（会返回 ErrNotFound → 404），
 		// 必须显式跳过，让 order 为 nil 走「无工单」分支。
@@ -92,9 +92,9 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 				return fmt.Errorf("工单状态（%s）不允许新建领料/入库/退料单", state)
 			}
 		}
-		// 原版回放 EE1/EE2（2026-10-14）：草稿工单建领料单 code:0，直到 confirm 才报
+		// 回归回放 EE1/EE2（2026-10-14）：草稿工单建领料单 code:0，直到 confirm 才报
 		// 10000「工单状态（draft）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料单」——
-		// 原版把状态校验放在**确认期**而非建单期。恢复端原先在建单期返回 501，
+		// 既有实现把状态校验放在**确认期**而非建单期。本实现原先在建单期返回 501，
 		// 既提前又无语义；此处建单放行，由 ConfirmProductionDocument 给出原文案。
 		// 批次 T：不关联工单时（order 为 nil）这两项一致性校验无从比对，跳过。
 		if order != nil {
@@ -105,9 +105,9 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 				return errors.New("仓库与工单不一致")
 			}
 		}
-		// 原版回放（2026-10-13，证据 evidence/backend-runtime/audit-workorder-return-reason-20261013.json）：
+		// 回归回放（2026-10-13，证据 运行快照）：
 		//   M1a 不传 reason / M1b reason="多余" / M1c reason="other" / M1d reason="excess"
-		//   四种取值创建均 code:0 —— 原版对 reason **完全无约束**，
+		//   四种取值创建均 code:0 —— 既有实现对 reason **完全无约束**，
 		//   非 excess 退料正常通过（另见 audit-workorder-material-return-20261013.json 的 L2 全额退料）。
 		// 原实现此处强制 reason=="excess" 否则 ErrUnsupported，属错误的拒绝，已移除。
 		raw, ok := input["lines"].([]any)
@@ -120,7 +120,7 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			return err
 		}
 		id = value(h, "id")
-		// 批次 T：不传 work_order_id 时原版允许建单（order 为 nil），
+		// 批次 T：不传 work_order_id 时既有实现允许建单（order 为 nil），
 		// 此时工单相关列留空，仓库取请求里的 warehouse_id。
 		h[d.Number], h["status"], h["created_by"] = no, "draft", user
 		if order != nil {
@@ -150,9 +150,9 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			if !ok {
 				return errors.New("明细格式错误")
 			}
-			// EE3：明细 batch_no/serial_nos 与表头同理——原版一律 code:0 建单成功，
+			// EE3：明细 batch_no/serial_nos 与表头同理——既有实现一律 code:0 建单成功，
 			// 不论表结构是否已有对应列。这些字段一律摘出通用守卫，由下方按
-			// 「表有列才落库」分流持久化，避免把原版已接受的输入判为未恢复。
+			// 「表有列才落库」分流持久化，避免把既有实现已接受的输入判为未恢复。
 			line := map[string]any{}
 			for key, val := range l {
 				line[key] = val
@@ -167,8 +167,8 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			if err != nil {
 				return err
 			}
-			// 原版回放 EE2（2026-10-14）：领料单同一材料提交两行（qty 1 与 2）
-			// 建单 code:0，与已结案的「同商品多行」结论一致——原版三处都放行。
+			// 回归回放 EE2（2026-10-14）：领料单同一材料提交两行（qty 1 与 2）
+			// 建单 code:0，与已结案的「同商品多行」结论一致——既有实现三处都放行。
 			// 原实现对重复 product_id 返回 ErrUnsupported，属系统性误拒，已移除。
 			seen[value(p, "id")] = true
 			qty, err := Number(l["qty"])
@@ -179,14 +179,14 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 			if err != nil {
 				return err
 			}
-			// 负数量守卫：原版**允许**负数数量 —— 建单期与 confirm 期都 code:0 通过（批次 P 实测）。
+			// 负数量守卫：既有实现**允许**负数数量 —— 建单期与 confirm 期都 code:0 通过（批次 P 实测）。
 			//   领料 qty=-1 → code:0 放行（同样虚增库存）
 			//   退料 qty=-1 → 2026-10-13 实测 169：qty_returned 变为 -1、库存余额被虚增
-			// 两者是**同一类原版缺陷**（负数调整库存），按交接文档
-			// 「不伪造成功、不复制未证实的错误行为」原则，恢复端保留拒绝，
+			// 两者是**同一类既有实现缺陷**（负数调整库存），按交接文档
+			// 「不伪造成功、不复制未证实的错误行为」原则，本实现保留拒绝，
 			// 用 ErrKnownDefect 标识为**终态决策**（非待办），不返回自造中文文案。
-			// 证据：evidence/backend-runtime/audit-workorder-return-reason-20261013.json 的 M2、
-			// evidence/backend-runtime/audit-batch-p-20261014.json。
+			// 证据：运行快照 的 M2、
+			// 运行快照。
 			if !qty.IsPositive() {
 				return ErrKnownDefect
 			}
@@ -200,7 +200,7 @@ func (s *Service) CreateProductionDocument(ctx context.Context, d ProductionDocu
 				row["total_cost"] = qty.Mul(cost).String()
 			}
 			// EE3：批次/序列号等跟踪字段——表有列就按传入值落库，无列则忽略
-			//（与上面「原版静默忽略」的取证结论一致，不因缺列而拒绝建单）。
+			//（与上面「既有实现静默忽略」的取证结论一致，不因缺列而拒绝建单）。
 			for _, k := range []string{"batch_no", "serial_nos", "location_id", "rack_id", "production_date", "expiry_date", "unit_id"} {
 				if s.Store.Has(d.Lines, k) && l[k] != nil {
 					row[k] = l[k]
@@ -247,14 +247,14 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			return errors.New("只有草稿状态的单据才能确认")
 		}
 		// 批次 T：不传 work_order_id 的单据（order 为 nil）同样可确认 ——
-		// 原版允许无工单关联的领料/入库/退料，确认期同样不拦。
+		// 既有实现允许无工单关联的领料/入库/退料，确认期同样不拦。
 		var order map[string]any
 		if woID := value(h, "work_order_id"); woID != "" {
 			if order, err = s.Store.GetWith(ctx, tx, "work_orders", woID); err != nil {
 				return err
 			}
 		}
-		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
+		// 批次 T 取证（2026-10-14，运行快照）：
 		// **无工单**的单据 confirm 分两种情况（逐端点实测）：
 		//   入库单（receipt）→ code:0 直接确认通过，不看设置
 		//   领料单（picking）→ 读生产设置 production_settings.allow_no_workorder_pick：
@@ -270,10 +270,10 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			return s.confirmUnlinkedProductionDocument(ctx, tx, d, h, lines)
 		}
 		if value(order, "status") != "in_progress" {
-			// 原版回放 EE2（2026-10-14，audit-batch-e-20261014.json）：
+			// 回归回放 EE2（2026-10-14，audit-batch-e-20261014.json）：
 			// 草稿工单的领料单 confirm 返回 10000，原文逐字为
 			// 「工单状态（draft）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料」
-			// ——注意结尾无「单」字，已按证据逐字对齐。恢复端原先返回 501。
+			// ——注意结尾无「单」字，已按证据逐字对齐。本实现原先返回 501。
 			return fmt.Errorf("工单状态（%s）不允许确认执行，仅已确认/生产中的工单可领料/入库/退料", value(order, "status"))
 		}
 		delta := decimal.Zero
@@ -288,14 +288,14 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			if err != nil {
 				return err
 			}
-			// 批次 DD 取证（2026-10-14，evidence/backend-runtime/audit-batch-dd-20261014.json）：
-			// 原版**允许**领退料单包含「不在工单 BOM 里的物料」—— 构造：工单 BOM 只含 M，
-			// 领料单领 P（P 不在 BOM 中），原版 **code:0 建单 + code:0 确认通过**，
+			// 批次 DD 取证（2026-10-14，运行快照）：
+			// 既有实现**允许**领退料单包含「不在工单 BOM 里的物料」—— 构造：工单 BOM 只含 M，
+			// 领料单领 P（P 不在 BOM 中），既有实现 **code:0 建单 + code:0 确认通过**，
 			// 且**正常扣库存**（领 2 件 → 库存 100 → 98，差额 -2）、**正常写台账**（type=out, qty=2），
 			// 只是**不回写工单材料行**（P 无对应 material 行，工单材料行 qty_issued 保持 0）。
-			// 即原版语义是「库存与台账照常处理，材料联动无对应行则跳过」。
-			// 原恢复端 return ErrUnsupported（501）属误拒 —— 它会拦掉
-			// 「临时补料领了 BOM 之外的料」这类常见现场操作，已改为按原版语义跳过材料联动。
+			// 即既有实现语义是「库存与台账照常处理，材料联动无对应行则跳过」。
+			// 原本实现 return ErrUnsupported（501）属误拒 —— 它会拦掉
+			// 「临时补料领了 BOM 之外的料」这类常见现场操作，已改为按既有实现语义跳过材料联动。
 			var material map[string]any
 			if len(materials) == 1 {
 				material = materials[0]
@@ -316,7 +316,7 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 			}
 			direction, kind, source, remark, date := -1, "out", "production_picking", "生产领料", "last_out_at"
 			if d.Kind == "picking" {
-				// material == nil（该物料不在工单 BOM 里）时跳过「超需求」校验，与原版一致。
+				// material == nil（该物料不在工单 BOM 里）时跳过「超需求」校验，与与既有行为一致。
 				if material != nil {
 					remaining := required.Sub(issued).Add(returned)
 					if qty.GreaterThan(remaining) {
@@ -333,9 +333,9 @@ func (s *Service) ConfirmProductionDocument(ctx context.Context, d ProductionDoc
 					return err
 				}
 			} else {
-				// 原版回放 L3：超额退料返回 code:10000
+				// 回归回放 L3：超额退料返回 code:10000
 				// 「退料数量超过该物料已领数量（已领 4、已退 4）」，
-				// 按原版实际业务错误对齐文案（校验逻辑等价）。
+				// 按既有实现实际业务错误对齐文案（校验逻辑等价）。
 				if material != nil && qty.GreaterThan(issued.Sub(returned)) {
 					return fmt.Errorf("退料数量超过该物料已领数量（已领 %s、已退 %s）", issued.String(), returned.String())
 				}
@@ -407,8 +407,8 @@ func (s *Service) productionSettingsInTx(ctx context.Context, tx *sql.Tx) (map[s
 
 // confirmUnlinkedProductionDocument 确认**不关联工单**的生产单据。
 //
-// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
-// 原版允许建不关联工单的领料/入库/退料单，三个端点建单期一律 code:0。
+// 批次 T 取证（2026-10-14，运行快照）：
+// 既有实现允许建不关联工单的领料/入库/退料单，三个端点建单期一律 code:0。
 // 确认期按类型分流（逐端点实测）：
 //
 //	入库单（receipt）→ code:0 直接确认通过，**不看设置**

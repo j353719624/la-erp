@@ -2,8 +2,8 @@ package api
 
 // combos.go —— /api/v1/combo-products 端点族（组合件）
 //
-// 批次 EE 回放取证（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）。
-// 原版 7 个入口的行为与文案全部取自回放；本文件只做参数绑定与 ID 形态校验，
+// 批次 EE 回放取证（2026-10-14，运行快照）。
+// 既有实现 7 个入口的行为与文案全部取自回放；本文件只做参数绑定与 ID 形态校验，
 // 业务校验与文案一律下沉到 business/combos.go，避免自造中文。
 //
 // ID 形态：非法 UUID 一律 400「无效的商品ID」（列表以外的全部路径均实测一致）。

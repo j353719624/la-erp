@@ -10,16 +10,16 @@ import (
 //
 // 背景：批次 NN 收尾时路由对账报出 62 条差异，其中 30 条是「纯路由」。
 // 批次 OO 先做多方法存在性复验（tools/replay-batch-oo-methods.js），证明其中
-// 22 条「原版=absent」是**探测噪声**：探针只打 GET/PUT，而原版是 POST-only；
-// 且恢复端通用注册器多铺的方法在 frontend/src/api 里**均无调用**。
+// 22 条「既有实现=absent」是**探测噪声**：探针只打 GET/PUT，而既有实现是 POST-only；
+// 且本实现通用注册器多铺的方法在 frontend/src/api 里**均无调用**。
 // 剩下的真差异见 tools/replay-batch-oo-shapes.js（35 条）与 -shapes2.js（28 条）。
 //
 // ⚠ 本批最重要的一条方法论：**参数名猜错会让整批结论失效**。
 // 第一版探测 /assemblies/bom-components 用了我猜的 assembly_id，
-// 原版一律回「无效的商品ID」；前端实际用的是 product_id
+// 既有实现一律回「无效的商品ID」；前端实际用的是 product_id
 // （frontend/src/api/production.ts:36），换对参数名后才拿到真实形态。
 //
-// 证据：evidence/backend-runtime/audit-batch-oo-*-20261015.{txt,json}
+// 证据：运行快照,json}
 
 const (
 	ooGenericServerError = "系统内部错误，请稍后重试或联系管理员"
@@ -46,8 +46,8 @@ func ooExpect(t *testing.T, tag string, wantHTTP int, wantCode float64, wantMsg 
 
 func TestOOAccountsDeleteGuard(t *testing.T) {
 	c, _ := setup(t)
-	// 原版删除科目：非 UUID → 400「无效的ID格式」；查无此行 → 裸 400 + 通用文案。
-	// 恢复端原来对两者都返回 200/code0（假装删成功）。
+	// 既有实现删除科目：非 UUID → 400「无效的ID格式」；查无此行 → 裸 400 + 通用文案。
+	// 本实现原来对两者都返回 200/code0（假装删成功）。
 	for _, tc := range []struct {
 		tag, id, message string
 	}{
@@ -59,8 +59,8 @@ func TestOOAccountsDeleteGuard(t *testing.T) {
 		ooExpect(t, tc.tag, 400, 400, tc.message, status, result)
 	}
 
-	// ⚠ 反向用例（防回归）：原版**允许**删除真实科目，且重复删除仍 200/code0。
-	// evidence/backend-runtime/account-flow-contracts.json case 29/31 是原版回放证据。
+	// ⚠ 反向用例（防回归）：既有实现**允许**删除真实科目，且重复删除仍 200/code0。
+	// 运行快照 case 29/31 是回归回放证据。
 	// 第一版修复曾把「合法 UUID」一律拦成 400，被 TestOriginalBusinessFlowReplay 抓住。
 	created := c.ok(http.MethodPost, "/api/v1/accounts", map[string]any{
 		"code": "OO-DEL-1", "name": "OO待删科目", "category": "asset",
@@ -92,13 +92,13 @@ func TestOOAccountBalanceNotFound(t *testing.T) {
 
 // TestOOAccountBalancePeriod 科目余额的 period 语义。
 //
-// 回放 OO（tools/replay-batch-oo-balance.js 受控对照）：原版 GET /accounts/{id}/balance
+// 回放 OO（tools/replay-batch-oo-balance.js 受控对照）：既有实现 GET /accounts/{id}/balance
 // ① **完全忽略** period 参数；② 按 period 升序取首条。
 // 同一科目依次写 2026-10/09/11/08 四期后，返回依次是 10 → 09 → 09 → 08：
 // 写 11 不改变最小值，写 08 才改变 —— 只有 period ASC 吻合。
-// ③ 写入时原版把 YYYY-MM 归一化为「当月 1 日 +08:00」的 RFC3339 串再入库。
+// ③ 写入时既有实现把 YYYY-MM 归一化为「当月 1 日 +08:00」的 RFC3339 串再入库。
 //
-// 恢复端原来按 `account_id=? AND period=?`（period 默认 RFC3339）查，
+// 本实现原来按 `account_id=? AND period=?`（period 默认 RFC3339）查，
 // 而 SetOpeningBalances 原样存 YYYY-MM，两者对不上 → **恒为 null**。
 func TestOOAccountBalancePeriod(t *testing.T) {
 	c, _ := setup(t)
@@ -138,7 +138,7 @@ func TestOOAccountBalancePeriod(t *testing.T) {
 		t.Fatalf("begin_balance 应为 200（最早期间），实际 %q", got)
 	}
 
-	// 传任意 period 都返回同一条（原版忽略该参数）
+	// 传任意 period 都返回同一条（既有实现忽略该参数）
 	for _, p := range []string{"2026-10", "BAD", "2026-10-01T00:00:00+08:00"} {
 		_, res := c.request(http.MethodGet, "/api/v1/accounts/"+id+"/balance?period="+p, nil)
 		d, _ := res["data"].(map[string]any)
@@ -162,7 +162,7 @@ func TestOOInvoiceIssueNotFound(t *testing.T) {
 
 // TestOOVoucherTypeRequired 凭证缺 type 时的形态。
 //
-// 回放 OO（2026-10-15）：原版返回裸 400 + 通用文案，恢复端原来把
+// 回放 OO（2026-10-15）：既有实现返回裸 400 + 通用文案，本实现原来把
 // `constraint failed: NOT NULL constraint failed: vouchers.type (1299)` 原样回给客户端
 // —— 与 TestOOApprovalFlowRequired 是同一类实现泄漏。
 //
@@ -208,8 +208,8 @@ func TestOOVoucherTypeRequired(t *testing.T) {
 
 func TestOOApprovalFlowRequired(t *testing.T) {
 	c, _ := setup(t)
-	// 缺 code/name/biz_type 时原版返回裸 500 + 通用文案。
-	// 恢复端原来把 `constraint failed: NOT NULL constraint failed: approval_flows.xxx`
+	// 缺 code/name/biz_type 时既有实现返回裸 500 + 通用文案。
+	// 本实现原来把 `constraint failed: NOT NULL constraint failed: approval_flows.xxx`
 	// 直接回给客户端 —— 建表约束名外泄，必须收口。
 	for _, tc := range []struct {
 		tag  string
@@ -250,10 +250,10 @@ func TestOOBOMComponents(t *testing.T) {
 
 func TestOOAttendanceRequestValidation(t *testing.T) {
 	c, _ := setup(t)
-	// 原版校验顺序：request_type 非空 → start_date 非空 → start_date 按 RFC3339 解析。
-	// 恢复端原来被通用必填（code）挡在最前，根本走不到这条链。
+	// 既有实现校验顺序：request_type 非空 → start_date 非空 → start_date 按 RFC3339 解析。
+	// 本实现原来被通用必填（code）挡在最前，根本走不到这条链。
 	//
-	// 注意 request_type 只判非空，不判合法性：{request_type:"BAD"} 原版照样放行到
+	// 注意 request_type 只判非空，不判合法性：{request_type:"BAD"} 既有实现同样放行到
 	// 日期解析那一步。文案里的合法值只是提示，不能扩成枚举校验。
 	const parseMsg = "参数错误: parsing time \"2026-10-01\" as \"2006-01-02T15:04:05Z07:00\": cannot parse \"\" as \"T\""
 	for _, tc := range []struct {
@@ -271,7 +271,7 @@ func TestOOAttendanceRequestValidation(t *testing.T) {
 		status, result := c.request(http.MethodPost, "/api/v1/attendance-requests", tc.body)
 		ooExpect(t, tc.tag, tc.wantHTTP, tc.wantCode, tc.wantMsg, status, result)
 	}
-	// request_type 非法但非空时，原版放行到日期校验（不是报类型无效）
+	// request_type 非法但非空时，既有实现放行到日期校验（不是报类型无效）
 	status, result := c.request(http.MethodPost, "/api/v1/attendance-requests",
 		map[string]any{"employee_name": "OO乙", "request_type": "BAD", "start_date": "2026-10-01"})
 	ooExpect(t, "request_type 非法但非空", 400, 400, parseMsg, status, result)
@@ -294,9 +294,9 @@ func TestOOAttendanceSummary(t *testing.T) {
 
 func TestOOOpeningBalancesValidation(t *testing.T) {
 	c, _ := setup(t)
-	// 原版校验顺序：period 格式 → entries 非空 → 科目存在。
-	// ⚠ 原版**不校验期间是否存在**：2099-12 并不存在，却一路走到了科目检查。
-	// 恢复端原来第一句就是 SELECT status，期间不存在时把 sql.ErrNoRows 的原文
+	// 既有实现校验顺序：period 格式 → entries 非空 → 科目存在。
+	// ⚠ 既有实现**不校验期间是否存在**：2099-12 并不存在，却一路走到了科目检查。
+	// 本实现原来第一句就是 SELECT status，期间不存在时把 sql.ErrNoRows 的原文
 	// 「sql: no rows in result set」回给了客户端。
 	for _, tc := range []struct {
 		tag      string
@@ -329,7 +329,7 @@ func TestOOAuthRefreshRequired(t *testing.T) {
 
 func TestOOPortalAuthGuard(t *testing.T) {
 	c, _ := setup(t)
-	// 门户商品/分类必须持客户 token。恢复端原来完全不鉴权，等于对匿名开放。
+	// 门户商品/分类必须持客户 token。本实现原来完全不鉴权，等于对匿名开放。
 	anon := ooAnon(c)
 	for _, path := range []string{"/api/v1/portal/categories", "/api/v1/portal/products"} {
 		status, result := c.request(http.MethodGet, path, nil)
@@ -343,7 +343,7 @@ func TestOOPortalAuthGuard(t *testing.T) {
 func TestOOPortalLogin(t *testing.T) {
 	c, _ := setup(t)
 	anon := ooAnon(c)
-	// 原版两者都是 400（不是 401），且文案与恢复端原来的「客户账号或密码错误」不同。
+	// 既有实现两者都是 400（不是 401），且文案与本实现原来的「客户账号或密码错误」不同。
 	for _, tc := range []struct {
 		tag     string
 		body    map[string]any

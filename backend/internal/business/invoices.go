@@ -62,7 +62,7 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 				return errors.New("已确认的收付款单不能删除")
 			}
 		case "ar_invoices", "ap_invoices":
-			// 原版回放（2026-10-13，证据 evidence/backend-runtime/audit-finance-advanced-20261013.json
+			// 回归回放（2026-10-13，证据 运行快照
 			// 的 G4 与内联 P1 全额收款场景）：
 			//   G4  应收 130 → 部分收款 65（status=partial）→ DELETE code:0，单据真实消失
 			//   P1  应收  80 → 全额收款 80（status=paid）    → DELETE code:0，单据真实消失
@@ -70,7 +70,7 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 			// 原实现对 received_amount/paid_amount>0 返回 ErrUnsupported，
 			// 属未经证据的错误拒绝，已移除。
 		default:
-			// 批次 CC（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
+			// 批次 CC（2026-10-14，运行快照）：
 			// table 由 API 层 registerFinance 的
 			// `for _, table := range []string{"ar_invoices", "ap_invoices"}` 提供，
 			// 而上面两个 case 已覆盖全部四个取值（payment_receipts / payment_payments /
@@ -83,14 +83,14 @@ func (s *Service) DeleteFinance(ctx context.Context, table, id string) error {
 	})
 }
 
-// ListPayments 返回收/付款单列表。原版实测（2026-10-15，批次 KK）：
+// ListPayments 返回收/付款单列表。实测（2026-10-15，批次 KK）：
 //
 //	· 返回**裸数组**，不是 {list,total}；**不支持分页**（page/page_size 被忽略，
 //	  page_size=2 仍返回全部 37 条）
 //	· 支持 status 精确过滤（confirmed → 37 条里命中 10 条）
 //	· 收款单支持 customer_id 过滤（零 UUID → 空数组）；
 //	  付款单**不支持** customer_id（零 UUID 仍返回全部 14 条，因为该表无此列）
-//	· 不支持 keyword / receipt_no / payment_no（原版上这些参数都不生效）
+//	· 不支持 keyword / receipt_no / payment_no（既有实现上这些参数都不生效）
 //
 // 故此处按 FinanceSpec 声明的过滤字段动态拼 WHERE：只有表上确实有该列才过滤，
 // 与批次 JJ 得到的「支持情况与列是否存在不一致」结论一致。

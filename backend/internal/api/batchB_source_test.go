@@ -9,8 +9,8 @@ import (
 )
 
 // 本文件固化批次 B 取证（2026-10-14）的结论：发票币种/来源、收付款单明细与合计、
-// 库存调整类型与成本型数量 —— 五处原版均接受且行为可复现，恢复端原先一律拒绝。
-// 证据见 evidence/backend-runtime/audit-batch-b{,-b2}-20261014.json。
+// 库存调整类型与成本型数量 —— 五处既有实现均接受且行为可复现，本实现原先一律拒绝。
+// 证据见 运行快照,-b2}-20261014.json。
 
 func batchBDate() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 

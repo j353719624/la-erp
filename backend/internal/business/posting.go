@@ -34,7 +34,7 @@ func (s *Service) post(ctx context.Context, tx *sql.Tx, source, id, no, date, re
 // 批次 PP（2026-10-15）：绝大多数过账点产出 type=general 且分录无 remark 的凭证，
 // 但税金缴纳实测是 type=payment、分录 remark="缴纳税费"、凭证头 remark 被加工成
 // 「缴纳税费（<原 remark>）」（证据：audit-batch-pp-voucher-shape-20261015.txt）。
-// 三者都要按原版走，故不能在 post 里写死。
+// 三者都要按既有实现走，故不能在 post 里写死。
 type VoucherShape struct {
 	Type        string // 凭证 type；空则回落 "general"
 	Remark      string // 凭证头 remark（调用方已加工好的最终文本）
@@ -44,15 +44,15 @@ type VoucherShape struct {
 // postShaped 是 post 的可定制形态版本，额外的 shape 参数用于税金缴纳等特例。
 func (s *Service) postShaped(ctx context.Context, tx *sql.Tx, source, id, no, date, remark string,
 	entries []Posting, shape VoucherShape) error {
-	// 原版**跳过金额为 0 的分录**，且全部分录都为 0 时**整个凭证不产生**
+	// 既有实现**跳过金额为 0 的分录**，且全部分录都为 0 时**整个凭证不产生**
 	// （批次 PP 取证：audit-batch-pp-autopost4-20261015.txt）。
 	//
 	// 决定性证据是同一张销售退货单在「金额非 0」与「金额为 0」两种情形下的对照：
 	//   明细带 price=200 → 两端都是 4 条分录、D=210 C=210（含 6001/1122 收入冲销）
-	//   明细不带 price   → 金额被重算为 0，原版只落 2 条（1405/6401 成本冲销），
-	//                      恢复端仍落 4 条（多两条 0 金额行）
-	// 即原版**确实构造**了收入冲销那两条，只是 0 金额不入账 —— 不是「不构造」。
-	// 采购退货更彻底：两条分录都为 0 时原版凭证增量为 0（业务动作仍 code:0 成功）。
+	//   明细不带 price   → 金额被重算为 0，既有实现只落 2 条（1405/6401 成本冲销），
+	//                      本实现仍落 4 条（多两条 0 金额行）
+	// 即既有实现**确实构造**了收入冲销那两条，只是 0 金额不入账 —— 不是「不构造」。
+	// 采购退货更彻底：两条分录都为 0 时既有实现凭证增量为 0（业务动作仍 code:0 成功）。
 	kept := make([]Posting, 0, len(entries))
 	for _, e := range entries {
 		if e.Amount.IsZero() {
@@ -131,7 +131,7 @@ func (s *Service) postVoucherEntries(ctx context.Context, tx *sql.Tx, voucher ma
 		if err := s.Store.InsertWith(ctx, tx, "journal_entries", journal); err != nil {
 			return err
 		}
-		// 分录 remark 默认留空 —— 现场产生的凭证里，原版除税金缴纳外的分录
+		// 分录 remark 默认留空 —— 现场产生的凭证里，既有实现除税金缴纳外的分录
 	// remark 实测均为空（历史库里 payroll/expense_paid 那几条带 remark 的是
 	// 早期数据，不能拿来定规则，见 audit-batch-pp-voucher-shape-20261015.txt）。
 	lineRemark := ""
@@ -199,14 +199,14 @@ func (s *Service) AccountBalance(ctx context.Context, id, period string) (map[st
 		// 200 + code 10000，与 GET /accounts/{id} 的 404 不同。
 		return nil, ErrAccountNotFound
 	}
-	// 回放 OO（2026-10-15）：原版**完全忽略** period 参数。
+	// 回放 OO（2026-10-15）：既有实现**完全忽略** period 参数。
 	// 受控对照（tools/replay-batch-oo-balance.js）：同一科目依次写入
 	// 2026-10/09/11/08 四期期初余额，每次写入后 GET balance 的返回依次是
 	// 10 → 09 → 09（写 11 后不变）→ 08（写 08 后变）。
 	// 唯一吻合的排序是 period 升序取首条：写 11 不影响最小值，写 08 才改变它。
 	// 传 2026-10 去查也照样返回 09 那条，所以 period 不入 WHERE。
 	//
-	// 恢复端原来按 `account_id=? AND period=?` 查，而 period 默认取
+	// 本实现原来按 `account_id=? AND period=?` 查，而 period 默认取
 	// accountingPeriod(now())（格式 2026-10-01T00:00:00+08:00），
 	// 但 SetOpeningBalances 写入的是入参原样（2026-10），两者对不上 → 恒为 null。
 	_ = period
@@ -222,9 +222,9 @@ func (s *Service) AccountBalance(ctx context.Context, id, period string) (map[st
 
 // balancePeriodText 把入参 period 归一化成 account_balances 的存储格式。
 //
-// 回放 OO：原版库里存的是「当月 1 日 00:00:00 +08:00」的 RFC3339 串
+// 回放 OO：既有实现库里存的是「当月 1 日 00:00:00 +08:00」的 RFC3339 串
 // （写入 2026-10 → 存 2026-10-01T00:00:00+08:00），不是 YYYY-MM。
-// 恢复端原来原样存 YYYY-MM，与过账侧 accountingPeriod 生成的格式不一致，
+// 本实现原来原样存 YYYY-MM，与过账侧 accountingPeriod 生成的格式不一致，
 // 导致过账时 `WHERE account_id=? AND period=?` 命中不到期初行。
 func BalancePeriodText(period string) string {
 	zone := time.FixedZone("CST", 8*3600)

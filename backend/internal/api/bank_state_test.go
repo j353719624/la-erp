@@ -12,7 +12,7 @@ import (
 
 func verifyBankState(t *testing.T, s *Server, ids map[string]string) {
 	for _, table := range []string{"bank_accounts", "bank_statements"} {
-		raw, err := readEvidenceSnapshot(t, "backend-runtime/" + table + "-including-deleted.json")
+		raw, err := readSnapshot(t, "backend-runtime/" + table + "-including-deleted.json")
 		if err != nil {
 			t.Fatal(err)
 		}

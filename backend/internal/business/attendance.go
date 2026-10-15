@@ -19,9 +19,9 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 		}
 		status := value(row, "status")
 		next := ""
-		// 批次 PP（2026-10-15）：四个动作的文案原版逐字取证
+		// 批次 PP（2026-10-15）：四个动作的文案既有实现逐字取证
 		// （tools/replay-batch-pp-statemachine.js，audit-batch-pp-statemachine-20261015.txt）。
-		// 原版一律「只有<状态>的考勤申请才能<动作>」，且 approve 的动词是「审批」不是「通过」。
+		// 既有实现一律「只有<状态>的考勤申请才能<动作>」，且 approve 的动词是「审批」不是「通过」。
 		switch action {
 		case "submit":
 			if status != "draft" {
@@ -39,14 +39,14 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 			}
 			next = "rejected"
 		case "cancel":
-			// 批次 PP：与报销单同类，这里不只是文案差异 —— 原版 submitted → cancel
-			// 实测被拒（用例 A5），只允许 draft 取消；恢复端原先放行 draft + submitted。
+			// 批次 PP：与报销单同类，这里不只是文案差异 —— 既有实现 submitted → cancel
+			// 实测被拒（用例 A5），只允许 draft 取消；本实现原先放行 draft + submitted。
 			if status != "draft" {
 				return errors.New("只有草稿状态的考勤申请才能取消")
 			}
 			next = "cancelled"
-		// 原版 NN10 的考勤路由前缀与恢复端不同（6 个候选前缀全部 404），
-		// 无法逐项比对原版动作集；本 default 在 API 层 []string{...} 下**不可达**，
+		// 既有实现 NN10 的考勤路由前缀与本实现不同（6 个候选前缀全部 404），
+		// 无法逐项比对既有实现动作集；本 default 在 API 层 []string{...} 下**不可达**，
 		// 保留 ErrUnsupported 作兜底，不自造文案。
 		default:
 			return ErrUnsupported
@@ -64,9 +64,9 @@ func (s *Service) AttendanceAction(ctx context.Context, id, action string) (map[
 }
 
 func (s *Service) AttendanceSummary(ctx context.Context, period string) ([]map[string]any, error) {
-	// 回放 OO（2026-10-15）：原版 period 缺失或非法一律返回
-	// 200 + code 10000 + 「期间格式无效（应为 YYYY-MM）」，与恢复端原来的
-	// 「period 必须为 YYYY-MM」文案不同。注意这里的文案是逐字取自原版，
+	// 回放 OO（2026-10-15）：既有实现 period 缺失或非法一律返回
+	// 200 + code 10000 + 「期间格式无效（应为 YYYY-MM）」，与本实现原来的
+	// 「period 必须为 YYYY-MM」文案不同。注意这里的文案是逐字取自既有实现，
 	// 与期初余额的「期间格式错误，应为 YYYY-MM」是两句不同的话，不要合并。
 	if len(period) != 7 {
 		return nil, errors.New("期间格式无效（应为 YYYY-MM）")

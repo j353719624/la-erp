@@ -10,7 +10,7 @@ import (
 )
 
 // 本文件固化第 8 项（fulfillment / service / payments / 序列号台账）逐分支回放取证结论。
-// 每条用例的注释标注原版回放编号与日期，证据见 evidence/backend-runtime/ 下的
+// 每条用例的注释标注回归回放编号与日期，证据见 运行快照 下的
 // audit-fulfillment-round*.json、audit-product-flags*.json、audit-serial-edges*.json。
 
 // testFixture 返回一个已登录客户端及常用的种子/新建基础数据。
@@ -67,7 +67,7 @@ func srcSeedStock(t *testing.T, c *client, product, warehouse map[string]any, qt
 }
 
 // A2 回放：启用 sales_order 活动审批流后，订单确认与审批仍全部通过——
-// 原版订单状态机不接入审批流，恢复端同样不统计审批流。
+// 既有实现订单状态机不接入审批流，本实现同样不统计审批流。
 func TestSourceActiveApprovalFlowDoesNotBlockOrderLifecycle(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "REC-APPROVAL-FLOW")
 	srcSeedStock(t, c, product, warehouse, 10, 10)
@@ -179,10 +179,10 @@ func TestSourceLocationFieldsFollowTableShape(t *testing.T) {
 		t.Fatalf("stock location fields dropped: %#v", in)
 	}
 	c.ok("POST", "/api/v1/stock-ins/"+in["id"].(string)+"/confirm", nil)
-	// 批次 O 补充实测（2026-10-14）：销售订单带 location_id 原版 **code:0 建单成功**
-	// （sales_orders 无 location_id 列，原版静默忽略）。
+	// 批次 O 补充实测（2026-10-14）：销售订单带 location_id 既有实现 **code:0 建单成功**
+	// （sales_orders 无 location_id 列，既有实现静默忽略）。
 	// 本用例原先断言「应被拒绝」，那是按项目原则（不能静默丢弃字段）推导的，
-	// 与原版实测不符，已按证据修正为「放行且不落库」。
+	// 与实测不符，已按证据修正为「放行且不落库」。
 	order := c.ok("POST", "/api/v1/sales-orders", map[string]any{
 		"customer_id": party["customer"].(map[string]any)["id"], "warehouse_id": warehouse["id"], "location_id": location["id"],
 		"lines": []any{map[string]any{"product_id": product["id"], "qty": 1, "price": 5}},
@@ -190,7 +190,7 @@ func TestSourceLocationFieldsFollowTableShape(t *testing.T) {
 	if order["location_id"] != nil {
 		t.Fatalf("order location_id must not be persisted (no such column): %#v", order["location_id"])
 	}
-	// 同样地，订单带 rack_id / batch_no / serial_nos / production_date 原版也一律放行。
+	// 同样地，订单带 rack_id / batch_no / serial_nos / production_date 既有实现也一律放行。
 	for _, extra := range []map[string]any{
 		{"rack_id": rack["id"]},
 		{"batch_no": "O-BATCH"},
@@ -350,7 +350,7 @@ func TestSourceSourceLinkingIgnoresNumberAndWarehouse(t *testing.T) {
 	}
 }
 
-// V6 回放：明细单位与来源订单行单位不一致时原版放行并正常回写。
+// V6 回放：明细单位与来源订单行单位不一致时既有实现放行并正常回写。
 func TestSourceDeliveryIgnoresUnitMismatch(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "REC-UNIT-MISMATCH")
 	units := c.ok("GET", "/api/v1/units", nil).(map[string]any)["list"].([]any)

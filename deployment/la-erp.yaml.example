@@ -1,4 +1,4 @@
-# LA-ERP 恢复版 · 服务端配置示例
+# LA-ERP · 服务端配置示例
 #
 # 用法：./la-erp-server -c deployment/la-erp.yaml
 #
@@ -49,6 +49,6 @@ license:
   # 只有明确清楚后果时才设为 false（等于不校验授权）。
   enabled: true
   file: "data/license.key"
-  # 迁移过密钥时指向新的公钥；留空用内置原版公钥
+  # 迁移过密钥时指向新的公钥；留空用内置公钥
   public_key: ""
   trial_days: 0

@@ -6,13 +6,13 @@ import (
 
 // 本文件固化批次 U 取证（2026-10-14）的结论：serial_nos 的元素类型校验必须
 // 在**建单期**生效（与确认期语义不同）。证据见
-// evidence/backend-runtime/audit-batch-u-20261014.json。
+// 运行快照。
 //
 // 建单期：数字 / 布尔 / 对象 → HTTP 400「系统内部错误，请稍后重试或联系管理员」
 //         null / 空串        → code:0（视为空串）
 // 确认期：null / 空串 → 400「序列号不能为空」；正常 → code:0
 
-// UU1：serial_nos 非字符串元素在建单期即被拒绝（与原版一致）。
+// UU1：serial_nos 非字符串元素在建单期即被拒绝（与与既有行为一致）。
 func TestSourceSerialTypeRejectedAtCreate(t *testing.T) {
 	c, _, warehouse, _ := testFixture(t, "UU-CREATE")
 	product := c.ok("POST", "/api/v1/products", map[string]any{

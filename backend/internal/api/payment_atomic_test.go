@@ -59,10 +59,10 @@ func TestConcurrentPaymentDoesNotOverAllocate(t *testing.T) {
 	}
 }
 
-// 原版回放 BB1/BB1b（2026-10-14，证据 audit-batch-b2-20261014.json）：
-// 发票表无 currency_code/exchange_rate 列，原版对非 CNY 币种与非 1 汇率一律 code:0
+// 回归回放 BB1/BB1b（2026-10-14，证据 audit-batch-b2-20261014.json）：
+// 发票表无 currency_code/exchange_rate 列，既有实现对非 CNY 币种与非 1 汇率一律 code:0
 // 并静默忽略落库值；汇率的实际作用点在核销（由收款单侧折算）。
-// 本测试原先编码了「恢复端应拒绝」的自造行为，已按取证结论改写为验证「接受但不落库」。
+// 本测试原先编码了「本实现应拒绝」的自造行为，已按取证结论改写为验证「接受但不落库」。
 func TestInvoiceAcceptsForeignCurrencyWithoutPersistingIt(t *testing.T) {
 	c, _ := setup(t)
 	customer := c.ok("POST", "/api/v1/customers", map[string]any{"name": "币种边界客户"}).(map[string]any)
@@ -133,7 +133,7 @@ func TestForeignPaymentCancelRestoresBaseCurrencyBalance(t *testing.T) {
 	}
 }
 
-// 原版实测（2026-10-13，M5 + 凭证核对）：CNY 收款搭配非 1 汇率时创建返回 code:0、
+// 实测（2026-10-13，M5 + 凭证核对）：CNY 收款搭配非 1 汇率时创建返回 code:0、
 // exchange_rate=7.2 持久化；确认后发票已收=原币金额（10，而非 10×7.2），
 // 凭证借=贷=10 —— 即 CNY 单据忽略汇率快照，外币单据才按 amount×rate 折算。
 func TestPaymentPersistsCNYExchangeRateButIgnoresItOnConfirm(t *testing.T) {

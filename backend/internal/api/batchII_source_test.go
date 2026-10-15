@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 II 的取证结论（2026-10-14 原版回放 192.168.110.97:18886）。
+// 本文件固化批次 II 的取证结论（2026-10-14 回归回放（参考实例）。
 //
-// 起因：批次 HH 比对 69 条通用读资源的返回字段集时发现，原版列表返回但恢复端没有的
-// 计算字段共 3 组（work_orders 那组恢复端已在 WorkOrderListRecord 里实现，
+// 起因：批次 HH 比对 69 条通用读资源的返回字段集时发现，既有实现列表返回但本实现没有的
+// 计算字段共 3 组（work_orders 那组本实现已在 WorkOrderListRecord 里实现，
 // 属「按表列比对」的误报，本轮已排除）：
 //   ① product_spus.sku_count
 //   ② sales_contracts: order_count / ordered_amount / paid_amount / progress_rate / receipt_rate
@@ -16,17 +16,17 @@ import (
 // 前端在合同列表、SPU 列表里直接展示这些字段（ContractList.tsx / SpuList.tsx），
 // 属用户可见缺口。
 //
-// 口径（在原版上建受控数据逐个确定）：
+// 口径（在既有实现上建受控数据逐个确定）：
 //   - 关联订单 = 指向本合同、未软删、且 status != 'cancelled'
 //   - 草稿与已确认订单都计入；软删或取消后回落
 //   - 比率 = 金额 / 合同金额 × 100，DivRound(2)，尾随零不保留；合同金额为 0 时为 "0"
-//   - paid_amount：原版无任何订单收款路由，101 张销售订单的 paid_amount 全为 0
+//   - paid_amount：既有实现无任何订单收款路由，101 张销售订单的 paid_amount 全为 0
 //     （批次 BB 结论），故取关联订单 paid_amount 之和
 //   - sku_count = 该款下未软删的 SKU 商品数
 //
-// 证据：evidence/backend-runtime/audit-batch-ii{,2,3,5}-20261014.json
+// 证据：运行快照,2,3,5}-20261014.json
 
-// TestBatchIISalesContractProgress 销售合同执行进度：按原版回放的受控序列逐步核对。
+// TestBatchIISalesContractProgress 销售合同执行进度：按回归回放的受控序列逐步核对。
 func TestBatchIISalesContractProgress(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "II-SC")
 	customer := party["customer"].(map[string]any)
@@ -35,7 +35,7 @@ func TestBatchIISalesContractProgress(t *testing.T) {
 		"customer_id": customer["id"], "total_amount": "300",
 	}).(map[string]any)
 
-	// 原版回放 II 实测单号前缀为 XSHT（恢复端此前写成 SC）
+	// 回归回放 II 实测单号前缀为 XSHT（本实现此前写成 SC）
 	if no := contract["contract_no"].(string); len(no) < 4 || no[:4] != "XSHT" {
 		t.Fatalf("销售合同单号前缀 = %q, want XSHT…", no)
 	}
@@ -57,7 +57,7 @@ func TestBatchIISalesContractProgress(t *testing.T) {
 			if row["progress_rate"] != wantRate {
 				t.Fatalf("progress_rate = %v, want %v", row["progress_rate"], wantRate)
 			}
-			// 原版 paid_amount / receipt_rate 恒为 0（无订单收款路由）
+			// 既有实现 paid_amount / receipt_rate 恒为 0（无订单收款路由）
 			if row["paid_amount"] != "0" || row["receipt_rate"] != "0" {
 				t.Fatalf("paid_amount/receipt_rate = %v/%v, want 0/0", row["paid_amount"], row["receipt_rate"])
 			}
@@ -90,7 +90,7 @@ func TestBatchIISalesContractProgress(t *testing.T) {
 	c.ok("POST", "/api/v1/sales-orders/"+o2["id"].(string)+"/cancel", nil)
 	assert(1, "100", "33.33")
 
-	// 详情不含这几个字段（原版详情同样没有）
+	// 详情不含这几个字段（既有实现详情同样没有）
 	detail := c.ok("GET", "/api/v1/sales-contracts/"+contract["id"].(string), nil).(map[string]any)
 	for _, key := range []string{"order_count", "ordered_amount", "paid_amount", "progress_rate", "receipt_rate"} {
 		if _, ok := detail[key]; ok {
@@ -109,7 +109,7 @@ func TestBatchIIPurchaseContractProgress(t *testing.T) {
 		"supplier_id": supplier["id"], "total_amount": "300",
 	}).(map[string]any)
 
-	// 原版回放 II 实测单号前缀为 CT（恢复端此前写成 PC）
+	// 回归回放 II 实测单号前缀为 CT（本实现此前写成 PC）
 	if no := contract["contract_no"].(string); len(no) < 2 || no[:2] != "CT" {
 		t.Fatalf("采购合同单号前缀 = %q, want CT…", no)
 	}
@@ -184,13 +184,13 @@ func TestBatchIISpuSkuCount(t *testing.T) {
 	}
 }
 
-// TestBatchIISimpleDocDeletePayload 6 类轻量单据删除后的 data 形状并不统一，按原版逐个固化。
+// TestBatchIISimpleDocDeletePayload 6 类轻量单据删除后的 data 形状并不统一，按既有实现逐个固化。
 func TestBatchIISimpleDocDeletePayload(t *testing.T) {
 	c, product, _, party := testFixture(t, "II-DEL")
 	customer := party["customer"].(map[string]any)
 	supplier := party["supplier"].(map[string]any)
 
-	// wantDeleted=true 表示原版返回 {"deleted":true}；false 表示 data:null
+	// wantDeleted=true 表示既有实现返回 {"deleted":true}；false 表示 data:null
 	cases := []struct {
 		route   string
 		create  map[string]any

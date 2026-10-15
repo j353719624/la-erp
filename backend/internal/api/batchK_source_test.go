@@ -11,15 +11,15 @@ import (
 // 本文件固化批次 K 取证（2026-10-14）的结论。
 //
 // **凭证创建契约**（此前一直无法构造，卡住 vouchers.go 与 cashflow.go 两处取证，
-//  由 evidence/backend-runtime/report-classification-contracts.json 反查得到）：
+//  由 运行快照 反查得到）：
 //   每条分录必须同时给 account_id + account_code + account_name，
 //   顶层给 type / voucher_date / total_debit / total_credit / entries。
-//   缺 account_name → 原版 400（Go 结构体绑定失败）。
+//   缺 account_name → 既有实现 400（Go 结构体绑定失败）。
 //
-// **cashflow.go 三处守卫全部是误拒**：原版现金流量表对以下情形一律 code:0：
+// **cashflow.go 三处守卫全部是误拒**：既有实现现金流量表对以下情形一律 code:0：
 //   对方科目在白名单之外（6401 / 6602）→ 归经营；两个现金科目 → 取其一；非两行凭证 → 照算。
 //
-// 证据见 evidence/backend-runtime/audit-batch-k-20261014.json。
+// 证据见 运行快照。
 
 type batchKEnv struct {
 	client *client
@@ -47,7 +47,7 @@ func batchKSetup(t *testing.T, code string) batchKEnv {
 	return batchKEnv{c, s, acct}
 }
 
-// entry 构造原版认可的分录形态（三字段齐全）。
+// entry 构造既有实现认可的分录形态（三字段齐全）。
 func (e batchKEnv) entry(code, direction string, amount int, seq int) map[string]any {
 	a := e.acct[code]
 	return map[string]any{
@@ -85,7 +85,7 @@ func (e batchKEnv) cashNet(category string) string {
 	return "missing"
 }
 
-// KK5：凭证的 type/source/currency 原版全部接受，恢复端不得拒。
+// KK5：凭证的 type/source/currency 既有实现全部接受，本实现不得拒。
 func TestSourceVoucherAcceptsTypeSourceAndCurrency(t *testing.T) {
 	e := batchKSetup(t, "KK-VOUCHER")
 	base := map[string]any{
@@ -114,7 +114,7 @@ func TestSourceVoucherAcceptsTypeSourceAndCurrency(t *testing.T) {
 			t.Fatalf("%s should be accepted by the original: %#v", tc.name, out)
 		}
 	}
-	// 借贷不等仍拒绝，文案与原版逐字一致。
+	// 借贷不等仍拒绝，文案与逐字一致。
 	unbalanced := map[string]any{}
 	for k, v := range base {
 		unbalanced[k] = v
@@ -129,7 +129,7 @@ func TestSourceVoucherAcceptsTypeSourceAndCurrency(t *testing.T) {
 // KK1：对方科目在白名单之外时现金流量表仍 code:0，且该笔计入经营。
 func TestSourceCashFlowFallsBackToOperating(t *testing.T) {
 	e := batchKSetup(t, "KK-CF-6401")
-	// 6401/6602 是恢复端原白名单之外的科目；用库里存在的任意非白名单科目兜底。
+	// 6401/6602 是本实现原白名单之外的科目；用库里存在的任意非白名单科目兜底。
 	other := ""
 	for code := range e.acct {
 		switch code {
@@ -160,7 +160,7 @@ func TestSourceCashFlowToleratesTwoCashAccounts(t *testing.T) {
 		e.entry("1122", "credit", 7, 3),
 	)
 	e.client.ok("POST", "/api/v1/vouchers/"+doc["id"].(string)+"/post", nil)
-	// 只要报表可返回即可（原版亦为 code:0）。
+	// 只要报表可返回即可（既有实现亦为 code:0）。
 	if !strings.Contains(trimJSON(e.cashFlow()), "operating") {
 		t.Fatal("cash flow report broken after a two-cash-account voucher")
 	}
@@ -181,7 +181,7 @@ func TestSourceCashFlowToleratesNonPairVoucher(t *testing.T) {
 	}
 }
 
-// KK7：凭证动作不存在时的文案逐字对齐原版。
+// KK7：凭证动作不存在时的文案逐字对齐既有行为。
 func TestSourceVoucherActionMessages(t *testing.T) {
 	e := batchKSetup(t, "KK-VOU-ACT")
 	const missing = "00000000-0000-0000-0000-000000000000"
@@ -198,11 +198,11 @@ func TestSourceVoucherActionMessages(t *testing.T) {
 			t.Fatalf("%s message: %#v", tc.action, body)
 		}
 	}
-	// 恢复端同样只注册 approve/post/cancel + HTTP DELETE 四个动作
-	// （见 internal/api/vouchers.go 的动作列表），不额外探测原版 404 的动作。
+	// 本实现同样只注册 approve/post/cancel + HTTP DELETE 四个动作
+	// （见 internal/api/vouchers.go 的动作列表），不额外探测既有实现 404 的动作。
 }
 
-// KK6：已过账凭证的 HTTP DELETE 与取消文案逐字对齐原版。
+// KK6：已过账凭证的 HTTP DELETE 与取消文案逐字对齐既有行为。
 func TestSourceVoucherDeleteAndCancelGuards(t *testing.T) {
 	e := batchKSetup(t, "KK-VOU-DEL")
 	draft := e.voucher("KK-草稿", e.entry("1001", "debit", 2, 1), e.entry("6001", "credit", 2, 2))

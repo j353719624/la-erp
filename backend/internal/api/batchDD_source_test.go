@@ -6,9 +6,9 @@ import (
 )
 
 // 本文件固化批次 DD 取证（2026-10-14）的结论：
-// 领退料单**可以包含不在工单 BOM 里的物料** —— 原版放行，库存与台账照常处理，
-// 只是不回写工单材料行。恢复端原先返回 501 属误拒。
-// 证据见 evidence/backend-runtime/audit-batch-dd-20261014.json。
+// 领退料单**可以包含不在工单 BOM 里的物料** —— 既有实现放行，库存与台账照常处理，
+// 只是不回写工单材料行。本实现原先返回 501 属误拒。
+// 证据见 运行快照。
 
 // DD1：领料单领非 BOM 物料应放行，且库存/台账照常处理。
 func TestSourcePickingMaterialOutsideBomIsAllowed(t *testing.T) {

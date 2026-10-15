@@ -6,9 +6,9 @@ import (
 
 // 本文件固化批次 C 取证（2026-10-14）的结论：盘点单编辑改仓库、工作中心编辑改 code、
 // 工艺关联后删除、BOM 负数/零、MRP 多张 active BOM、同键余额行。
-// 证据见 evidence/backend-runtime/audit-batch-c{,-c2}-20261014.json。
+// 证据见 运行快照,-c2}-20261014.json。
 
-// CC1：盘点单编辑期改仓库原版允许，表头 warehouse_id 真实改变。
+// CC1：盘点单编辑期改仓库既有实现允许，表头 warehouse_id 真实改变。
 func TestSourceCheckEditChangesWarehouse(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "CC-CHK")
 	target := c.ok("POST", "/api/v1/warehouses", map[string]any{"code": "CC-CHK-WH", "name": "CC-CHK-WH"}).(map[string]any)
@@ -24,7 +24,7 @@ func TestSourceCheckEditChangesWarehouse(t *testing.T) {
 	}
 }
 
-// CC1b：completed 后编辑仍按原版文案拒绝。
+// CC1b：completed 后编辑仍按既有文案拒绝。
 func TestSourceCompletedCheckRejectsEdit(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "CC-CHK-DONE")
 	check := c.ok("POST", "/api/v1/inventory-checks", map[string]any{
@@ -61,7 +61,7 @@ func TestSourceCheckLineAcceptsAdvancedFields(t *testing.T) {
 	}
 }
 
-// CC3：工作中心编辑传新 code 原版静默保留旧 code，其余字段正常更新。
+// CC3：工作中心编辑传新 code 既有实现静默保留旧 code，其余字段正常更新。
 func TestSourceWorkCenterEditKeepsCode(t *testing.T) {
 	c, _ := setup(t)
 	center := c.ok("POST", "/api/v1/work-centers", map[string]any{"code": "CC-WC1", "name": "CC 中心", "capacity": 10, "cost_rate": 5}).(map[string]any)
@@ -93,7 +93,7 @@ func TestSourceRoutingCodeIsServerGenerated(t *testing.T) {
 	}
 }
 
-// CC4：已被工单关联的工艺不可删除，按原版文案返回。
+// CC4：已被工单关联的工艺不可删除，按既有文案返回。
 func TestSourceLinkedRoutingCannotBeEdited(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "CC-RT-LINK")
 	routing := c.ok("POST", "/api/v1/routings", map[string]any{
@@ -111,11 +111,11 @@ func TestSourceLinkedRoutingCannotBeEdited(t *testing.T) {
 	}
 }
 
-// CC8：BOM 的 qty<=0 保留恢复端拒绝；scrap_rate<0 已按批次 BB 改为**放行**。
+// CC8：BOM 的 qty<=0 保留本实现拒绝；scrap_rate<0 已按批次 BB 改为**放行**。
 //
 // 依据：批次 T 实测 scrap_rate 是**百分数**，-0.1 只造成 0.1% 级偏差（需求 39.996 vs 40），
 // 危害需极端输入（≤ -100 才产生零/负需求）才成立，不足以作为拒绝理由。
-// 原版实测 scrap_rate=-0.5 的 BOM 建工单 code:0、材料需求 19.9（= 10×2×(1-0.005)）。
+// 实测 scrap_rate=-0.5 的 BOM 建工单 code:0、材料需求 19.9（= 10×2×(1-0.005)）。
 func TestSourceBomRejectsNonPositiveQuantityAndNegativeScrap(t *testing.T) {
 	c, product, _, _ := testFixture(t, "CC-BOM")
 	for _, tc := range []struct {
@@ -131,7 +131,7 @@ func TestSourceBomRejectsNonPositiveQuantityAndNegativeScrap(t *testing.T) {
 			t.Fatalf("%s accepted", tc.name)
 		}
 	}
-	// scrap_rate<0 必须放行（与原版一致）。
+	// scrap_rate<0 必须放行（与与既有行为一致）。
 	c.ok("POST", "/api/v1/boms", map[string]any{
 		"name": "CC-BOM-scrap_negative", "product_id": product["id"],
 		"items": []any{map[string]any{"product_id": product["id"], "qty": 1, "scrap_rate": -0.1}},

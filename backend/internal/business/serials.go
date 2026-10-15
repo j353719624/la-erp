@@ -10,7 +10,7 @@ import (
 
 func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (map[string]any, error) {
 	raw, ok := input["serial_nos"].([]any)
-	// 原版回放 FF3（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
+	// 回归回放 FF3（2026-10-14，运行快照）：
 	// serial_nos 缺失或为空数组 → 10000「序列号不能为空」（逐字一致，见下方）；
 	// 元素为数字/对象 → HTTP 400 无业务文案；含空串元素 → code:0 并跳过。
 	if !ok || len(raw) == 0 {
@@ -20,18 +20,18 @@ func (s *Service) RegisterSerials(ctx context.Context, input map[string]any) (ma
 	seen := map[string]bool{}
 	for _, v := range raw {
 		if v == nil {
-			// 原版对 null 元素 **code:0 放行**（等价于空串，被下面的 no=="" 跳过）。
+			// 既有实现对 null 元素 **code:0 放行**（等价于空串，被下面的 no=="" 跳过）。
 			continue
 		}
 		no, ok := v.(string)
 		if !ok {
-			// 批次 U 复测（2026-10-14，evidence/backend-runtime/audit-batch-u-20261014.json）：
-			// 原版对 serial_nos 内的**非字符串元素**返回 HTTP **400**「系统内部错误，请稍后重试或联系管理员」
+			// 批次 U 复测（2026-10-14，运行快照）：
+			// 既有实现对 serial_nos 内的**非字符串元素**返回 HTTP **400**「系统内部错误，请稍后重试或联系管理员」
 			// （结构体绑定失败，无业务文案）：
 			//   数字 123 → 400    对象 {a:1} → 400    布尔 true → 400
 			//   **null → code:0 放行**（被当作空串跳过）
-			// 原恢复端返回 ErrUnsupported（映射 501），HTTP 语义与原版 400 不一致；
-			// 改用 ErrKnownNoMessage 携带原版状态码与原文案，不自造 message。
+			// 原本实现返回 ErrUnsupported（映射 501），HTTP 语义与既有实现 400 不一致；
+			// 改用 ErrKnownNoMessage 携带既有实现状态码与原文案，不自造 message。
 			return nil, ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		if no == "" {

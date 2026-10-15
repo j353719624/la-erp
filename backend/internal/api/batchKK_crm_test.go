@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 KK 第二轮取证的结论（2026-10-15 原版回放 192.168.110.97:18886）：
+// 本文件固化批次 KK 第二轮取证的结论（2026-10-15 回归回放（参考实例）：
 // crm-opportunities 的阶段机与 purchase-reconciliations 的删除路径。
 
 // TestKKCrmOpportunityStageMachine 商机阶段机。
 //
-// 恢复端此前的四处偏差（均以原版实测为准）：
+// 本实现此前的四处偏差（均以实测为准）：
 //
-//	① 只校验 code+name，原版**只校验 name**（缺 name → 200/10000「商机名称不能为空」）
-//	② 非法阶段返回 400「无效的商机阶段」，原版是 200/10000「阶段无效」
-//	③ 允许**回退**阶段，原版只允许向前（回退 → 「只能向前推进阶段（当前：初步接触）」）
-//	④ 推进阶段时**不改 probability**，原版按阶段同步改写（10→30→50→70→100）
+//	① 只校验 code+name，既有实现**只校验 name**（缺 name → 200/10000「商机名称不能为空」）
+//	② 非法阶段返回 400「无效的商机阶段」，既有实现是 200/10000「阶段无效」
+//	③ 允许**回退**阶段，既有实现只允许向前（回退 → 「只能向前推进阶段（当前：初步接触）」）
+//	④ 推进阶段时**不改 probability**，既有实现按阶段同步改写（10→30→50→70→100）
 //
-// 终态锁定文案也不同：原版是「已赢单/已输单的商机不可再推进（当前：已赢单）」
-// 且**同阶段**也拒绝，恢复端原先只拦「不同阶段」。
+// 终态锁定文案也不同：既有实现是「已赢单/已输单的商机不可再推进（当前：已赢单）」
+// 且**同阶段**也拒绝，本实现原先只拦「不同阶段」。
 func TestKKCrmOpportunityStageMachine(t *testing.T) {
 	c, _, _, party := testFixture(t, "KK-CRM")
 	cid := party["customer"].(map[string]any)["id"].(string)
@@ -84,7 +84,7 @@ func TestKKCrmOpportunityStageMachine(t *testing.T) {
 	}
 }
 
-// TestKKCrmOpportunityCannotRegress 商机阶段**不可回退**（原版只允许向前，跳级允许）。
+// TestKKCrmOpportunityCannotRegress 商机阶段**不可回退**（既有实现只允许向前，跳级允许）。
 func TestKKCrmOpportunityCannotRegress(t *testing.T) {
 	c, _, _, party := testFixture(t, "KK-CRM-REG")
 	cid := party["customer"].(map[string]any)["id"].(string)
@@ -112,7 +112,7 @@ func TestKKCrmOpportunityCannotRegress(t *testing.T) {
 }
 
 // TestKKReconciliationDelete 对账单删除路径。
-// 前端 purchaseReconApi.remove(id) 会调它，恢复端此前落 501。
+// 前端 purchaseReconApi.remove(id) 会调它，本实现此前落 501。
 func TestKKReconciliationDelete(t *testing.T) {
 	c, _, _, party := testFixture(t, "KK-RECON-DEL")
 	supplierID := party["supplier"].(map[string]any)["id"].(string)

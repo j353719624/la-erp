@@ -76,10 +76,10 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 		if input["qty_per"] == nil {
 			qtyPer = decimal.NewFromInt(1)
 		}
-		// 批次 Q 取证（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
-		// 原版传 qty_per=0 或 -1 均 code:0，且**落库值被归一为 1**（回读均为 1）；
+		// 批次 Q 取证（2026-10-14，运行快照）：
+		// 既有实现传 qty_per=0 或 -1 均 code:0，且**落库值被归一为 1**（回读均为 1）；
 		// 据此 BOM 建工单 qty=5、材料 2 件 → 需求 10（=5/1×2）。
-		// 原实现返回自造文案「基准数量必须大于零」，与原版不符，已改为按原版归一为 1。
+		// 原实现返回自造文案「基准数量必须大于零」，与与既有行为不符，已改为按既有实现归一为 1。
 		if !qtyPer.IsPositive() {
 			qtyPer = decimal.NewFromInt(1)
 		}
@@ -122,10 +122,10 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 			if err != nil {
 				return err
 			}
-			// 原版回放 CC8/CC8b（2026-10-14）：qty_per=0、qty_per=-1、scrap_rate=-0.1
-			// 三者原版全部 code:0 且原样落库（qty_per 另被归一为 1，见下）。
+			// 回归回放 CC8/CC8b（2026-10-14）：qty_per=0、qty_per=-1、scrap_rate=-0.1
+			// 三者既有实现全部 code:0 且原样落库（qty_per 另被归一为 1，见下）。
 			//
-			// 批次 T 复测（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）
+			// 批次 T 复测（2026-10-14，运行快照）
 			// 纠正了早期对 scrap_rate 幅度的误解：**scrap_rate 是百分数**，
 			// 计算式为 `需求 = 工单qty / qty_per × 材料qty × (1 + scrap_rate/100)`。
 			// 实测（工单 qty=10、材料 qty=4、qty_per=1，基准 40）：
@@ -133,17 +133,17 @@ func (s *Service) WriteBOM(ctx context.Context, id string, input map[string]any)
 			//   scrap_rate=-0.1  → 39.996  scrap_rate=-0.5  → 39.8
 			//   scrap_rate=-100  → 0       scrap_rate=-1000 → **-360（负需求）**
 			// 即小幅负值（如 -0.1）只造成 0.1% 级偏差，**危害极小**；
-			// 但极端负值（≤ -100）会产生零/负需求，属原版校验缺失。
+			// 但极端负值（≤ -100）会产生零/负需求，属既有实现的校验缺失。
 			//
-			// 批次 BB 修正（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
-			// 原先两项都返回 ErrKnownDefect（语义是「原版行为已确认有害的终态决策」）。
+			// 批次 BB 修正（2026-10-14，运行快照）：
+			// 原先两项都返回 ErrKnownDefect（语义是「既有行为已确认有害的终态决策」）。
 			// 但批次 T 的实测表明 scrap_rate 的危害**需极端输入才触发**，
 			// 用 ErrKnownDefect 标记过重 —— 已改为按项区分：
-			//   · qty <= 0        → 原版放行且原样落库（实测 qty=0 / -1 均 code:0）；
+			//   · qty <= 0        → 既有实现放行且原样落库（实测 qty=0 / -1 均 code:0）；
 			//                      qty=0 会让该组件需求恒为 0、qty<0 产生负需求，
 			//                      属**可被正常输入触发**的实质缺陷 → 保留 ErrKnownDefect。
 			//   · scrap_rate < 0  → 实测 -0.5 时材料需求 19.9（= 10×2×(1-0.005)），
-			//                      仅 0.5% 级偏差，与原版一致放行；恢复端亦放行
+			//                      仅 0.5% 级偏差，与与既有行为一致放行；本实现亦放行
 			//                      （workorders.go 侧的 IsNegative 守卫已在批次 BB 移除）。
 			if !qty.IsPositive() {
 				return ErrKnownDefect

@@ -13,7 +13,7 @@ import (
 // This compares actual SQL state after the complete original sequence, so an
 // HTTP success with missing vouchers, journal legs or balance updates fails.
 func verifyOriginalPostingState(t *testing.T, s *Server, fixture ...string) {
-	file := "../../../evidence/backend-runtime/financial-posting-state.json"
+	file := "../../../运行快照"
 	if len(fixture) > 0 {
 		file = fixture[0]
 	}

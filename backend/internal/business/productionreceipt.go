@@ -17,8 +17,8 @@ func (s *Service) confirmProductionReceipt(ctx context.Context, d ProductionDocu
 		if value(h, "status") != "draft" {
 			return errors.New("只有草稿状态的单据才能确认")
 		}
-		// 批次 T 取证（2026-10-14，evidence/backend-runtime/audit-batch-t-20261014.json）：
-		// 原版允许**不关联工单**的完工入库单，且 confirm **直接通过**（不看任何设置）。
+		// 批次 T 取证（2026-10-14，运行快照）：
+		// 既有实现允许**不关联工单**的完工入库单，且 confirm **直接通过**（不看任何设置）。
 		// 无工单时无「工单状态 / 完工数量 / 超量」可比对，整段工单联动跳过。
 		// 空 work_order_id 不能直接查库（返回 ErrNotFound → 404），必须显式跳过。
 		var order map[string]any
@@ -28,7 +28,7 @@ func (s *Service) confirmProductionReceipt(ctx context.Context, d ProductionDocu
 			}
 		}
 		if order != nil && value(order, "status") != "in_progress" && value(order, "status") != "confirmed" {
-			// 原版仅在**关联了工单**时才校验工单状态；无工单直接放行。
+			// 既有实现仅在**关联了工单**时才校验工单状态；无工单直接放行。
 			return ErrUnsupported
 		}
 		lines, err := database.QueryRows(ctx, tx, "SELECT * FROM production_receipt_lines WHERE receipt_id=? AND deleted_at IS NULL ORDER BY line_no", id)

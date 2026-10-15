@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// transferRequired 复刻原版 gin + go-playground/validator 的必填错误形态。
+// transferRequired 复刻既有实现 gin + go-playground/validator 的必填错误形态。
 //
-// 原版回放 NN（2026-10-15，evidence/backend-runtime/audit-batch-nn-transfers-20261015.json）：
+// 回归回放 NN（2026-10-15，运行快照）：
 //
 //	POST /api/v1/stock-transfers {}
 //	  → 400 {"code":400,"message":"请求参数错误: Key: 'createTransferRequest.FromWarehouseID'
@@ -19,9 +19,9 @@ import (
 //	PUT  /api/v1/stock-transfers/{id} {"from_warehouse_id":"…"}（缺 to）→ 只报 ToWarehouseID
 //
 // 多字段按**结构体字段声明顺序**排列（From 先 To 后），用 "\n" 连接；单字段不带换行。
-// 空串与缺失都触发 required（原版 validator 的 `binding:"required"` 语义）。
+// 空串与缺失都触发 required（既有实现 validator 的 `binding:"required"` 语义）。
 //
-// 该校验位于**读库之前**（原版 validator 在 handler 入口），所以 PUT 一个不存在的 id
+// 该校验位于**读库之前**（既有实现 validator 在 handler 入口），所以 PUT 一个不存在的 id
 // 也会先报 400 而不是「调拨单不存在或状态不允许修改」。
 func transferRequired(structName string, input map[string]any) string {
 	fields := []struct{ json, field string }{

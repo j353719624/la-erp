@@ -7,8 +7,8 @@ import (
 
 // 本文件固化批次 BB 取证（2026-10-14）的结论：
 //   - 负 scrap_rate 的 BOM 行放行（批次 T 已证 scrap_rate 是百分数，危害仅 0.5% 级）
-//   - 返工单的工单状态白名单与原版逐字一致
-// 证据见 evidence/backend-runtime/audit-batch-bb-20261014.json。
+//   - 返工单的工单状态白名单与逐字一致
+// 证据见 运行快照。
 
 // BB1：负 scrap_rate 的 BOM 用于建工单必须放行。
 func TestSourceNegativeScrapRateIsAccepted(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSourceNegativeScrapRateIsAccepted(t *testing.T) {
 	}
 }
 
-// BB2：返工单的工单状态白名单 —— completed/cancelled 拒绝文案逐字对齐原版。
+// BB2：返工单的工单状态白名单 —— completed/cancelled 拒绝文案逐字对齐既有行为。
 func TestSourceReworkWorkOrderStateMessages(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "BB-REWORK")
 	confirm := func(order map[string]any) {

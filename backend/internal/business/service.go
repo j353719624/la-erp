@@ -17,25 +17,25 @@ import (
 )
 
 // ErrUnsupported 表示「该业务分支尚未实现」——对外是 HTTP 501，
-// 含义是「原版行为未知或未取证，恢复端选择不实现」。
+// 含义是「既有行为未知或未取证，本实现选择不实现」。
 var ErrUnsupported = errors.New("该业务分支尚未实现")
 
-// ErrKnownDefect 表示「原版此处存在缺陷，恢复端有意不对齐」。
+// ErrKnownDefect 表示「既有实现此处存在缺陷，本实现有意不对齐」。
 //
 // 与 ErrUnsupported 的区别很重要：
-//   - ErrUnsupported  = 「不知道原版怎么做 / 还没做」，属于**待办**；
-//   - ErrKnownDefect = 「知道原版怎么做，且原版做法有害，恢复端有意拒绝」，属于**终态决策**。
+//   - ErrUnsupported  = 「不知道既有实现怎么做 / 还没做」，属于**待办**；
+//   - ErrKnownDefect = 「知道既有实现怎么做，且既有实现做法有害，本实现有意拒绝」，属于**终态决策**。
 //
 // 两者对外都返回 501，但语义不同：前者在台账里是可推进的存量，
-// 后者已结案（见 docs/UNSUPPORTED-AUDIT-LOG.md 各批「不对齐」结论）。
-// 之所以仍用 501 而非 4xx：这类输入在原版能成功建单，给 4xx 会与原版
+// 后者已结案（见 审计台账 各批「不对齐」结论）。
+// 之所以仍用 501 而非 4xx：这类输入在既有实现能成功建单，给 4xx 会与既有实现
 // 行为产生表面冲突；但**绝不能复用「尚未实现」的说法**，否则把终态决策
 // 混进待办存量，反复审计也推不动。
-var ErrKnownDefect = errors.New("原版该行为存在数据风险，恢复端有意拒绝而非复刻")
+var ErrKnownDefect = errors.New("既有实现该行为存在数据风险，本实现有意拒绝而非复刻")
 
 // ErrAccountNotFound 标识「科目不存在」，供 API 层区分形态。
 //
-// 同一张 accounts 表在两条路由上有**两套**原版形态（回放 OO，2026-10-15）：
+// 同一张 accounts 表在两条路由上有**两套**既有实现形态（回放 OO，2026-10-15）：
 //
 //	GET /accounts/{id}          → 404「科目不存在」
 //	GET /accounts/{id}/balance  → 200 + code 10000「科目不存在」
@@ -44,20 +44,20 @@ var ErrKnownDefect = errors.New("原版该行为存在数据风险，恢复端�
 // 统一处理，需要一个可判定的错误值。
 var ErrAccountNotFound = errors.New("科目不存在")
 
-// ErrKnownNoMessage 表示「原版此处会失败但**不返回业务文案**」。
+// ErrKnownNoMessage 表示「既有实现此处会失败但**不返回业务文案**」。
 //
-// 原版有若干路径返回裸 HTTP 400 / 500（既非 code:0 也非 10000，也没有 message），
+// 既有实现有若干路径返回裸 HTTP 400 / 500（既非 code:0 也非 10000，也没有 message），
 // 典型如：外协 material_lines 传非数组 → 400；product_id 指向不存在的商品 → 500
-// （原版未捕获的记录未找到，见 evidence/backend-runtime/audit-batch-e-20261014.json 的 EE8）。
+// （既有实现未捕获的记录未找到，见 运行快照 的 EE8）。
 //
 // 这类场景**不能**用 ErrUnsupported：那个错误对外映射 HTTP 501，
-// 与原版的 400/500 不一致，会让前端错误处理分流错误。
-// 但也不能自造中文文案去「补齐」——原版确实没有文案。
+// 与既有实现的 400/500 不一致，会让前端错误处理分流错误。
+// 但也不能自造中文文案去「补齐」——既有实现确实没有文案。
 //
-// 故用本错误携带原版的**状态码**（0 表示沿用调用点的默认语义），
+// 故用本错误携带既有实现的**状态码**（0 表示沿用调用点的默认语义），
 // 由 API 层原样输出 status 而不给 message。
 type ErrKnownNoMessage struct {
-	// Status 是原版的 HTTP 状态码（400 / 500）。
+	// Status 是既有实现的 HTTP 状态码（400 / 500）。
 	Status int
 	// Note 是内部说明，**不返回给客户端**，仅供日志与代码注释追溯。
 	Note string
@@ -67,10 +67,10 @@ func (e ErrKnownNoMessage) Error() string {
 	if e.Note != "" {
 		return e.Note
 	}
-	return "原版该路径不返回业务文案"
+	return "既有实现该路径不返回业务文案"
 }
 
-// Status 返回原版状态码；0 表示调用方应沿用自身默认。
+// Status 返回既有实现状态码；0 表示调用方应沿用自身默认。
 func (e ErrKnownNoMessage) StatusCode() int { return e.Status }
 
 var decimalSyntax = regexp.MustCompile(`^-?[0-9]{1,20}(\.[0-9]{1,12})?$`)
@@ -196,24 +196,24 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 	if err != nil {
 		return nil, errors.New("商品不存在")
 	}
-	// 原版对 cost_method 不作任何限制，且实测 fifo 商品仍按加权平均计价
+	// 既有实现对 cost_method 不作任何限制，且实测 fifo 商品仍按加权平均计价
 	// （2026-10-13 回放：10 件@100 + 10 件@200 入库后 avg_cost=150，出库 unit_cost=150，
 	// 出库后 avg_cost 仍为 150）——cost_method 与订单 discount_amount 同属
-	// 「落库但不接线」字段，故恢复端不按成本方法拒绝单据。
-	// is_batch / is_serial 商品在原版出入库与订单中全部可用
+	// 「落库但不接线」字段，故本实现不按成本方法拒绝单据。
+	// is_batch / is_serial 商品在既有实现出入库与订单中全部可用
 	// （P1/P2/P3 与 Q1-Q6 回放：批次商品可无批次出库，序列号商品受台账约束），
 	// 原先的整类拒绝属未经证据的错误拒绝，已移除。
 	//
 	// product_type=combo 会**正常落库**，且该商品出入库完全正常（code:0 + confirm 通过）。
 	//
-	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
+	// 批次 R 取证（2026-10-14，运行快照）：
 	// 通用 products 通道下 is_combo 传入 true / 1 均被**静默忽略**（回读 undefined）。
 	//
-	// 批次 EE 补充取证（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）：
-	// 原版 `PUT /api/v1/combo-products/{id}` 会写入 is_combo=true —— 故 is_combo=true
+	// 批次 EE 补充取证（2026-10-14，运行快照）：
+	// 既有实现 `PUT /api/v1/combo-products/{id}` 会写入 is_combo=true —— 故 is_combo=true
 	// 的商品行**确实可达**，批次 R「永不可达 / 死代码」的**依据**已作废；
 	// 但补充回放证明：带 is_combo=true 的商品走库存调整单（建单 + confirm，含出库）
-	// 原版**一律放行**（code:0）。即该守卫即便可达，原版本就不按 is_combo 拒绝单据，
+	// 既有实现**一律放行**（code:0）。即该守卫即便可达，既有实现本就不按 is_combo 拒绝单据，
 	// 结论不变：**已移除的守卫无需恢复**，此处仅更正注释依据。
 	return p, nil
 }
@@ -221,18 +221,18 @@ func (s *Service) plainProduct(ctx context.Context, tx *sql.Tx, id string, stock
 // advancedHeaderFields 对「高级字段」按表结构分流（2026-10-13 回放取证，
 // 2026-10-14 批次 O 补充）：
 //
-// 表有列且原版接受落库的：
+// 表有列且既有实现接受落库的：
 //   - stock_ins/stock_outs 的 location_id / rack_id（R7/S3）
 //   - sales_orders 的 sales_contract_id（S4；批次 O 用真实合同 id 验证确实落库并回读一致）
 //
 // 表无对应列的——订单的 location_id / rack_id / batch_no / serial_nos / production_date、
-// 库存单与退货单的 sales_contract_id / contract_id——原版**一律静默忽略**：
+// 库存单与退货单的 sales_contract_id / contract_id——既有实现**一律静默忽略**：
 //
 //	批次 O 实测销售订单带 location_id / rack_id / batch_no / serial_nos / production_date
 //	全部 code:0 建单成功；入库单带 sales_contract_id / contract_id 也 code:0。
 //
-// 原实现对这些字段 return ErrUnsupported（501），把原版的「静默忽略」变成了「拒绝」，
-// 属系统性误拒。已移除守卫：表有列则落库，表无列则按原版忽略。
+// 原实现对这些字段 return ErrUnsupported（501），把既有实现的「静默忽略」变成了「拒绝」，
+// 属系统性误拒。已移除守卫：表有列则落库，表无列则按既有实现忽略。
 func (s *Service) advancedHeaderFields(table string, input map[string]any) (map[string]any, error) {
 	out := map[string]any{}
 	// salesperson_id：sales_orders / sales_quotations 均有该列，销售佣金按业务员汇总
@@ -247,7 +247,7 @@ func (s *Service) advancedHeaderFields(table string, input map[string]any) (map[
 		if s.Store.Has(table, k) {
 			out[k] = input[k]
 		}
-		// 表无此列 → 原版静默忽略，不返回错误（批次 O 实测 code:0）。
+		// 表无此列 → 既有实现静默忽略，不返回错误（批次 O 实测 code:0）。
 	}
 	return out, nil
 }
@@ -285,9 +285,9 @@ func (s *Service) Create(ctx context.Context, d Document, input map[string]any, 
 	return s.writeDocument(ctx, d, input, user, "")
 }
 
-// transferOrderGuard 给出原版拦截「手工创建调拨类出/入库单」的文案。
+// transferOrderGuard 给出既有实现拦截「手工创建调拨类出/入库单」的文案。
 //
-// 逐字照抄原版实测（批次 PP，2026-10-15）：入库侧是「调拨到货…调拨入库」，
+// 逐字照抄实测（批次 PP，2026-10-15）：入库侧是「调拨到货…调拨入库」，
 // 出库侧是「调拨发货…调拨出库」，两句话**不一样**，不能只写一条。
 func transferOrderGuard(incoming bool) string {
 	if incoming {
@@ -303,8 +303,8 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 		}
 		return nil, errors.New("单据明细不能为空")
 	}
-	// 原版回放 FF6（2026-10-14）：1001 行订单原版 code:0 且 1001 行全部落库，
-	// 即原版没有明细行数上限。恢复端保留 1000 行上限作为资源保护
+	// 回归回放 FF6（2026-10-14）：1001 行订单既有实现 code:0 且 1001 行全部落库，
+	// 即既有实现没有明细行数上限。本实现保留 1000 行上限作为资源保护
 	// （不复制「无上限」这一潜在资源耗尽风险），但记录该差异以免误判为等价。
 	if len(raw) > 1000 {
 		return nil, errors.New("明细过多")
@@ -313,25 +313,25 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 	if err != nil {
 		return nil, err
 	}
-	// 原版回放 JJ1/JJ5（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）：
+	// 回归回放 JJ1/JJ5（2026-10-14，运行快照）：
 	//   订单传 source_id + source_no → code:0，回读两字段 undefined（表无这两列）
 	//   订单传 source = manual/sales/purchase/garbage/空 → 全部 code:0，
 	//     且回读**一律是 manual**（连 manual 之外的值也被归一为 manual）
-	// 即原版对订单的这两个字段**一律静默忽略**。
-	// 原恢复端 return ErrUnsupported 把「静默忽略」变成「拒绝」，与原版不符，已移除。
-	// 库存单同样接受 source_id/source_no（原版 code:0），该路径本就未被本守卫覆盖。
-	// 批次 R 取证（2026-10-14，evidence/backend-runtime/audit-batch-r-20261014.json）：
-	// 表头的 discount / discount_rate 原版**一律静默忽略** ——
+	// 即既有实现对订单的这两个字段**一律静默忽略**。
+	// 原本实现 return ErrUnsupported 把「静默忽略」变成「拒绝」，与与既有行为不符，已移除。
+	// 库存单同样接受 source_id/source_no（既有实现 code:0），该路径本就未被本守卫覆盖。
+	// 批次 R 取证（2026-10-14，运行快照）：
+	// 表头的 discount / discount_rate 既有实现**一律静默忽略** ——
 	//   销售订单 discount=10         → code:0
 	//   销售订单 discount_rate=0.1   → code:0
 	//   采购订单 discount=10         → code:0
 	//   入库单   discount=10         → code:0
 	// 两字段在 sales_orders / purchase_orders 表中**都没有对应列**
 	// （表头只有 discount_amount，行级有 discount），属批次 N/O/P 同源的「静默忽略」误拒，
-	// 原恢复端 return ErrUnsupported 与原版不符，已移除。
+	// 原本实现 return ErrUnsupported 与与既有行为不符，已移除。
 	//
-	// 表头 discount_amount 原版接受并落库（回读 50）但**不参与 total_amount 计算**
-	// （total_amount 仍为 2×10=20，2026-10-13 B2 回放），恢复端这一行为已一致。
+	// 表头 discount_amount 既有实现接受并落库（回读 50）但**不参与 total_amount 计算**
+	// （total_amount 仍为 2×10=20，2026-10-13 B2 回放），本实现这一行为已一致。
 	id := ""
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		wh := value(input, "warehouse_id")
@@ -360,15 +360,15 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				return stateError(d, "修改")
 			}
 			h = old
-			// 原版允许编辑外币订单（2026-10-13 R2：USD 订单创建/确认/审批全通过），
+			// 既有实现允许编辑外币订单（2026-10-13 R2：USD 订单创建/确认/审批全通过），
 			// 不再按币种拒绝。
 			//
-			// 批次 BB 复测（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
-			// 原版**没有任何订单收款路由** —— 7 个候选动作端点
+			// 批次 BB 复测（2026-10-14，运行快照）：
+			// 既有实现**没有任何订单收款路由** —— 7 个候选动作端点
 			// （pay / receive / payment / settle / receipt / collect / confirm-receipt）
 			// 对 sales-orders/{id} 逐一探测，全部 404「路由不存在」；
-			// 且原版库中 101 张销售订单里 `paid_amount > 0` 的为 **0 条**。
-			// 即已收金额恒为 0，本守卫在原版**永不可达**，属防御性断言。
+			// 且既有实现库中 101 张销售订单里 `paid_amount > 0` 的为 **0 条**。
+			// 即已收金额恒为 0，本守卫在既有实现**永不可达**，属防御性断言。
 			// 保留 ErrUnsupported 作兜底（防外部直写数据库造出脏数据），不自造文案。
 			if !readDecimal(h, "paid_amount").IsZero() {
 				return ErrUnsupported
@@ -397,11 +397,11 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 		for _, k := range []string{d.Date, "remark"} {
 			if v := value(input, k); v != "" {
 				if k == d.Date {
-					// 回放 NN（2026-10-15）：原版订单日期非法时是 **400** +
+					// 回放 NN（2026-10-15）：既有实现订单日期非法时是 **400** +
 					// 「请求参数错误: parsing time "…" as "2006-01-02T15:04:05Z07:00": …」。
 					// 两个要点：① layout 是 **RFC3339**（错误信息里没有 .999999999），
 					// 用 RFC3339Nano 会让文案对不上；② 是 400 解析错误，
-					// 不是业务 10000 —— 原恢复端的「日期格式错误」是自造文案。
+					// 不是业务 10000 —— 原本实现的「日期格式错误」是自造文案。
 					if _, err := time.Parse(time.RFC3339, v); err != nil {
 						return ErrKnownNoMessage{Status: 400, Note: "请求参数错误: " + err.Error()}
 					}
@@ -409,12 +409,12 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				h[k] = v
 			}
 		}
-		// expected_date（预计交货/到货日期）：原版**落库并回读**，销售订单与采购
-		// 订单都一致（回放 NN，2026-10-15）。恢复端此前不在任何表头白名单里，
+		// expected_date（预计交货/到货日期）：既有实现**落库并回读**，销售订单与采购
+		// 订单都一致（回放 NN，2026-10-15）。本实现此前不在任何表头白名单里，
 		// 请求带了这个字段会被**静默丢弃** —— 直接后果是履约报表的逾期天数与
 		// 逾期金额恒为 0（报表按 expected_date 计算）。
 		//
-		// 校验语义同样是原版的：
+		// 校验语义同样是既有实现的：
 		//   传了就按 RFC3339 解析，非法（**含空串**）→ 400 parsing time 原文
 		//   传 null 或完全不传 → 不校验、code:0
 		// 表无此列的单据（库存单等）保持静默忽略，与 advancedHeaderFields 同口径。
@@ -440,7 +440,7 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					h[k] = v
 				}
 			}
-			// 原版回放 JJ6（2026-10-14）：source_id 为非法 UUID 时原版在**建单期**
+			// 回归回放 JJ6（2026-10-14）：source_id 为非法 UUID 时既有实现在**建单期**
 			// 即返回 400「invalid UUID length: 10」——即 UUID 格式在建单期校验，
 			// 而「来源订单是否存在」不在建单期校验（格式合法但订单不存在时建单通过）。
 			if raw := value(input, "source_id"); raw != "" {
@@ -452,11 +452,11 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				return err
 			}
 			h["type"] = ""
-			// 原版对**绝大多数**类型不校验（2026-10-13 R3 回放：stock-ins/stock-outs
+			// 既有实现对**绝大多数**类型不校验（2026-10-13 R3 回放：stock-ins/stock-outs
 			// 的 type=sales/purchase/garbage 全部落库；S5：type=other 与 source 可共存），
 			// 传入值原样持久化。
 			//
-			// 唯一的例外是 **transfer** —— 批次 PP（2026-10-15）实测原版在
+			// 唯一的例外是 **transfer** —— 批次 PP（2026-10-15）实测既有实现在
 			// 出/入库单的**写路径**上专门拦截它（audit-batch-pp-autopost4-20261015.txt
 			// 与 /tmp 取证补录）：
 			//   stock-outs  type=transfer → 400+400 调拨发货请使用「库存调拨单」完成，
@@ -465,7 +465,7 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 			//                              禁止手工创建/确认「调拨入库」类入库单（…）
 			// POST 建单与 PUT 改单**两处都拦**（同一文案）；但 confirm 不拦 ——
 			// 已存量的 transfer 单据 confirm 实测 code:0，故这里只守写路径。
-			// 恢复端此前完全放行，等于允许手工造出本该由调拨单产生的出入库单。
+			// 本实现此前完全放行，等于允许手工造出本该由调拨单产生的出入库单。
 			if t := value(input, "type"); t != "" {
 				if t == "transfer" {
 					return ErrKnownNoMessage{Status: 400, Note: transferOrderGuard(d.Incoming)}
@@ -493,14 +493,14 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					h[d.Party+"_name"] = name
 				}
 			}
-			// 原版接受并落库任意币种，金额不作折算（2026-10-13 B1/R2/S6 回放：
+			// 既有实现接受并落库任意币种，金额不作折算（2026-10-13 B1/R2/S6 回放：
 			// USD 销售/采购订单创建、确认、审批全部通过，currency=USD 持久化）。
 			h["currency"] = "CNY"
 			if v := value(input, "currency"); v != "" {
 				h["currency"] = v
 			}
 			h["payment_status"] = "unpaid"
-			// 原版接受头部 discount_amount 并落库，但不计入 total_amount（B2 回放）。
+			// 既有实现接受头部 discount_amount 并落库，但不计入 total_amount（B2 回放）。
 			if input["discount_amount"] != nil {
 				v, err := Number(input["discount_amount"])
 				if err != nil {
@@ -534,11 +534,11 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				return err
 			}
 			// 批次 U：serial_nos 元素类型校验对**库存单与订单都生效**
-			// （原版两类单据在建单期都返回 400，见 rejectSerialNosType 注释）。
+			// （既有实现两类单据在建单期都返回 400，见 rejectSerialNosType 注释）。
 			if err := rejectSerialNosType(line); err != nil {
 				return err
 			}
-			// 原版支持赠品行，但要求单价为 0（2026-10-13 B3/R1 回放：
+			// 既有实现支持赠品行，但要求单价为 0（2026-10-13 B3/R1 回放：
 			// price=100 + is_gift → 10000「赠品行单价必须为 0」；
 			// price=0 + is_gift → code:0，行 amount=0、is_gift 落库、total 不含赠品金额）。
 			// 仅对有 is_gift 列的明细表生效（订单/退货行有，库存行无）。
@@ -553,12 +553,12 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 					gift = v == 1
 				}
 			}
-			// 原版回放 FF7（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
-			// 明细传 unit_rate=2 与 unit_rate=0 原版均 code:0，且金额计算完全不受影响
-			// （qty=3 × price=10 → amount=30），回读也不暴露该字段——原版彻底忽略 unit_rate。
-			// 原恢复端对 ≠1 返回 ErrUnsupported，属误拒，已移除。
-			// 非数字值原版无实测证据（未能构造出与「忽略」相区分的观测），故一并放行，
-			// 不自造文案。若后续取证到原版确实拒绝，再补原文案。
+			// 回归回放 FF7（2026-10-14，运行快照）：
+			// 明细传 unit_rate=2 与 unit_rate=0 既有实现均 code:0，且金额计算完全不受影响
+			// （qty=3 × price=10 → amount=30），回读也不暴露该字段——既有实现彻底忽略 unit_rate。
+			// 原本实现对 ≠1 返回 ErrUnsupported，属误拒，已移除。
+			// 非数字值既有实现无实测证据（未能构造出与「忽略」相区分的观测），故一并放行，
+			// 不自造文案。若后续取证到既有实现确实拒绝，再补原文案。
 			product, err := s.plainProduct(ctx, tx, value(line, "product_id"), d.Stock || d.Table == "sales_orders" || isReturn(d))
 			if err != nil {
 				return err
@@ -736,18 +736,18 @@ func (s *Service) trackingBalance(ctx context.Context, tx *sql.Tx, product, ware
 	if err != nil {
 		return nil, err
 	}
-	// 批次 Q 结论（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+	// 批次 Q 结论（2026-10-14，运行快照）：
 	// 同键余额行由**数据库 UNIQUE 索引**保证唯一 —— schema.sql 定义
 	//   idx_inventory_balance_key ON (product_id, warehouse_id,
 	//     COALESCE(location_id,'000…0'), COALESCE(rack_id,'000…0'), COALESCE(batch_no,''))
 	// 用 COALESCE 把 NULL 归一化，正是为保证「无库位/无货架/无批次」这一组不重复。
-	// 原版库实测 52 条余额行、同键多行组数 0；
-	// 恢复端 TestSourceBalanceRowIsUniquePerKey / …BatchedBalance… 亦验证索引生效。
+	// 既有实现库实测 52 条余额行、同键多行组数 0；
+	// 本实现 TestSourceBalanceRowIsUniquePerKey / …BatchedBalance… 亦验证索引生效。
 	//
 	// 故 `len(rows) > 1` **永不可达**（2026-10-14 DUP-A/DUP-B 注释里「无取舍证据」的顾虑，
 	// 已由数据库约束消解）。属**防御性断言**，保留兜底但不再当作待办推进项：
 	// 该分支一旦命中说明数据库被绕过唯一索引写入了脏数据，
-	// 此时返回 ErrUnsupported（500 级）比自造中文更保守 —— 无原版文案可对齐，不自造。
+	// 此时返回 ErrUnsupported（500 级）比自造中文更保守 —— 无既有文案可对齐，不自造。
 	if len(rows) > 1 {
 		return nil, ErrUnsupported
 	}
@@ -771,7 +771,7 @@ func (s *Service) balance(ctx context.Context, tx *sql.Tx, product, warehouse st
 	}
 	if len(rows) > 1 {
 		// 同 trackingBalance：数据库 UNIQUE 索引（批次 Q）保证同键唯一，该分支**不可达**。
-		// 无原版文案可对齐，保留 ErrUnsupported 作兜底，不自造中文。
+		// 无既有文案可对齐，保留 ErrUnsupported 作兜底，不自造中文。
 		return nil, ErrUnsupported
 	}
 	if len(rows) == 1 {
@@ -828,7 +828,7 @@ func (s *Service) Lock(ctx context.Context, id string, input map[string]any, unl
 }
 func (s *Service) Transition(ctx context.Context, d Document, id, user string, cancel bool) (map[string]any, error) {
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		// 原版确认/取消不受活动审批流影响（2026-10-13 A2 回放：启用 sales_order
+		// 既有实现确认/取消不受活动审批流影响（2026-10-13 A2 回放：启用 sales_order
 		// 活动流后订单 confirm+approve 均 code:0），与退货/工单路径的既有结论一致，
 		// 此处不再统计审批流后拒绝。
 		h, err := s.Store.GetWith(ctx, tx, d.Table, id)
@@ -851,7 +851,7 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 			return fmt.Errorf("只有草稿状态的%s订单才能确认", label)
 		}
 		if cancel && d.Stock {
-			// 原版仅允许取消草稿状态的库存单据；已确认的取消返回
+			// 既有实现仅允许取消草稿状态的库存单据；已确认的取消返回
 			// 「出库单/入库单不存在或状态不允许取消」（2026-10-13 X1/X2/X3 回放）。
 			if status != "draft" {
 				label := "出库单"
@@ -878,7 +878,7 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 		if len(lines) == 0 && d.Stock {
 			return errors.New("单据明细不能为空")
 		}
-		// 原版允许取消已发货/已收货的订单（2026-10-13 W6/X4 回放：部分发货的销售订单、
+		// 既有实现允许取消已发货/已收货的订单（2026-10-13 W6/X4 回放：部分发货的销售订单、
 		// 部分收货的采购订单取消均 code:0，delivered_qty 不回滚），此处不再拒绝。
 		changes := map[string]any{"updated_at": now(), "status": "confirmed"}
 		if cancel {
@@ -1040,7 +1040,7 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 				source, remark = "purchase_inbound", "采购入库确认"
 				entries = []Posting{{"1403", "debit", total}, {"2202", "credit", total}}
 			}
-			// 批次 PP（2026-10-15）：原版出入库的自动过账是 **type 白名单**，
+			// 批次 PP（2026-10-15）：既有实现出入库的自动过账是 **type 白名单**，
 			// 不是「排除 other / 空」的黑名单。
 			//
 			// 受控对照（tools/replay-batch-pp-stocktype.js）：两端各铺同样的货，
@@ -1049,14 +1049,14 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 			//   入库 → 仅 "purchase"  （purchase_in / Purchase / buy / in / purchases 全不过账）
 			// 即**精确匹配且大小写敏感**，其余一律不产生凭证。
 			//
-			// 恢复端原先是 `type != "other" && type != ""`，把 12 种原版不记账的
+			// 本实现原先是 `type != "other" && type != ""`，把 12 种既有实现不记账的
 			// 情形都记了账，账目里会凭空多出大量 sales_outbound / purchase_inbound 凭证。
 			//
-			// ⚠️ 首版取证曾误得「原版出库不过账」：当时用的是 type="sale"（单数），
-			// 而原版白名单里是 "sales"，恰好落在白名单外；同批里 type="sales" 那组
+			// ⚠️ 首版取证曾误得「既有实现出库不过账」：当时用的是 type="sale"（单数），
+			// 而既有实现白名单里是 "sales"，恰好落在白名单外；同批里 type="sales" 那组
 			// 又被库存不足挡住。是 `TestOriginalBusinessFlowReplay` 的
 			// journal_entries 条数对不上（56 vs 48）才暴露了取样错误 ——
-			// 原版回放快照里 sales_outbound 有 8 条分录，证明出库确实过账。
+			// 回归回放快照里 sales_outbound 有 8 条分录，证明出库确实过账。
 			postingType := "sales"
 			if d.Incoming {
 				postingType = "purchase"
@@ -1138,7 +1138,7 @@ func (s *Service) applySerialTransition(ctx context.Context, tx *sql.Tx, line, h
 			row["product_id"], row["product_code"], row["product_name"] = line["product_id"], line["product_code"], line["product_name"]
 			row["warehouse_id"], row["serial_no"] = header["warehouse_id"], serial
 			row["status"], row["registered_at"] = "in_stock", now()
-			// 原版台账行记录来源单据（2026-10-13 U2 回放：source_type=stock_in、
+			// 既有实现台账行记录来源单据（2026-10-13 U2 回放：source_type=stock_in、
 			// source_no=入库单号），出库时覆写为 stock_out/出库单号（T2-A 回放）。
 			row["source_type"], row["source_no"] = "stock_in", value(header, "stock_in_no")
 			if err := s.Store.InsertWith(ctx, tx, "serial_numbers", row); err != nil {
@@ -1178,14 +1178,14 @@ func validateSerialLine(line map[string]any, incoming bool) error {
 	blank := 0
 	for _, v := range raw {
 		if v == nil {
-			// 原版：null 元素等价于空串（建单放行，confirm 时因「有效序列号数为 0」
-			// 而报 10000「序列号不能为空」）。见 evidence/backend-runtime/audit-batch-u-*.json。
+			// 既有实现：null 元素等价于空串（建单放行，confirm 时因「有效序列号数为 0」
+			// 而报 10000「序列号不能为空」）。见 运行快照。
 			blank++
 			continue
 		}
 		no, ok := v.(string)
 		if !ok {
-			// 原版：数字 / 布尔 / 对象元素在**建单期**即 400「系统内部错误，请稍后重试或联系管理员」。
+			// 既有实现：数字 / 布尔 / 对象元素在**建单期**即 400「系统内部错误，请稍后重试或联系管理员」。
 			// 此处是确认期，正常输入到不了；保留类型错误以防内部调用绕过校验。
 			return errors.New("序列号格式错误")
 		}
@@ -1198,7 +1198,7 @@ func validateSerialLine(line map[string]any, incoming bool) error {
 		}
 		seen[no] = true
 	}
-	// 原版：整组只有空串/null 时报 10000「序列号不能为空」（与「序列号不能为空」逐字一致）。
+	// 既有实现：整组只有空串/null 时报 10000「序列号不能为空」（与「序列号不能为空」逐字一致）。
 	if len(seen) == 0 && blank > 0 {
 		return errors.New("序列号不能为空")
 	}
@@ -1214,14 +1214,14 @@ func validateSerialLine(line map[string]any, incoming bool) error {
 
 // rejectSerialNosType 校验 serial_nos 的**元素类型**（建单期）。
 //
-// 批次 U 取证（2026-10-14，evidence/backend-runtime/audit-batch-u-20261014.json）：
-// 原版对 serial_nos 内的非字符串元素在**建单期**即返回 HTTP **400**
+// 批次 U 取证（2026-10-14，运行快照）：
+// 既有实现对 serial_nos 内的非字符串元素在**建单期**即返回 HTTP **400**
 // 「系统内部错误，请稍后重试或联系管理员」（Go 结构体绑定失败）：
 //
 //	数字 123 / 布尔 true / 对象 {"a":1} → 建单 400
 //	null / 空串 ""                     → 建单 code:0（视为空串，见 validateSerialLine）
 //
-// 恢复端原先把 serial_nos 摘出通用守卫后完全放行，数字元素能建单成功，与原版不符。
+// 本实现原先把 serial_nos 摘出通用守卫后完全放行，数字元素能建单成功，与与既有行为不符。
 func rejectSerialNosType(line map[string]any) error {
 	for _, v := range serialNosOf(line) {
 		if v == nil {

@@ -11,16 +11,16 @@ import (
 // 批次 PP（2026-10-15）· 剩余 4 处自动过账点的形态对齐。
 //
 // 证据文件：
-//   evidence/backend-runtime/audit-batch-pp-autopost3-20261015.txt  （收付款单/出入库/退货/税金）
-//   evidence/backend-runtime/audit-batch-pp-autopost4-20261015.txt  （调拨拦截、0 金额分录、税金形态）
-//   evidence/backend-runtime/audit-batch-pp-voucher-shape-20261015.txt（凭证与分录形态干净取样）
+//   运行快照  （收付款单/出入库/退货/税金）
+//   运行快照  （调拨拦截、0 金额分录、税金形态）
+//   运行快照（凭证与分录形态干净取样）
 //
 // 已对齐（autopost3 逐字一致，此处不再重复锁定）：
 // 收款单确认 / 付款单确认 / 采购入库确认。
 
-// TestStockOrderRejectsManualTransferType 原版禁止手工创建调拨类出/入库单。
+// TestStockOrderRejectsManualTransferType 既有实现禁止手工创建调拨类出/入库单。
 //
-// 原版在**写路径**（POST 建单与 PUT 改单）上专门拦截 type=transfer，
+// 既有实现在**写路径**（POST 建单与 PUT 改单）上专门拦截 type=transfer，
 // 出库与入库是**两句不同**的文案；但 confirm 不拦
 // （已存量的 transfer 单据 confirm 实测 code:0）—— 故这里只锁写路径。
 func TestStockOrderRejectsManualTransferType(t *testing.T) {
@@ -61,7 +61,7 @@ func TestStockOrderRejectsManualTransferType(t *testing.T) {
 			t.Errorf("%s = http%d %v, want http400 code=400 %s", tc.name, status, got, tc.want)
 		}
 	}
-	// PUT 改成 transfer 同样被拒（原版写路径两侧都拦）
+	// PUT 改成 transfer 同样被拒（既有实现写路径两侧都拦）
 	created := c.ok("POST", "/api/v1/stock-outs", map[string]any{
 		"stock_out_date": "2026-05-23T00:00:00+08:00",
 		"warehouse_id":   warehouses[0]["id"],
@@ -78,7 +78,7 @@ func TestStockOrderRejectsManualTransferType(t *testing.T) {
 		got["code"] != float64(400) || got["message"] != outText {
 		t.Errorf("PUT 改 transfer = http%d %v, want http400 code=400 %s", status, got, outText)
 	}
-	// 非 transfer 的类型不受影响（原版对 sales/purchase/garbage 等一律放行）
+	// 非 transfer 的类型不受影响（既有实现对 sales/purchase/garbage 等一律放行）
 	free := map[string]any{
 		"stock_out_date": "2026-05-23T00:00:00+08:00",
 		"warehouse_id":   warehouses[0]["id"],
@@ -86,7 +86,7 @@ func TestStockOrderRejectsManualTransferType(t *testing.T) {
 		"lines":          []any{map[string]any{"product_id": products[0]["id"], "qty": 1, "unit_cost": 10}},
 	}
 	if status, got := c.request("POST", "/api/v1/stock-outs", free); status != 200 || got["code"] != float64(0) {
-		t.Errorf("type=garbage = http%d %v, want 200 code=0（原版不校验普通类型）", status, got)
+		t.Errorf("type=garbage = http%d %v, want 200 code=0（既有实现不校验普通类型）", status, got)
 	}
 }
 
@@ -97,9 +97,9 @@ func TestStockOrderRejectsManualTransferType(t *testing.T) {
 //   出库 → 仅 "sales"    ；入库 → 仅 "purchase"
 // 精确匹配且**大小写敏感**（SALES / Sales / sales_out / purchase_in / buy 全不过账）。
 //
-// ⚠️ 这个用例的存在理由：首版取证用 type="sale"（单数）误得「原版出库不过账」，
+// ⚠️ 这个用例的存在理由：首版取证用 type="sale"（单数）误得「既有实现出库不过账」，
 // 据此删掉过账后，`TestOriginalBusinessFlowReplay` 的 journal_entries 条数
-// 从 56 掉到 48 才暴露错误 —— 原版回放快照里 sales_outbound 有 8 条分录。
+// 从 56 掉到 48 才暴露错误 —— 回归回放快照里 sales_outbound 有 8 条分录。
 // 白名单漏一个「s」就会让整条出库业务的账目消失，必须钉死。
 func TestStockPostingTypeWhitelist(t *testing.T) {
 	c, s := setup(t)
@@ -180,9 +180,9 @@ func TestStockPostingTypeWhitelist(t *testing.T) {
 //
 // 这条规则的证据是一组受控对照 —— 同一张销售退货单，只改「明细是否带 price」：
 //   带 price=200 → 金额 200，两端都是 4 条分录、D=210 C=210
-//   不带 price   → 金额被重算为 0，原版只落 2 条（成本冲销），恢复端原先仍落 4 条
-// 即原版**确实构造**了收入冲销那两条，只是 0 金额不入账 —— 不是「压根不构造」。
-// 采购退货更彻底：两条分录都为 0 时原版凭证增量为 0（但 approve 仍 code:0 成功）。
+//   不带 price   → 金额被重算为 0，既有实现只落 2 条（成本冲销），本实现原先仍落 4 条
+// 即既有实现**确实构造**了收入冲销那两条，只是 0 金额不入账 —— 不是「压根不构造」。
+// 采购退货更彻底：两条分录都为 0 时既有实现凭证增量为 0（但 approve 仍 code:0 成功）。
 func TestPostingSkipsZeroAmountEntries(t *testing.T) {
 	c, s := setup(t)
 	products, _ := s.Store.Rows(context.Background(), "SELECT id FROM products WHERE deleted_at IS NULL LIMIT 1")
@@ -254,7 +254,7 @@ func TestPostingSkipsZeroAmountEntries(t *testing.T) {
 
 // TestTaxPaymentVoucherShape 税金缴纳的凭证形态与其他过账点不同（批次 PP）。
 //
-// 原版实测三条差异：
+// 实测三条差异：
 //   ① 凭证 type 是 "payment"，不是通用的 "general"
 //   ② 凭证头 remark 被加工成「缴纳税费（<传入 remark>）」
 //   ③ 分录 remark 是「缴纳税费」（其余过账点的分录 remark 实测为空）
@@ -283,7 +283,7 @@ func TestTaxPaymentVoucherShape(t *testing.T) {
 	}
 	v := rows[0]
 	if fmt.Sprint(v["type"]) != "payment" {
-		t.Errorf("凭证 type = %v, want payment（原版不是 general）", v["type"])
+		t.Errorf("凭证 type = %v, want payment（既有实现不是 general）", v["type"])
 	}
 	if fmt.Sprint(v["remark"]) != "缴纳税费（形态验证）" {
 		t.Errorf("凭证 remark = %v, want 缴纳税费（形态验证）", v["remark"])
@@ -306,10 +306,10 @@ func TestTaxPaymentVoucherShape(t *testing.T) {
 	}
 }
 
-// TestTaxPaymentDraftVoucherShape post_voucher=false 时原版产出的是**草稿**凭证，
+// TestTaxPaymentDraftVoucherShape post_voucher=false 时既有实现产出的是**草稿**凭证，
 // 但形态与过账分支同源：type=payment、remark 加工、带 source_type=tax_payment。
 //
-// 恢复端原先草稿分支 type=general、remark 原样、且**不打 source_type** ——
+// 本实现原先草稿分支 type=general、remark 原样、且**不打 source_type** ——
 // 草稿凭证在列表里无法按来源归属。
 func TestTaxPaymentDraftVoucherShape(t *testing.T) {
 	c, s := setup(t)
@@ -358,7 +358,7 @@ func TestTaxPaymentDraftVoucherShape(t *testing.T) {
 // TestPostingShapeDefaults 其余过账点保持默认形态：type=general、分录无 remark。
 //
 // 这条是防止把税金缴纳的特例**扩散**到通用过账上 —— 现场取样已证明
-// 收款单 / 采购入库 / 销售退货的分录 remark 在原版里都是空的。
+// 收款单 / 采购入库 / 销售退货的分录 remark 在既有实现里都是空的。
 func TestPostingShapeDefaults(t *testing.T) {
 	if got := (business.VoucherShape{}).Type; got != "" {
 		t.Errorf("VoucherShape{}.Type = %q, want 空（由 postShaped 回落 general）", got)

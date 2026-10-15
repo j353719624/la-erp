@@ -6,7 +6,7 @@ import (
 
 // 本文件固化批次 I 取证（2026-10-14）的结论：银行对账对「同额候选」与「非 CNY」
 // 不整批报错，外协单状态守卫。证据见
-// evidence/backend-runtime/audit-batch-i{,-i2}-20261014.json。
+// 运行快照,-i2}-20261014.json。
 
 type batchIEnv struct {
 	client    *client
@@ -31,7 +31,7 @@ func batchISetup(t *testing.T, code string) batchIEnv {
 	return batchIEnv{c, s, supplier, accounts[0], account, batchBDate()}
 }
 
-// II1：同额多张付款单时对账不整批失败（原版 code:0）。
+// II1：同额多张付款单时对账不整批失败（既有实现 code:0）。
 func TestSourceReconcileToleratesDuplicateAmounts(t *testing.T) {
 	e := batchISetup(t, "II-DUP")
 	date := e.timestamp
@@ -88,7 +88,7 @@ func TestSourceBankDeleteGuards(t *testing.T) {
 	if _, body := c.request("DELETE", "/api/v1/bank/accounts/"+account["id"].(string), nil); body["code"] != float64(0) {
 		t.Fatalf("empty bank account not deletable: %#v", body)
 	}
-	// 有流水时拒绝，文案逐字对齐原版。
+	// 有流水时拒绝，文案逐字对齐既有行为。
 	withFlow := c.ok("POST", "/api/v1/bank/accounts", map[string]any{
 		"name": "II 有流水", "account_no": "6223111100000002",
 	}).(map[string]any)
@@ -121,7 +121,7 @@ func TestSourceSubcontractStateGuards(t *testing.T) {
 			t.Fatalf("%s: %#v", tc.name, body["message"])
 		}
 	}
-	// 取消可重复（原版 code:0）
+	// 取消可重复（既有实现 code:0）
 	order := e.client.ok("POST", "/api/v1/subcontract-orders", map[string]any{
 		"supplier_id": e.supplier["id"], "product_id": product["id"], "qty": 2, "mode": "pure", "remark": date,
 	}).(map[string]any)
@@ -134,12 +134,12 @@ func TestSourceSubcontractStateGuards(t *testing.T) {
 	}
 }
 
-// II6：负损耗率 BOM —— 已按批次 BB 改为**放行**（与原版一致）。
+// II6：负损耗率 BOM —— 已按批次 BB 改为**放行**（与与既有行为一致）。
 //
 // 原断言依据「scrap_rate<0 会放大需求量」，但批次 T 实测证明：
 // scrap_rate 是**百分数**，-0.1 只造成 0.1% 级偏差（需求 39.996 vs 40），
 // 危害需极端输入（≤ -100 才产生零/负需求）才触发，不足以作为拒绝理由。
-// 批次 BB 实测原版 scrap_rate=-0.5 的 BOM 建工单 code:0、需求 19.9。
+// 批次 BB 实测既有实现 scrap_rate=-0.5 的 BOM 建工单 code:0、需求 19.9。
 func TestSourceMrpAcceptsNegativeScrap(t *testing.T) {
 	c, product, _, _ := testFixture(t, "II-SCRAP")
 	c.ok("POST", "/api/v1/boms", map[string]any{

@@ -14,7 +14,7 @@ import (
 // Check the SQL rows, not just 404/success responses: deleted accounts must
 // retain their UUID references, and existing financial rows must survive.
 func verifyAccountDeletionState(t *testing.T, s *Server) {
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/account-deletion-posting-state.json")
+	raw, err := readSnapshot(t, "backend-runtime/account-deletion-posting-state.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,9 @@ import (
 )
 
 // 本文件固化批次 H 取证（2026-10-14）的结论：照片库位不做归属校验、
-// 工艺 sequence 必须是 JSON 整数。证据见 evidence/backend-runtime/audit-batch-h-20261014.json。
+// 工艺 sequence 必须是 JSON 整数。证据见 运行快照。
 
-// HH2：照片的 location_id/rack_id 不做仓库与货架归属校验（原版五种情况全部放行）。
+// HH2：照片的 location_id/rack_id 不做仓库与货架归属校验（既有实现五种情况全部放行）。
 func TestSourcePhotoLocationHasNoOwnershipCheck(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "HH-PHOTO")
 	location := c.ok("POST", "/api/v1/locations", map[string]any{"name": "HH-LOC", "warehouse_id": warehouse["id"]}).(map[string]any)
@@ -47,18 +47,18 @@ func TestSourcePhotoLocationHasNoOwnershipCheck(t *testing.T) {
 	}
 }
 
-// HH7：工艺工序的 sequence 必须是 JSON 整数；字符串与小数原版都拒绝（HTTP 400 无文案），
+// HH7：工艺工序的 sequence 必须是 JSON 整数；字符串与小数既有实现都拒绝（HTTP 400 无文案），
 // 负整数放行。
 func TestSourceRoutingSequenceRequiresJSONInteger(t *testing.T) {
 	c, product, _, _ := testFixture(t, "HH-SEQ")
-	// 字符串 "2" 被原版拒绝，恢复端不应放行。
+	// 字符串 "2" 被既有实现拒绝，本实现不应放行。
 	if _, body := c.request("POST", "/api/v1/routings", map[string]any{
 		"name": "HH-SEQ-STR", "product_id": product["id"],
 		"steps": []any{map[string]any{"sequence": "2", "process_code": "P1", "process_name": "工序1"}},
 	}); body["code"] == float64(0) {
 		t.Fatalf("string sequence accepted, original rejects it: %#v", body)
 	}
-	// 小数 1.5 原版同样拒绝（HTTP 400 且无业务文案）；恢复端无原文案可对齐，
+	// 小数 1.5 既有实现同样拒绝（HTTP 400 且无业务文案）；本实现无原文案可对齐，
 	// 保留 501 未恢复。此处只断言「未伪造成功」，不断言具体返回形态。
 	if _, body := c.request("POST", "/api/v1/routings", map[string]any{
 		"name": "HH-SEQ-FRAC", "product_id": product["id"],
@@ -66,7 +66,7 @@ func TestSourceRoutingSequenceRequiresJSONInteger(t *testing.T) {
 	}); body["code"] == float64(0) {
 		t.Fatalf("fractional sequence accepted, original rejects it: %#v", body)
 	}
-	// 负整数原版放行。
+	// 负整数既有实现放行。
 	ok := c.ok("POST", "/api/v1/routings", map[string]any{
 		"name": "HH-SEQ-NEG", "product_id": product["id"],
 		"steps": []any{map[string]any{"sequence": -1, "process_code": "P1", "process_name": "工序1"}},
@@ -74,7 +74,7 @@ func TestSourceRoutingSequenceRequiresJSONInteger(t *testing.T) {
 	if ok["id"] == "" {
 		t.Fatal("negative integer sequence rejected but original accepts it")
 	}
-	// 空 steps 原版放行。
+	// 空 steps 既有实现放行。
 	if empty := c.ok("POST", "/api/v1/routings", map[string]any{
 		"name": "HH-SEQ-EMPTY", "product_id": product["id"], "steps": []any{},
 	}).(map[string]any); empty["id"] == "" {
@@ -82,7 +82,7 @@ func TestSourceRoutingSequenceRequiresJSONInteger(t *testing.T) {
 	}
 }
 
-// HH8：删除不存在的主数据返回原版原文案。
+// HH8：删除不存在的主数据返回既有实现原文案。
 func TestSourceProductionMasterDeleteMessages(t *testing.T) {
 	c, _ := setup(t)
 	_, body := c.request("DELETE", "/api/v1/routings/00000000-0000-0000-0000-000000000000", nil)
@@ -143,7 +143,7 @@ func TestSourceTransferStateGuards(t *testing.T) {
 	}
 }
 
-// HH6：返工单已完成不可取消，原版原文案。
+// HH6：返工单已完成不可取消，既有实现原文案。
 func TestSourceReworkStateGuards(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "HH-RW")
 	order := c.ok("POST", "/api/v1/work-orders", map[string]any{

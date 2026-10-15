@@ -2,7 +2,7 @@ package business
 
 // combos.go —— 组合件（/api/v1/combo-products 端点族）
 //
-// 批次 EE 回放取证（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）。
+// 批次 EE 回放取证（2026-10-14，运行快照）。
 //
 // 端点族共 7 个入口：
 //   GET    /api/v1/combo-products                       列表（商品行 + item_count/unit_cost/can_assemble/stock）
@@ -18,7 +18,7 @@ package business
 //   assemble     unit_cost = Σ(行 qty × ref_cost)，成品按此单价入库
 //   disassemble  unit_cost = 成品在该仓的**库存均价**，配件按各自 ref_cost 入库
 //
-// 文案全部逐字取自原版回放（见证据文件“边界与文案”），本文件不自造中文业务文案。
+// 文案全部逐字取自回归回放（见证据文件“边界与文案”），本文件不自造中文业务文案。
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func (s *Service) comboLines(ctx context.Context, db database.Executor, productI
 	views := make([]comboLineView, 0, len(rows))
 	for _, row := range rows {
 		view := comboLineView{row: row, qty: readDecimal(row, "qty")}
-		// 配件被删除时原版仍保留快照行（无证据支持报错），此处只让 ref_cost 归 0。
+		// 配件被删除时既有实现仍保留快照行（无证据支持报错），此处只让 ref_cost 归 0。
 		if component, err := s.Store.GetWith(ctx, db, "products", value(row, "component_id")); err == nil {
 			view.ref = s.comboRefCost(ctx, db, component)
 		}
@@ -90,7 +90,7 @@ func comboLinePublic(v comboLineView) map[string]any {
 		"ref_cost":       v.ref.String(),
 		"remark":         value(v.row, "remark"),
 	}
-	// 原版无单位时该键为 JSON null，而非空串。
+	// 既有实现无单位时该键为 JSON null，而非空串。
 	if unitID := value(v.row, "unit_id"); unitID == "" {
 		line["unit_id"] = nil
 	} else {
@@ -99,7 +99,7 @@ func comboLinePublic(v comboLineView) map[string]any {
 	return line
 }
 
-// comboDefaultWarehouse 默认仓库 id（原版 ref_cost / 列表库存口径均锚定默认仓）。
+// comboDefaultWarehouse 默认仓库 id（既有实现 ref_cost / 列表库存口径均锚定默认仓）。
 func (s *Service) comboDefaultWarehouse(ctx context.Context, db database.Executor) string {
 	rows, err := database.QueryRows(ctx, db, "SELECT id FROM warehouses WHERE deleted_at IS NULL AND is_default=1")
 	if err != nil || len(rows) == 0 {
@@ -239,13 +239,13 @@ func (s *Service) GetCombo(ctx context.Context, id string) (map[string]any, erro
 	return data, nil
 }
 
-// comboQty 解析数量：nil / 缺失按 0 处理（原版一律落到「必须大于 0」类文案），
-// 非数字串按原版返回 400 解码错误。
+// comboQty 解析数量：nil / 缺失按 0 处理（既有实现一律落到「必须大于 0」类文案），
+// 非数字串按既有实现返回 400 解码错误。
 func comboQty(raw any) (decimal.Decimal, error) {
 	if raw == nil {
 		return decimal.Zero, nil
 	}
-	// 原版此处走 decimal 解码，错误信息与 bank.go / currencies.go 的
+	// 既有实现此处走 decimal 解码，错误信息与 bank.go / currencies.go 的
 	// 「请求参数错误: error decoding string '…': …」同源（回放：qty="abc" → 400）。
 	// 不用 business.Number，后者返回的是单据文案「数值格式错误…」。
 	qty, err := decimal.NewFromString(fmt.Sprint(raw))
@@ -263,7 +263,7 @@ func (s *Service) SaveCombo(ctx context.Context, id string, input map[string]any
 	raw, ok := input["lines"].([]any)
 	if !ok {
 		// 回放：lines 传对象/非数组 → 400「系统内部错误，请稍后重试或联系管理员」；
-		// 但**完全不传** lines 时原版走业务文案「组合配方至少需要一行配件」（与空数组同）。
+		// 但**完全不传** lines 时既有实现走业务文案「组合配方至少需要一行配件」（与空数组同）。
 		if input["lines"] != nil {
 			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
@@ -330,7 +330,7 @@ func (s *Service) SaveCombo(ctx context.Context, id string, input map[string]any
 				return err
 			}
 		}
-		// is_combo 只由本端点族写入；通用 products 通道按原版语义静默忽略该字段
+		// is_combo 只由本端点族写入；通用 products 通道按既有实现语义静默忽略该字段
 		// （见 internal/api/server.go originalIgnoredFields）。
 		return s.Store.UpdateWith(ctx, tx, "products", id, map[string]any{"is_combo": true, "updated_at": now()})
 	})

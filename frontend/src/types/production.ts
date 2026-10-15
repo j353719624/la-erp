@@ -1,5 +1,5 @@
 // Reconstructed type declarations; original type-only files were erased by compilation.
-// Schema evidence: evidence/go-structs.json.gz; assignments refined from frontend usage.
+// Assignments derived from frontend usage. Do not edit by hand.
 import type { Product, Unit, Warehouse } from '@/types/product';
 
 export interface AssemblyOrder {

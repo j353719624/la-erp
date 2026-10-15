@@ -15,24 +15,24 @@ type readResource struct {
 	Route      string `json:"route"`
 	Table      string `json:"table"`
 	Permission string `json:"permission"`
-	// 以下三项来自原版回放 HH（evidence/backend-runtime/audit-batch-hh-20261014.json）：
+	// 以下三项来自回归回放 HH（运行快照）：
 	// 逐个 GET /api/v1/{route}/{零UUID} 得到的真实 HTTP 状态码、body.code 与 message。
 	NotFoundHTTP    int    `json:"not_found_http"`
 	NotFoundCode    int    `json:"not_found_code"`
 	NotFoundMessage string `json:"not_found_message"`
 }
 
-// notFoundStyle 描述原版在「详情记录不存在」时返回的形态。
+// notFoundStyle 描述既有实现在「详情记录不存在」时返回的形态。
 //
-// 原版回放 HH 对 69 条通用读资源逐条取证，实测出三种形态：
+// 回归回放 HH 对 69 条通用读资源逐条取证，实测出三种形态：
 //  1. HTTP 404 + code 404 +「<中文单据名>不存在」      —— 多数单据类
 //  2. HTTP 200 + code 10000 +「<中文名>不存在」        —— HR / 财务 / 计划类
-//  3. HTTP 404 或 500 +「系统内部错误，请稍后重试或联系管理员」—— 原版该分支未做 NotFound 判定
+//  3. HTTP 404 或 500 +「系统内部错误，请稍后重试或联系管理员」—— 既有实现该分支未做 NotFound 判定
 //
-// 另有 8 条资源原版**根本没有详情路由**，实测返回 404「路由不存在」，
-// 恢复端此前由通用读资源自动补出了详情路由，必须显式关掉。
+// 另有 8 条资源既有实现**根本没有详情路由**，实测返回 404「路由不存在」，
+// 本实现此前由通用读资源自动补出了详情路由，必须显式关掉。
 //
-// 恢复端原先一律输出 HTTP 404 +「<表名>不存在」，与上表大面积不符，
+// 本实现原先一律输出 HTTP 404 +「<表名>不存在」，与上表大面积不符，
 // 故改为按表配置、在 s.detail 里统一改写（见 notFoundStyles）。
 type notFoundStyle struct {
 	HTTP    int
@@ -60,15 +60,15 @@ func loadNotFoundStyles(raw []byte) {
 			Message: item.NotFoundMessage,
 		}
 	}
-	// 批次 PP（2026-10-15）：这两张表的详情路由原版不存在（GET /{合法UUID} 实测
+	// 批次 PP（2026-10-15）：这两张表的详情路由既有实现不存在（GET /{合法UUID} 实测
 	// 404「路由不存在」，tools/replay-batch-oo-badid2.js）。
 	// 表在 Resources（server.go）注册过、不在 read_resources.json，故在此补配，
-	// 防止通用 GET /{id} 自动补出原版没有的详情路由。
+	// 防止通用 GET /{id} 自动补出既有实现没有的详情路由。
 	notFoundStyles["production_team_members"] = notFoundStyle{HTTP: 404, Code: 404, Message: "路由不存在"}
 	notFoundStyles["approval_records"] = notFoundStyle{HTTP: 404, Code: 404, Message: "路由不存在"}
 }
 
-// responseCapture 缓冲 s.get 的输出，用于在命中「记录不存在」时按原版形态改写。
+// responseCapture 缓冲 s.get 的输出，用于在命中「记录不存在」时按既有实现形态改写。
 // 只捕获状态码与 body，不实现 Flush/Hijack（详情读接口不需要）。
 type responseCapture struct {
 	http.ResponseWriter
@@ -97,8 +97,8 @@ func isNotFoundMessage(message string) bool {
 	return strings.HasSuffix(message, "不存在") || message == "记录不存在"
 }
 
-// detail 是通用详情读入口：先按原版形态处理「无此路由」，
-// 再把 s.get 输出的 404/500「…不存在」改写为该表配置的原版形态。
+// detail 是通用详情读入口：先按既有实现形态处理「无此路由」，
+// 再把 s.get 输出的 404/500「…不存在」改写为该表配置的既有实现形态。
 // 未配置的表（notFoundStyles 查不到）保持原有行为不变。
 func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 	style, ok := notFoundStyles[res.Table]
@@ -106,7 +106,7 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 		s.get(w, r, res)
 		return
 	}
-	// 原版没有该详情路由：恢复端不得自动补出，逐字返回 404「路由不存在」。
+	// 既有实现没有该详情路由：本实现不得自动补出，逐字返回 404「路由不存在」。
 	if style.Message == "路由不存在" {
 		fail(w, 404, "路由不存在")
 		return
@@ -134,8 +134,8 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 	fail(w, style.HTTP, style.Message)
 }
 
-// srcTableLabels 把单据表名映射为原版 404 文案用的中文单据名。
-// 原版回放 JJ3（2026-10-14，evidence/backend-runtime/audit-batch-j-20261014.json）
+// srcTableLabels 把单据表名映射为既有实现 404 文案用的中文单据名。
+// 回归回放 JJ3（2026-10-14，运行快照）
 // 逐个 GET 不存在的记录得到：
 //
 //	stock-ins → 404「入库单不存在」   stock-outs   → 404「出库单不存在」
@@ -146,8 +146,8 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, res Resource) {
 //	work-orders      → 404「工单不存在」
 //	vouchers         → 404「凭证不存在」
 //
-// 恢复端原先直接把表名当 label（如「stock_ins不存在」），与原版逐字不符。
-// 注意 `assemblies` 原版返回 500 无业务文案、`rework-orders`/`subcontract-orders`
+// 本实现原先直接把表名当 label（如「stock_ins不存在」），与既有实现逐字不符。
+// 注意 `assemblies` 既有实现返回 500 无业务文案、`rework-orders`/`subcontract-orders`
 // 返回 200+code:10000，由各自的专用处理器负责，此处不纳入映射。
 var srcTableLabels = map[string]string{
 	"stock_ins":        "入库单",
@@ -202,7 +202,7 @@ func (s *Server) registerSrcReads() {
 		if item.Route != "bank/statements" && item.Route != "serial-numbers" && item.Route != "notifications" {
 			s.mux.Handle("GET /api/v1/"+item.Route, s.protected(res.Permission, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
 		}
-		// metadata/entities/{id} 由 metadata.go 自行注册：原版对不存在的 id 返回
+		// metadata/entities/{id} 由 metadata.go 自行注册：既有实现对不存在的 id 返回
 		// HTTP 500 + 通用文案（回放 GG15），与通用读资源的 404「记录不存在」不同。
 		if s.Store.Has(res.Table, "id") && item.Route != "mrp/requirements" && item.Route != "purchase-suggestions" && item.Route != "serial-numbers" && item.Route != "mps-plans" && item.Route != "metadata/entities" {
 			s.mux.Handle("GET /api/v1/"+item.Route+"/{id}", s.protected(res.Permission, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.detail(w, r, res) })))

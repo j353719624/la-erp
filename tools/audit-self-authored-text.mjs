@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// 自造中文文案复核：确保恢复端**没有编造原版业务文案**。
+// 自造中文文案复核：确保本实现**没有编造参考实现业务文案**。
 //
-// 项目铁律：原版有文案就逐字照抄；原版无文案（500/400 无 message）就不得自造。
+// 项目铁律：参考实现有文案就逐字照抄；参考实现无文案（500/400 无 message）就不得自造。
 // 本脚本比对 git diff 中新增的 errors.New/fmt.Errorf 字面量与两个来源：
 //   1. 基线 HEAD 版本已有的文案（→ 历史文案，非本轮自造）
-//   2. evidence/backend-runtime/**/*.json 里原版实测返回的 message（→ 有证据）
+//   2. evidence/backend-runtime/**/*.json 里实测返回的 message（→ 有证据）
 // 差集 = 本轮自造，必须撤回。
 //
 // 唯一豁免：ErrOriginalDefect 的标识文本本身 —— 它是**分类标记**而非业务文案，
-// 用于区分「有意不对齐原版缺陷」（终态决策）与「尚未实现」（待办）。
+// 用于区分「有意不对齐参考实现缺陷」（终态决策）与「尚未实现」（待办）。
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = "C:/Users/35371/Desktop/11111/la-erp";
 const EXEMPT = new Set([
-  "原版该行为存在数据风险，恢复端有意拒绝而非复刻", // ErrOriginalDefect 标识文本
+  "参考实现该行为存在数据风险，本实现有意拒绝而非复刻", // ErrOriginalDefect 标识文本
 ]);
 
 // 业务文案的两种写法，都必须纳入提取范围：
@@ -92,9 +92,9 @@ collectLiterals(
 
 // 两种命中都算有证据：
 //   ① 完整相等（含 %s 通配）
-//   ② **片段前缀**：新增文案是某条原版 message 的开头。
-//      批次 PP 遇到这种情况：`缴纳税费` 是常量，原版实测 message 是
-//      「缴纳税费（税金过账…）」，两者不相等但前者确实是原版文案的组成部分。
+//   ② **片段前缀**：新增文案是某条参考实现 message 的开头。
+//      批次 PP 遇到这种情况：`缴纳税费` 是常量，实测 message 是
+//      「缴纳税费（税金过账…）」，两者不相等但前者确实是既有文案的组成部分。
 //      要求片段长度 ≥ 4，避免过短造成的假命中。
 const hasEvidence = (c) => {
   const pat = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%[sd]/g, ".*?");

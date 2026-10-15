@@ -14,15 +14,15 @@ import (
 //
 // 背景：fix-bank-adj 留档称 `piecework-rates` / `piecework-records` /
 // `print-templates` 三类「写路径有缺口」，但未附对照证据。批次 NN 实测
-// （evidence/backend-runtime/audit-batch-nn-piecework-20261015.json，27 条，
+// （运行快照，27 条，
 // 17 一致 / 10 差异）确认缺口**确实存在**，但形态与留档描述不同：
-// 不是「路由缺失」，而是**恢复端用通用必填校验自造了一套原版没有的 4xx**，
-// 且漏掉了原版真正的业务校验链。
+// 不是「路由缺失」，而是**本实现用通用必填校验自造了一套既有实现没有的 4xx**，
+// 且漏掉了既定的业务校验链。
 //
-// 原版这三个资源的 4xx 只出现在**解码层**（decimal / time 解析失败），
-// 业务层一律是 200 + code 10000 + 中文文案；恢复端反过来用 400 挡在前面。
+// 这三个资源的 4xx 只出现在**解码层**（decimal / time 解析失败），
+// 业务层一律是 200 + code 10000 + 中文文案；本实现反过来用 400 挡在前面。
 
-// pieceworkDecodeFailure 复刻原版解码层的错误形态。
+// pieceworkDecodeFailure 复刻既有实现解码层的错误形态。
 //
 // 注意前缀是「参数错误: 」（半角冒号 + 一个空格），与通用 record() 的
 // 「请求参数错误：」（全角冒号）**不是同一句**：
@@ -33,7 +33,7 @@ func pieceworkDecodeFailure(w http.ResponseWriter, detail string) {
 	fail(w, 400, "参数错误: "+detail)
 }
 
-// pieceDecimal 解析传入的数值字段，失败时按原版解码层形态输出并报告已处理。
+// pieceDecimal 解析传入的数值字段，失败时按既有实现解码层形态输出并报告已处理。
 //
 // 回放：qty / unit_price 传非数字串 → 400，且**早于一切业务校验**
 // （{unit_price:"abc"} 不带 name 时也报这个，不是「计件项名称不能为空」）。
@@ -66,8 +66,8 @@ func pieceDecimal(w http.ResponseWriter, raw any) (decimal.Decimal, bool) {
 //
 // 返回值：true = 校验通过、调用方继续走通用路径；false = 已写出响应、调用方返回。
 //
-// 注意：原恢复端在 Resources 里给本表配了 Required: []string{"name"}，
-// 缺 name 时输出通用 400「请求参数错误：name 为必填字段」——原版无此形态，已移除。
+// 注意：原本实现在 Resources 里给本表配了 Required: []string{"name"}，
+// 缺 name 时输出通用 400「请求参数错误：name 为必填字段」——既有实现无此形态，已移除。
 func (s *Server) preparePieceRate(w http.ResponseWriter, r *http.Request, input map[string]any, existingID string) bool {
 	price, ok := pieceDecimal(w, input["unit_price"])
 	if !ok {
@@ -92,7 +92,7 @@ func (s *Server) preparePieceRate(w http.ResponseWriter, r *http.Request, input 
 		businessFailure(w, errors.New("单价不能为负数"), false)
 		return false
 	}
-	// 状态：原版只接受 active / disabled。空串未取证（原版无 required 约束的迹象），
+	// 状态：既有实现只接受 active / disabled。空串未取证（既有实现无 required 约束的迹象），
 	// 按「非空且非法才拒」处理，避免把合法的「不传 status」误拒。
 	if v, ok := input["status"]; ok && v != nil {
 		if st := fmt.Sprint(v); st != "" && st != "active" && st != "disabled" {
@@ -120,8 +120,8 @@ func (s *Server) preparePieceRate(w http.ResponseWriter, r *http.Request, input 
 // 注意 employee_id **只在非空时校验**（回放：只给 employee_name 不给 employee_id
 // → code:0 成功），与「必填」是两回事。
 //
-// 原恢复端在 Resources 里配了 Required: ["code","employee_name","item_name",
-// "qty","work_date"] —— 其中 code 原版是**自动生成**的 JJ 流水号，根本不由调用方传，
+// 原本实现在 Resources 里配了 Required: ["code","employee_name","item_name",
+// "qty","work_date"] —— 其中 code 既有实现是**自动生成**的 JJ 流水号，根本不由调用方传，
 // 该必填会让所有建单请求在第一步就被 400 挡掉。已移除并改为自动编号。
 func (s *Server) preparePieceworkRecord(w http.ResponseWriter, r *http.Request, input map[string]any, creating bool) bool {
 	qty, ok := pieceDecimal(w, input["qty"])
@@ -165,9 +165,9 @@ func (s *Server) preparePieceworkRecord(w http.ResponseWriter, r *http.Request, 
 
 // nextPieceworkNumber 生成 JJ{yyyymmdd}{4 位日流水}。
 //
-// 回放：原版同日两条登记为 JJ202610150001 / JJ202610150002，故流水按
+// 回放：既有实现同日两条登记为 JJ202610150001 / JJ202610150002，故流水按
 // 「当日已有条数 + 1」递增（与 nextReconciliationNumber 同一口径）。
-// 恢复端原先走通用 record() 的 `PIECEWORK_RECORD-<uuid12>`，与原版不符。
+// 本实现原先走通用 record() 的 `PIECEWORK_RECORD-<uuid12>`，与与既有行为不符。
 func (s *Server) nextPieceworkNumber(r *http.Request) (string, error) {
 	day := time.Now().In(time.FixedZone("CST", 8*60*60)).Format("20060102")
 	rows, err := s.Store.Rows(r.Context(),
@@ -181,10 +181,10 @@ func (s *Server) nextPieceworkNumber(r *http.Request) (string, error) {
 // registerImportableProcesses 补齐 `GET /piecework-records/importable-processes`。
 //
 // 回放 NN（2026-10-15）：该端点被通用 `GET /piecework-records/{id}` 通配吞掉，
-// 恢复端返回 400「无效的 ID」，前端「导入工序报工」页面**永远加载不出可导入列表**。
+// 本实现返回 400「无效的 ID」，前端「导入工序报工」页面**永远加载不出可导入列表**。
 // 与批次 KK 修的 `sales-contracts/options`（`{id}` 通配吞掉子路径）是同一类问题。
 //
-// 原版实测形态：
+// 实测形态：
 //
 //	?period=2030-01  → 200 code 0，data=[]（空数组，不是 list/total 分页对象）
 //	（无 period）     → 400「请指定期间（YYYY-MM）」
@@ -201,7 +201,7 @@ func (s *Server) registerImportableProcesses() {
 			return
 		}
 		// 可导入工序的数据来源未取证（需真实工序报工数据），不自造列表内容；
-		// 原版在无数据时返回空数组，此处按同一形状返回。
+		// 既有实现在无数据时返回空数组，此处按同一形状返回。
 		respond(w, 200, []any{})
 	})))
 }

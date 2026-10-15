@@ -10,7 +10,7 @@ import (
 
 func TestOriginalCapacityLoadReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/capacity/contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/capacity/contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

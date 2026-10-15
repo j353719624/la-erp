@@ -9,16 +9,16 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 GG 的取证结论（2026-10-14 原版回放 192.168.110.97:18886）。
+// 本文件固化批次 GG 的取证结论（2026-10-14 回归回放（参考实例）。
 //
 // 起因：批次 FF 补齐路由后，tools/audit-self-authored-text.mjs 判定新增的
 // errors.New/fmt.Errorf 中文文案里 22 条查无实据（自造）。批次 GG 逐条复现触发条件
-// 取回原版真实响应，结论分三类：
-//   ① 文案自造 → 逐字替换为原版文案
-//   ② 恢复端比原版更严（原版放行）→ 删除守卫
-//   ③ 恢复端口径不同（编码/命名规则）→ 按原版口径改写
+// 取回既有实现真实响应，结论分三类：
+//   ① 文案自造 → 逐字替换为既有文案
+//   ② 本实现比既有实现更严（既有实现放行）→ 删除守卫
+//   ③ 本实现口径不同（编码/命名规则）→ 按既有实现口径改写
 //
-// 证据：evidence/backend-runtime/audit-batch-gg-20261014.json、
+// 证据：运行快照、
 //       audit-batch-gg2-20261014.json、audit-batch-gg3-20261014.json
 // 回放脚本：tools/replay-batch-gg.js、replay-batch-gg2.js、replay-batch-gg3.js
 
@@ -67,7 +67,7 @@ func (c *client) uploadImport(kind, filename, content string) (int, map[string]a
 	return res.StatusCode, result
 }
 
-// assertBusiness 断言原版的业务错误形态：HTTP 200 + code 10000 + 逐字文案。
+// assertBusiness 断言既有实现的业务错误形态：HTTP 200 + code 10000 + 逐字文案。
 func assertBusiness(t *testing.T, c *client, method, route string, body any, message string) {
 	t.Helper()
 	status, resp := c.request(method, route, body)
@@ -76,9 +76,9 @@ func assertBusiness(t *testing.T, c *client, method, route string, body any, mes
 	}
 }
 
-// ── 一、单据必填：原版只校验商品款的 name ───────────────────────────────────
+// ── 一、单据必填：既有实现只校验商品款的 name ───────────────────────────────────
 
-// GG1：POST /spus 缺 name → 400 + 原版 validator 原文案（回放 GG1）。
+// GG1：POST /spus 缺 name → 400 + 既有实现 validator 原文案（回放 GG1）。
 func TestSourceGGSpuNameRequired(t *testing.T) {
 	c, _ := setup(t)
 	status, body := c.request("POST", "/api/v1/spus", map[string]any{})
@@ -91,7 +91,7 @@ func TestSourceGGSpuNameRequired(t *testing.T) {
 	}
 }
 
-// GG2：合同缺往来单位时原版照常建单（回放 GG2/GG3），恢复端此前误拒。
+// GG2：合同缺往来单位时既有实现照常建单（回放 GG2/GG3），本实现此前误拒。
 func TestSourceGGContractAllowsMissingParty(t *testing.T) {
 	c, _ := setup(t)
 	for _, route := range []string{"purchase-contracts", "sales-contracts"} {
@@ -175,7 +175,7 @@ func TestSourceGGRfqQuoteGuards(t *testing.T) {
 		}
 	}
 
-	// 确认后可录入报价；报价明细文案按原版口径
+	// 确认后可录入报价；报价明细文案按既有实现口径
 	c.ok("POST", path+"/confirm", nil)
 	assertBusiness(t, c, "POST", path+"/quotes", map[string]any{"supplier_id": supplier["id"]}, "报价明细不能为空")
 	assertBusiness(t, c, "POST", path+"/quotes", map[string]any{
@@ -186,7 +186,7 @@ func TestSourceGGRfqQuoteGuards(t *testing.T) {
 		"supplier_id": supplier["id"],
 		"lines":       []any{map[string]any{"product_id": product["id"], "price": 1}},
 	}, "报价明细数量必须大于 0")
-	// 原版放行负单价（回放 gg14）
+	// 既有实现放行负单价（回放 gg14）
 	c.ok("POST", path+"/quotes", map[string]any{
 		"supplier_id": supplier["id"],
 		"lines":       []any{map[string]any{"product_id": product["id"], "qty": 1, "price": -1}},
@@ -252,7 +252,7 @@ func TestSourceGGDynamicImportExportContract(t *testing.T) {
 	// 实体不存在 → 10000「实体不存在: <编码>」
 	assertBusiness(t, c, "GET", "/api/v1/export/meta?entity=GG-NONE", nil, "实体不存在: GG-NONE")
 
-	// 建一个「有表无字段」的实体：原版不报「实体没有可用字段」，而是导出空表头、
+	// 建一个「有表无字段」的实体：既有实现不报「实体没有可用字段」，而是导出空表头、
 	// 导入未知列时报 500「模板包含未知字段列: <表头>」（回放 GG29/GG33）
 	entity := c.ok("POST", "/api/v1/metadata/entities", map[string]any{
 		"code": "GG-EMPTY", "name": "GG空实体", "table_name": "gg_empty_t", "category": "custom",
@@ -281,7 +281,7 @@ func TestSourceGGDynamicImportExportContract(t *testing.T) {
 // GG8：各导入对象的必填文案与逐行错误前缀（回放 N1/GG18）。
 func TestSourceGGImportRequiredMessages(t *testing.T) {
 	c, _ := setup(t)
-	// 逐行错误统一为「第N行导入失败: 」（原版回放 N1），非「第N行：」
+	// 逐行错误统一为「第N行导入失败: 」（回归回放 N1），非「第N行：」
 	assertRowMessage := func(kind, file, content, want string) {
 		t.Helper()
 		status, body := c.uploadImport(kind, file, content)

@@ -6,11 +6,11 @@ import (
 
 // 本文件固化批次 AA 取证（2026-10-14）的结论：
 //   MRP 生成工单时，多张 active BOM 按 created_at DESC 取最新一张，不报错。
-// 证据见 evidence/backend-runtime/audit-batch-aa-20261014.json。
+// 证据见 运行快照。
 //
-// 原版实测：对有 **15 张 active BOM** 的商品跑
+// 实测：对有 **15 张 active BOM** 的商品跑
 // POST /mrp/requirements/{id}/generate-work-orders → code:0，工单 bom_id = 最新一张。
-// 另外默认仓库数量恒为 1（批次 Q 已证原版建仓不抢占默认位）。
+// 另外默认仓库数量恒为 1（批次 Q 已证既有实现建仓不抢占默认位）。
 
 // AA1：多张 active BOM 时按 created_at DESC 取最新一张。
 func TestSourceMrpPicksNewestActiveBom(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSourceMrpPicksNewestActiveBom(t *testing.T) {
 	}
 
 	// 通过 MRP 计划生成工单：先让该商品产生 production 需求。
-	// 直接构造计划与行的代价较高，改用恢复端与原版共用的入口：mrp/run。
+	// 直接构造计划与行的代价较高，改用本实现与既有实现共用的入口：mrp/run。
 	c.ok("POST", "/api/v1/mrp/run", map[string]any{})
 
 	// 找到该商品对应的需求（若本轮 MRP 未覆盖它，则本用例退化为「不得 501」）

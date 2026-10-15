@@ -12,7 +12,7 @@ import (
 
 func TestOriginalMPSReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/mps/mps-plan-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/mps/mps-plan-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

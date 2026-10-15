@@ -12,7 +12,7 @@ import (
 
 func TestOriginalSerialNumberReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/serials/serial-number-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/serials/serial-number-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

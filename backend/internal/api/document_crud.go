@@ -31,8 +31,8 @@ type simpleDoc struct {
 	TotalQty   bool     // 主表是否有 total_qty
 	TotalAmt   bool     // 主表是否有 total_amount
 
-	// 明细校验文案（原版回放 2026-10-14，evidence/backend-runtime/audit-batch-gg2-20261014.json）
-	// 三种带明细的单据文案各不相同，恢复端此前统一自造，属无据文案，已按回放逐字替换。
+	// 明细校验文案（回归回放 2026-10-14，运行快照）
+	// 三种带明细的单据文案各不相同，本实现此前统一自造，属无据文案，已按回放逐字替换。
 	EmptyMsg    string // 明细为空
 	ProductMsg  string // 明细商品不存在
 	ProductHTTP int    // 商品不存在时的 HTTP 状态码；0 表示走业务 10000
@@ -40,11 +40,11 @@ type simpleDoc struct {
 
 	// DeletePayload 是删除成功后 data 的返回内容；nil 表示 data:null。
 	//
-	// 原版回放 II（2026-10-14，evidence/backend-runtime/audit-batch-ii-contracts-20261014.json）
+	// 回归回放 II（2026-10-14，运行快照）
 	// 逐个建单再删除，实测这 6 类单据**并不统一**：
 	//   采购申请 / 销售报价单 / 采购合同 → {"deleted":true}
 	//   询价单 / 销售合同 / 商品款       → null
-	// 询价单特地连测 3 次均为 null，排除偶发。恢复端原先对所有 6 类一律返回 null。
+	// 询价单特地连测 3 次均为 null，排除偶发。本实现原先对所有 6 类一律返回 null。
 	DeletePayload map[string]any
 }
 
@@ -58,7 +58,7 @@ var simpleDocs = []simpleDoc{
 		TotalAmt:   true,
 		EmptyMsg:   "采购申请明细不能为空",
 		ProductMsg: "系统内部错误，请稍后重试或联系管理员",
-		// 原版对采购申请的不存在商品直接 500（回放 GG5/MM-a），与询价/报价的 10000 不同
+		// 既有实现对采购申请的不存在商品直接 500（回放 GG5/MM-a），与询价/报价的 10000 不同
 		ProductHTTP:   500,
 		QtyMsg:        "采购申请数量必须为正数",
 		DeletePayload: map[string]any{"deleted": true},
@@ -69,7 +69,7 @@ var simpleDocs = []simpleDoc{
 		Label: "询价单", LineFields: []string{"product_id", "unit_id", "qty", "quoted_price", "spec", "remark"},
 		QtyFields: []string{"qty", "quoted_price"}, TotalAmt: false, TotalQty: false,
 		EmptyMsg: "询价明细不能为空", ProductMsg: "所选商品不存在或已被删除", QtyMsg: "询价明细数量必须大于 0",
-		// 原版连测 3 次删除均为 data:null（回放 II-C），与采购申请/报价单不同
+		// 既有实现连测 3 次删除均为 data:null（回放 II-C），与采购申请/报价单不同
 		DeletePayload: nil,
 	},
 	{
@@ -81,15 +81,15 @@ var simpleDocs = []simpleDoc{
 		DeletePayload: map[string]any{"deleted": true},
 	},
 	{
-		// 单号前缀原版实测为 CT（回放 II 建的合同为 CT202610150002/003/004），
-		// 恢复端此前按猜测写成 PC，与原版不符。
+		// 单号前缀实测为 CT（回放 II 建的合同为 CT202610150002/003/004），
+		// 本实现此前按猜测写成 PC，与与既有行为不符。
 		Route: "purchase-contracts", Table: "purchase_contracts", Number: "contract_no", Prefix: "CT",
 		Permission: "purchase_contract", Label: "采购合同",
 		DeletePayload: map[string]any{"deleted": true},
 	},
 	{
-		// 单号前缀原版实测为 XSHT（回放 II 建的合同为 XSHT202610150007/008/009），
-		// 恢复端此前写成 SC，与原版不符。
+		// 单号前缀实测为 XSHT（回放 II 建的合同为 XSHT202610150007/008/009），
+		// 本实现此前写成 SC，与与既有行为不符。
 		Route: "sales-contracts", Table: "sales_contracts", Number: "contract_no", Prefix: "XSHT",
 		Permission: "sales_contract", Label: "销售合同",
 		DeletePayload: nil,
@@ -124,7 +124,7 @@ func (s *Server) registerSimpleDocuments() {
 			if s.Store.Has(d.Table, "created_by") {
 				row["created_by"] = current(r).UserID
 			}
-			// 商品款的 code 既是单号也是用户录入项：原版回放（GG11/MM）里传入的
+			// 商品款的 code 既是单号也是用户录入项：回归回放（GG11/MM）里传入的
 			// 款号会被原样保留（生成的 SKU 形如「GG-SPU3-01」），不能覆盖成流水号。
 			if d.Route == "spus" && text(body, "code") != "" {
 				row[d.Number] = text(body, "code")
@@ -287,7 +287,7 @@ func (s *Server) simpleDocRow(r *http.Request, d simpleDoc, body map[string]any)
 		}
 		row[key] = value
 	}
-	// 原版回放（2026-10-14，audit-batch-gg-20261014.json）：
+	// 回归回放（2026-10-14，audit-batch-gg-20261014.json）：
 	//   POST /spus 缺 name            → 400「请求参数错误: Key: 'CreateSpuRequest.Name' …」
 	//   POST /purchase-contracts {}   → code:0 建单成功（不校验供应商）
 	//   POST /sales-contracts {}      → code:0 建单成功（不校验客户）
@@ -311,7 +311,7 @@ func (s *Server) simpleDocRow(r *http.Request, d simpleDoc, body map[string]any)
 }
 
 // simpleDocLines 构造明细行（商品必须存在，数量必须为正），并回传合计用于回写主表。
-// requireLines=true 时「无 lines 键」与「空明细数组」同样报错（原版 POST 口径）；
+// requireLines=true 时「无 lines 键」与「空明细数组」同样报错（既有实现 POST 口径）；
 // 编辑（PUT）不带 lines 表示只改主表，不得误报明细为空。
 func (s *Server) simpleDocLines(r *http.Request, d simpleDoc, body map[string]any, parentID string, requireLines bool) ([]map[string]any, decimal.Decimal, decimal.Decimal, error) {
 	if d.Lines == "" {
@@ -319,7 +319,7 @@ func (s *Server) simpleDocLines(r *http.Request, d simpleDoc, body map[string]an
 	}
 	raw, _ := body["lines"].([]any)
 	_, hasLines := body["lines"]
-	// 原版对「空明细数组」与「无 lines 键」返回同一句（回放 MM-d / MM-e）
+	// 既有实现对「空明细数组」与「无 lines 键」返回同一句（回放 MM-d / MM-e）
 	if len(raw) == 0 && (requireLines || hasLines) {
 		return nil, decimal.Zero, decimal.Zero, verbatim{text: d.EmptyMsg}
 	}
@@ -357,7 +357,7 @@ func (s *Server) simpleDocLines(r *http.Request, d simpleDoc, body map[string]an
 			}
 			line[key] = value
 		}
-		// 原版对「缺 qty」与「qty=0」返回同一句（回放 MM-b / MM-c）
+		// 既有实现对「缺 qty」与「qty=0」返回同一句（回放 MM-b / MM-c）
 		qty, _ := decimal.NewFromString(fmt.Sprint(line["qty"]))
 		if _, ok := line["qty"]; !ok || !qty.IsPositive() {
 			return nil, decimal.Zero, decimal.Zero, verbatim{text: d.QtyMsg}

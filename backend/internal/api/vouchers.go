@@ -42,9 +42,9 @@ func (s *Server) registerVouchers() {
 		s.mux.Handle(method+" "+path, s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			data, err := s.business().VoucherAction(r.Context(), r.PathValue("id"), current(r).UserID, action)
 			if err != nil {
-				// 原版回放 KK7（2026-10-14，evidence/backend-runtime/audit-batch-k-20261014.json）：
-				// 对不存在的凭证执行 approve/post/cancel 原版返回 **HTTP 400** +
-				// 「凭证不存在或状态不允许审批/过账/取消」，而非恢复端原先的 404「记录不存在」。
+				// 回归回放 KK7（2026-10-14，运行快照）：
+				// 对不存在的凭证执行 approve/post/cancel 既有实现返回 **HTTP 400** +
+				// 「凭证不存在或状态不允许审批/过账/取消」，而非本实现原先的 404「记录不存在」。
 				// 业务层已用原文案表达，这里把 HTTP 语义对齐为 400。
 				if errors.Is(err, database.ErrNotFound) {
 					fail(w, 400, voucherActionMessage(action))
@@ -58,8 +58,8 @@ func (s *Server) registerVouchers() {
 	}
 }
 
-// voucherActionMessage 给出原版凭证动作在「记录不存在」时的原文案
-// （2026-10-14 批次 K 回放，evidence/backend-runtime/audit-batch-k-20261014.json）。
+// voucherActionMessage 给出既有实现凭证动作在「记录不存在」时的原文案
+// （2026-10-14 批次 K 回放，运行快照）。
 func voucherActionMessage(action string) string {
 	switch action {
 	case "approve":

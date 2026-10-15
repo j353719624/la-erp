@@ -106,7 +106,7 @@ const dump = (title, arr) => {
 };
 dump("静态判定：UNIQUE 索引保证 → 死代码", findings.deadUnique);
 dump("静态判定：schema 必有列 → 死代码", findings.deadColumn);
-dump("仍需原版回放", findings.needsReplay);
+dump("仍需回归回放", findings.needsReplay);
 // ---------- 第二类死代码：路由层硬编码表名（批次 X） ----------
 //
 // 形如 `func (s *Service) DeleteXxx(ctx, table, id)` 且开头有

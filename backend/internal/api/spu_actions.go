@@ -70,7 +70,7 @@ func (s *Server) registerSpuActions() {
 		skipped := 0
 		err = s.withTx(r, func(tx *sql.Tx) error {
 			for index, combo := range combos {
-				// 原版口径（回放 GG11 / MM-SPU2，2026-10-14）：
+				// 既有实现口径（回放 GG11 / MM-SPU2，2026-10-14）：
 				//   code = 款号-两位流水（01 起，按笛卡尔积顺序）
 				//   name = 款名（不拼维度值）
 				//   spec = 维度值用 "/" 连接
@@ -147,7 +147,7 @@ func (s *Server) registerSpuActions() {
 	})))
 }
 
-// duplicateSKU 规格组合重复。文案逐字取自原版回放（2026-10-14，audit-batch-gg2）：
+// duplicateSKU 规格组合重复。文案逐字取自回归回放（2026-10-14，audit-batch-gg2）：
 // HTTP 200 + code 10000「规格组合已存在: 红/M（如需补建请勾选跳过已存在）」。
 type duplicateSKU struct{ spec string }
 

@@ -39,9 +39,9 @@ Object.entries(byFile).sort((a, b) => b[1] - a[1]).forEach(([f, n]) => console.l
 console.log(`\n=== 台账登记 ===`);
 console.log(`已实施/已移除/已对齐 标记出现 ${implemented} 处`);
 
-// 抽取台账中所有「待原版回放」的行，提示仍需取证的分支
-const pending = logText.split("\n").filter((l) => l.includes("待原版回放") && l.startsWith("|"));
-console.log(`\n=== 台账中仍标记「待原版回放」的分支：${pending.length} 条 ===`);
+// 抽取台账中所有「待回归回放」的行，提示仍需取证的分支
+const pending = logText.split("\n").filter((l) => l.includes("待回归回放") && l.startsWith("|"));
+console.log(`\n=== 台账中仍标记「待回归回放」的分支：${pending.length} 条 ===`);
 pending.forEach((l) => {
   const cells = l.split("|").map((s) => s.trim()).filter(Boolean);
   if (cells.length >= 3) console.log(`  ${cells[0]} ${cells[1]}  ${String(cells[2]).slice(0, 52)}`);

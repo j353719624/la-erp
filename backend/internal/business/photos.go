@@ -15,9 +15,9 @@ func (s *Service) AddStockPhotos(ctx context.Context, id string, input map[strin
 		return nil, errors.New("请选择要记录的图片")
 	}
 	if len(raw) > 20 {
-		// 原版回放 FF1（2026-10-14，evidence/backend-runtime/audit-batch-f-20261014.json）：
+		// 回归回放 FF1（2026-10-14，运行快照）：
 		// 提交 101 张 → 400「单张入库单最多记录 20 张照片，请先删除不再需要的记录」。
-		// 原恢复端上限为 100 且返回 501，属错误拒绝与错误上限，已对齐为 20 + 原文案。
+		// 原本实现上限为 100 且返回 501，属错误拒绝与错误上限，已对齐为 20 + 原文案。
 		return nil, errors.New("单张入库单最多记录 20 张照片，请先删除不再需要的记录")
 	}
 	photos := []map[string]any{}
@@ -92,11 +92,11 @@ func (s *Service) photoLocation(ctx context.Context, tx *sql.Tx, stock string, i
 	if _, err := s.Store.GetWith(ctx, tx, "stock_ins", stock); err != nil {
 		return err
 	}
-	// 原版回放 HH2（2026-10-14，evidence/backend-runtime/audit-batch-h-20261014.json）：
+	// 回归回放 HH2（2026-10-14，运行快照）：
 	// 照片的 location_id / rack_id / location 字符串 / 不存在的 location_id /
-	// **属于其他仓库的 location_id** —— 五种情况原版全部 code:0 建单成功，
-	// 即原版对库位与货架**不做任何归属校验**（只要库位/货架记录存在即可）。
-	// 原恢复端校验「库位必须属本仓」「货架必须挂在该库位下」两处，属误拒，已移除。
+	// **属于其他仓库的 location_id** —— 五种情况既有实现全部 code:0 建单成功，
+	// 即既有实现对库位与货架**不做任何归属校验**（只要库位/货架记录存在即可）。
+	// 原本实现校验「库位必须属本仓」「货架必须挂在该库位下」两处，属误拒，已移除。
 	if location := value(input, "location_id"); location != "" {
 		if _, err := s.Store.GetWith(ctx, tx, "locations", location); err != nil {
 			return err

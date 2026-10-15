@@ -22,7 +22,7 @@ func TestOriginalImageUploadReplay(t *testing.T) {
 	if err := s.ConfigureUploads(t.TempDir(), 10); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/upload-flow-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/upload-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

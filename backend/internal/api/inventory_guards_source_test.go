@@ -6,8 +6,8 @@ import (
 
 // 本文件固化第 8 项第十四轮（UA1/UC1/UT1/UA2/UC2/UT2）取证的结论：
 // 库存调整、盘点、调拨三处曾对「明细单位与商品主数据不一致」和「库区字段」一律拒绝，
-// 但原版三处均接受并按传入值落库。证据见
-// evidence/backend-runtime/audit-inventory-guards-20261013.json。
+// 但既有实现三处均接受并按传入值落库。证据见
+// 运行快照。
 
 func inventoryGuardFixture(t *testing.T, code string) (*client, map[string]any, map[string]any, map[string]any, map[string]any) {
 	t.Helper()
@@ -30,7 +30,7 @@ func inventorySeed(t *testing.T, c *client, product, warehouse map[string]any, u
 	c.ok("POST", "/api/v1/stock-ins/"+in["id"].(string)+"/confirm", nil)
 }
 
-// UA1：库存调整明细的单位与商品主单位不一致时原版接受，明细 unit_id 按传入值落库。
+// UA1：库存调整明细的单位与商品主单位不一致时既有实现接受，明细 unit_id 按传入值落库。
 func TestSourceAdjustmentAcceptsForeignUnitOnLine(t *testing.T) {
 	c, product, warehouse, _, units := inventoryGuardFixture(t, "REC-ADJ-UNIT")
 	inventorySeed(t, c, product, warehouse, units["main"].(map[string]any))
@@ -47,7 +47,7 @@ func TestSourceAdjustmentAcceptsForeignUnitOnLine(t *testing.T) {
 	}
 }
 
-// UC1：盘点明细单位不一致时原版接受，start/complete 全程 code:0。
+// UC1：盘点明细单位不一致时既有实现接受，start/complete 全程 code:0。
 func TestSourceCheckAcceptsForeignUnitOnLine(t *testing.T) {
 	c, product, warehouse, _, units := inventoryGuardFixture(t, "REC-CHK-UNIT")
 	inventorySeed(t, c, product, warehouse, units["main"].(map[string]any))
@@ -65,7 +65,7 @@ func TestSourceCheckAcceptsForeignUnitOnLine(t *testing.T) {
 	}
 }
 
-// UT1：调拨明细单位不一致时原版接受，dispatch/complete 全程 code:0 且库存划转。
+// UT1：调拨明细单位不一致时既有实现接受，dispatch/complete 全程 code:0 且库存划转。
 func TestSourceTransferAcceptsForeignUnitOnLine(t *testing.T) {
 	c, product, warehouse, target, units := inventoryGuardFixture(t, "REC-TRF-UNIT")
 	inventorySeed(t, c, product, warehouse, units["main"].(map[string]any))

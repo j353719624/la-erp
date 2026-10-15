@@ -29,11 +29,11 @@ func validateSettings(settings map[string]any) error {
 		case "inventory":
 			allowed["batch_strategy"] = true
 			if text(v, "batch_strategy") != "fifo" && text(v, "batch_strategy") != "fefo" {
-				// 批次 CC 取证（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
-				// 原版 PUT /settings {"settings":{"inventory":{"batch_strategy":"lifo"}}}
+				// 批次 CC 取证（2026-10-14，运行快照）：
+				// 既有实现 PUT /settings {"settings":{"inventory":{"batch_strategy":"lifo"}}}
 				// → 10000，原文逐字为
 				//   「批次分配策略仅支持 fifo（先进先出）或 fefo（先到期先出）」
-				// 原恢复端返回自造文案「库存策略无效」，已按原文案逐字对齐。
+				// 原本实现返回自造文案「库存策略无效」，已按原文案逐字对齐。
 				return errors.New("批次分配策略仅支持 fifo（先进先出）或 fefo（先到期先出）")
 			}
 		case "personal_mode":

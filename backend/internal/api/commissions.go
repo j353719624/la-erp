@@ -246,7 +246,7 @@ func (s *Server) registerCommissions() {
 
 // commissionResults 按业务员汇总销售业绩并套用佣金率。
 //
-// 口径（原版该接口在空库回放下返回 []，无法逐字取证，按下述业务定义实现）：
+// 口径（既有实现该接口在空库回放下返回 []，无法逐字取证，按下述业务定义实现）：
 //   - 统计范围：未删除、状态非 draft/cancelled 的销售订单；start_date/end_date 按 order_date 过滤
 //   - sales_amount：SUM(total_amount)
 //   - profit_amount：SUM(total_amount) - Σ(明细行 qty × 商品采购价)

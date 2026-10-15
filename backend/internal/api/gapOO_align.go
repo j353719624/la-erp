@@ -3,20 +3,20 @@ package api
 // 批次 OO 对齐（2026-10-15）：对账报告 62 条差异里**纯路由/纯形态**部分的修复。
 //
 // ## 本批的取证来源
-//   tools/replay-batch-oo-methods.js  → 证明 22 条「原版=absent」是探测方法噪声
+//   tools/replay-batch-oo-methods.js  → 证明 22 条「既有实现=absent」是探测方法噪声
 //   tools/replay-batch-oo-shapes.js   → 纯路由带 token 的形态对照（35 条）
 //   tools/replay-batch-oo-shapes2.js  → 正确参数名 + 近合法载荷的递进对照（28 条）
-// 证据落盘 evidence/backend-runtime/audit-batch-oo-*-20261015.{txt,json}。
+// 证据落盘 运行快照,json}。
 //
 // ## 三条本批确立的准则
-//   ① 原版 500 仍按铁律④不作语义证据；但恢复端**绝不能**把 SQL 原文回给客户端
+//   ① 既有实现 500 仍按铁律④不作语义证据；但本实现**绝不能**把 SQL 原文回给客户端
 //      （opening-balances 的「sql: no rows in result set」、approval-flows 的
 //      「constraint failed: NOT NULL constraint failed: ...」都是实现泄漏）。
-//   ② 时间解析一律用 time.RFC3339（**不带纳秒**）。原版错误信息里是
-//      "2006-01-02T15:04:05Z07:00"，恢复端多处用了 RFC3339Nano，串不一样。
+//   ② 时间解析一律用 time.RFC3339（**不带纳秒**）。既有实现错误信息里是
+//      "2006-01-02T15:04:05Z07:00"，本实现多处用了 RFC3339Nano，串不一样。
 //   ③ gin 的 required 校验形态是
 //      `请求参数错误: Key: '<Struct>.<Field>' Error:Field validation for
-//       '<Field>' failed on the 'required' tag`，与恢复端通用的
+//       '<Field>' failed on the 'required' tag`，与本实现通用的
 //      `请求参数错误：<中文名> 为必填字段` 是两套，不能混用。
 
 import (
@@ -32,10 +32,10 @@ import (
 var ooPeriodRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}$`)
 
 // ---------------------------------------------------------------------------
-// 考勤申请：原版的校验顺序是 request_type → start_date 非空 → start_date 解析
+// 考勤申请：既有实现的校验顺序是 request_type → start_date 非空 → start_date 解析
 // ---------------------------------------------------------------------------
 
-// prepareAttendanceRequest 复刻原版考勤申请的写校验链。
+// prepareAttendanceRequest 复刻既有实现考勤申请的写校验链。
 //
 // 回放 OO（2026-10-15，audit-batch-oo-shapes2-20261015.json）三条定序证据：
 //
@@ -43,7 +43,7 @@ var ooPeriodRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}$`)
 //	POST {request_type:leave}                → 200/10000「开始日期不能为空」
 //	POST {request_type:leave,start_date:2026-10-01} → 400「参数错误: parsing time ...」
 //
-// 注意 request_type 只判**非空**，不判合法性：{request_type:"BAD"} 原版照样放行到
+// 注意 request_type 只判**非空**，不判合法性：{request_type:"BAD"} 既有实现同样放行到
 // 日期解析那一步（回放里返回的是日期解析错误，不是类型无效）。文案里虽然列了合法值，
 // 但它起的是提示作用，不是白名单 —— 这点不能凭直觉扩成枚举校验。
 func (s *Server) prepareAttendanceRequest(w http.ResponseWriter, data map[string]any) bool {
@@ -56,7 +56,7 @@ func (s *Server) prepareAttendanceRequest(w http.ResponseWriter, data map[string
 		businessFailure(w, errors.New("开始日期不能为空"), false)
 		return false
 	}
-	// 原版错误信息里的 layout 是 RFC3339（无纳秒），与恢复端默认的 RFC3339Nano 不同。
+	// 既有实现错误信息里的 layout 是 RFC3339（无纳秒），与本实现默认的 RFC3339Nano 不同。
 	if _, err := time.Parse(time.RFC3339, start); err != nil {
 		fail(w, 400, "参数错误: "+err.Error())
 		return false
@@ -65,10 +65,10 @@ func (s *Server) prepareAttendanceRequest(w http.ResponseWriter, data map[string
 }
 
 // ---------------------------------------------------------------------------
-// 期初余额：原版校验顺序是 period 格式 → entries 非空 → 科目存在
+// 期初余额：既有实现校验顺序是 period 格式 → entries 非空 → 科目存在
 // ---------------------------------------------------------------------------
 
-// prepareOpeningBalances 复刻原版期初余额的入参校验。
+// prepareOpeningBalances 复刻既有实现期初余额的入参校验。
 //
 // 回放 OO 三条定序证据（period 一律用 2099-12，避免覆盖真实期初余额）：
 //
@@ -76,8 +76,8 @@ func (s *Server) prepareAttendanceRequest(w http.ResponseWriter, data map[string
 //	{period:"2099-12"}                          → 200/10000「期初余额分录不能为空」
 //	{period:"2099-12",entries:[{account_id:NIL}]} → 200/10000「会计科目不存在」
 //
-// 关键结论：原版**不校验期间是否存在**（2099-12 并不存在，却一路走到了科目检查）。
-// 恢复端原来第一句就是 SELECT status FROM accounting_periods，期间不存在时把
+// 关键结论：既有实现**不校验期间是否存在**（2099-12 并不存在，却一路走到了科目检查）。
+// 本实现原来第一句就是 SELECT status FROM accounting_periods，期间不存在时把
 // `sql.ErrNoRows` 的原文「sql: no rows in result set」回给了客户端。
 func (s *Server) prepareOpeningBalances(w http.ResponseWriter, data map[string]any) bool {
 	period := text(data, "period")
@@ -94,16 +94,16 @@ func (s *Server) prepareOpeningBalances(w http.ResponseWriter, data map[string]a
 }
 
 // ---------------------------------------------------------------------------
-// 审批流：原版缺必填字段时不暴露 SQL，恢复端必须同样收口
+// 审批流：既有实现缺必填字段时不暴露 SQL，本实现必须同样收口
 // ---------------------------------------------------------------------------
 
-// prepareApprovalFlow 复刻原版审批流建单的必填校验。
+// prepareApprovalFlow 复刻既有实现审批流建单的必填校验。
 //
-// 回放 OO：{code,name,biz_type} 齐全时两端都是 200/code0；缺任意一个原版 500。
-// 500 按铁律④不作语义证据，但恢复端原来返回的是
+// 回放 OO：{code,name,biz_type} 齐全时两端都是 200/code0；缺任意一个既有实现 500。
+// 500 按铁律④不作语义证据，但本实现原来返回的是
 // `200/10000 constraint failed: NOT NULL constraint failed: approval_flows.code (1299)`
-// —— 把建表约束名直接回给客户端。这里对齐成原版的裸 500 + 通用文案：
-// 文案是原版逐字（回放已取到），状态码也是原版的 500。
+// —— 把建表约束名直接回给客户端。这里对齐成既有实现的裸 500 + 通用文案：
+// 文案是既有实现逐字（回放已取到），状态码也是既有实现的 500。
 func (s *Server) prepareApprovalFlow(w http.ResponseWriter, data map[string]any) bool {
 	missing := ""
 	switch {
@@ -125,17 +125,17 @@ func (s *Server) prepareApprovalFlow(w http.ResponseWriter, data map[string]any)
 }
 
 // ---------------------------------------------------------------------------
-// 门户：原版商品/分类必须持客户 token，恢复端原来完全不鉴权
+// 门户：既有实现商品/分类必须持客户 token，本实现原来完全不鉴权
 // ---------------------------------------------------------------------------
 
-// ooPortalCustomer 校验门户客户 token，失败时按原版文案回 401 并返回 false。
+// ooPortalCustomer 校验门户客户 token，失败时按既有文案回 401 并返回 false。
 //
 // 回放 OO（audit-batch-oo-shapes-20261015.json）：
 //
 //	GET /portal/categories 无 token   → 401「登录状态无效」
 //	GET /portal/categories 主 token   → 401「非客户登录，无权访问门户」
 //
-// 恢复端原来直接返回 200 + 数据，等于**门户商品与分类对匿名开放**。
+// 本实现原来直接返回 200 + 数据，等于**门户商品与分类对匿名开放**。
 // 注意 /portal/orders 原本就有鉴权，文案是「客户登录已失效」（另一条文案，不动）。
 func (s *Server) ooPortalCustomer(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
 	// 「无 token」实际有三种形态，都要算无 token，否则会错报成「非客户登录」：
@@ -180,18 +180,18 @@ func ooRefreshRequired(w http.ResponseWriter, data map[string]any) bool {
 }
 
 // ---------------------------------------------------------------------------
-// 固定响应：原版把这些子路径当作 {id} 处理，恢复端通用注册器却给了别的语义
+// 固定响应：既有实现把这些子路径当作 {id} 处理，本实现通用注册器却给了别的语义
 // ---------------------------------------------------------------------------
 
-// ooRegisterFixedHandlers 注册原版有固定响应、而恢复端会走错分支的子路径。
+// ooRegisterFixedHandlers 注册既有实现有固定响应、而本实现会走错分支的子路径。
 //
 // 回放 OO：
 //
 //	PUT|DELETE /attendance-requests/summary      → 400「无效的考勤申请ID」
 //	PUT|DELETE /assemblies/bom-components        → 400「无效的组装单ID」
 //
-// 这两条都是探针打到「集合下的子路径」上，原版把它当 /{id} 解析，id 不是合法 UUID
-// 就回上述文案。恢复端的通用注册器把 summary / bom-components 当独立资源注册了
+// 这两条都是探针打到「集合下的子路径」上，既有实现把它当 /{id} 解析，id 不是合法 UUID
+// 就回上述文案。本实现的通用注册器把 summary / bom-components 当独立资源注册了
 // PUT/DELETE，于是跑出了 200/10000 或 404 的另一种形态。
 // 前端两者都不调用（frontend/src/api 只用了 GET），所以这里只对齐形态。
 func (s *Server) ooRegisterFixedHandlers() {

@@ -7,7 +7,7 @@ import (
 
 // 本文件固化批次 E 取证（2026-10-14）的结论：生产单据建单期与确认期的状态校验位置、
 // 同材料多行、换 BOM 后旧材料行、外协发料材料的三类错误文案。
-// 证据见 evidence/backend-runtime/audit-batch-e-20261014.json。
+// 证据见 运行快照。
 
 type batchEEnv struct {
 	client    *client
@@ -54,7 +54,7 @@ func TestSourceProductionDocumentAcceptsDraftWorkOrder(t *testing.T) {
 	}
 }
 
-// EE2：同一材料在领料单中出现两行时原版放行。
+// EE2：同一材料在领料单中出现两行时既有实现放行。
 func TestSourcePickingAcceptsDuplicateComponentRows(t *testing.T) {
 	e := batchESetup(t, "EE-DUP")
 	order := e.client.ok("POST", "/api/v1/work-orders", map[string]any{
@@ -65,7 +65,7 @@ func TestSourcePickingAcceptsDuplicateComponentRows(t *testing.T) {
 		map[string]any{"product_id": e.component["id"], "qty": 20, "unit_cost": 5},
 	}}).(map[string]any)
 	e.client.ok("POST", "/api/v1/stock-ins/"+seed["id"].(string)+"/confirm", nil)
-	// 原版无 start 动作：approve 直接把工单推进到 in_progress。
+	// 既有实现无 start 动作：approve 直接把工单推进到 in_progress。
 	e.client.ok("POST", "/api/v1/work-orders/"+order["id"].(string)+"/approve", nil)
 	pick := e.client.ok("POST", "/api/v1/production-pickings", map[string]any{
 		"work_order_id": order["id"], "warehouse_id": e.warehouse["id"],
@@ -109,7 +109,7 @@ func TestSourceWorkOrderBomChangeRebuildsMaterials(t *testing.T) {
 	}
 }
 
-// EE1b：已取消的工单不允许新建生产单据（这条原版在**建单期**就拒绝）。
+// EE1b：已取消的工单不允许新建生产单据（这条既有实现在**建单期**就拒绝）。
 func TestSourceCancelledWorkOrderRejectsProductionDocument(t *testing.T) {
 	e := batchESetup(t, "EE-CANCEL")
 	order := e.client.ok("POST", "/api/v1/work-orders", map[string]any{
@@ -125,7 +125,7 @@ func TestSourceCancelledWorkOrderRejectsProductionDocument(t *testing.T) {
 	}
 }
 
-// EE3：领料明细带 batch_no / serial_nos 时原版放行。
+// EE3：领料明细带 batch_no / serial_nos 时既有实现放行。
 func TestSourcePickingLineAcceptsTrackingFields(t *testing.T) {
 	e := batchESetup(t, "EE-TRACK")
 	order := e.client.ok("POST", "/api/v1/work-orders", map[string]any{
@@ -172,7 +172,7 @@ func TestSourceSubcontractMaterialErrorMessages(t *testing.T) {
 		missing[k] = v
 	}
 	missing["material_lines"] = []any{map[string]any{"product_id": "00000000-0000-0000-0000-0000000000ff", "qty": 1}}
-	// 原版 EE8：商品不存在时返回 HTTP 500 且**无业务文案**，恢复端无原文案可对齐，
+	// 既有实现 EE8：商品不存在时返回 HTTP 500 且**无业务文案**，本实现无原文案可对齐，
 	// 保留 501 未恢复。此处断言「未伪造成功」，不断言具体文案。
 	if status, body := e.client.request("POST", "/api/v1/subcontract-orders", missing); status == 200 && body["code"] == float64(0) {
 		t.Fatal("unknown material product accepted")
@@ -195,7 +195,7 @@ func TestSourceWorkOrderCannotCompleteWithPendingMaterials(t *testing.T) {
 		"product_id": e.product["id"], "qty": 5, "warehouse_id": e.warehouse["id"], "bom_id": e.bom["id"],
 	}).(map[string]any)
 	e.client.ok("POST", "/api/v1/work-orders/"+order["id"].(string)+"/confirm", nil)
-	// 原版无 start 动作：approve 直接把工单推进到 in_progress。
+	// 既有实现无 start 动作：approve 直接把工单推进到 in_progress。
 	e.client.ok("POST", "/api/v1/work-orders/"+order["id"].(string)+"/approve", nil)
 	if _, body := e.client.request("POST", "/api/v1/work-orders/"+order["id"].(string)+"/complete", nil); body["code"] == float64(0) {
 		t.Fatal("work order completed with pending materials")

@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 MM 已实测确认的 P0 口径（2026-10-15 原版 192.168.110.97:18886 回放，
-// 见 docs/UNSUPPORTED-AUDIT-LOG.md 37.2）：会计期间 period 的格式必须是 **YYYY-MM**。
+// 本文件固化批次 MM 已实测确认的 P0 口径（2026-10-15 参考实例回放，
+// 见审计台账）：会计期间 period 的格式必须是 **YYYY-MM**。
 //
-// 起因：恢复端 Resources 里 accounting-periods 的必填字段错配成了
-// start_date / end_date，于是 `{"period":"2026-10"}`（原版 200 成功的请求）
-// 被恢复端以「start_date 为必填字段」拒掉 —— 会计期间根本建不出来。
+// 起因：本实现 Resources 里 accounting-periods 的必填字段错配成了
+// start_date / end_date，于是 `{"period":"2026-10"}`（既有实现 200 成功的请求）
+// 被本实现以「start_date 为必填字段」拒掉 —— 会计期间根本建不出来。
 //
-// 断言原则与项目铁律一致：**原版有文案就逐字照抄**，不「优化」措辞；
+// 断言原则与项目铁律一致：**既有实现有文案就逐字照抄**，不「优化」措辞；
 // 错误形态（400 vs 200+10000）也照抄，不按常理「修正」。
 
 // TestMMAccountingPeriodCreate 固化上表 4 条实测断言。
@@ -55,7 +55,7 @@ func TestMMAccountingPeriodCreate(t *testing.T) {
 	}
 
 	// ④ {"start_date":"2026-10-01","end_date":"2026-10-31"} → 400 + Go time.Parse 报错
-	//    注意：这里既没有 period 也没有报「期间不能为空」—— 原版的日期绑定
+	//    注意：这里既没有 period 也没有报「期间不能为空」—— 既有实现的日期绑定
 	//    **早于** period 校验，故报的是 Go 标准库的 parse 错误。
 	status, body = c.request("POST", "/api/v1/accounting-periods", map[string]any{
 		"start_date": "2026-10-01", "end_date": "2026-10-31",
@@ -63,7 +63,7 @@ func TestMMAccountingPeriodCreate(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("POST /accounting-periods 仅带日期 = %d %v, want 400", status, body)
 	}
-	// 逐字对齐原版的 Go 报错文案（含 layout 与非法值的原文）
+	// 逐字对齐既有行为的 Go 报错文案（含 layout 与非法值的原文）
 	wantParse := "请求参数错误: parsing time \"2026-10-01\" as " +
 		"\"2006-01-02T15:04:05Z07:00\": cannot parse \"\" as \"T\""
 	if body["message"] != wantParse {

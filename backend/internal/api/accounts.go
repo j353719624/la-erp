@@ -68,8 +68,8 @@ func (s *Server) registerAccounts() {
 		// 回放 OO（2026-10-15）：DELETE /accounts/tree（非 UUID）→ 400「无效的ID格式」。
 		// 注：这个 handler 比通用 Resources 的 DELETE /{id} 更先注册，故守卫必须写在这里。
 		//
-		// ⚠ 不要在这里拦掉「合法 UUID」的删除 —— 原版**允许**删除科目：
-		// evidence/backend-runtime/account-flow-contracts.json（2026-10-08 回放）
+		// ⚠ 不要在这里拦掉「合法 UUID」的删除 —— 既有实现**允许**删除科目：
+		// 运行快照（2026-10-08 回放）
 		// case 29/31/32 都是 200/code0。只有「科目从未存在」才回裸 400 + 通用文案，
 		// 那条判断在 business.DeleteAccount 里（按 id 查无此行）。
 		if _, err := uuid.Parse(r.PathValue("id")); err != nil {

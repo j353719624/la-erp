@@ -5,8 +5,8 @@ import (
 )
 
 // 本文件固化批次 J 取证（2026-10-14）的结论：订单的 source / source_id / source_no
-// 被原版一律静默忽略，恢复端原先把它们变成 501。
-// 证据见 evidence/backend-runtime/audit-batch-j-20261014.json。
+// 被既有实现一律静默忽略，本实现原先把它们变成 501。
+// 证据见 运行快照。
 
 // JJ1/JJ5：订单传 source 系列的任何值都放行，且一律落库为 manual。
 func TestSourceOrderSourceFieldsAreIgnored(t *testing.T) {
@@ -23,7 +23,7 @@ func TestSourceOrderSourceFieldsAreIgnored(t *testing.T) {
 	}
 }
 
-// JJ1：订单带 source_id/source_no 原版 code:0 且两字段不落库。
+// JJ1：订单带 source_id/source_no 既有实现 code:0 且两字段不落库。
 func TestSourceOrderIgnoresSourceIdAndNo(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "JJ-SRCID")
 	customer := party["customer"].(map[string]any)
@@ -89,7 +89,7 @@ func TestSourceMissingDocumentGetMessages(t *testing.T) {
 	}
 }
 
-// JJ2：已确认订单不可编辑，与原版文案一致。
+// JJ2：已确认订单不可编辑，与既有文案一致。
 func TestSourceConfirmedOrderRejectsEdit(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "JJ-EDIT")
 	srcSeedStock(t, c, product, warehouse, 10, 10)
@@ -108,7 +108,7 @@ func TestSourceConfirmedOrderRejectsEdit(t *testing.T) {
 	}
 }
 
-// JJ6：库存单接受合法 source_id，非法 UUID 原版返回 400。
+// JJ6：库存单接受合法 source_id，非法 UUID 既有实现返回 400。
 func TestSourceStockDocumentSourceIdContract(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "JJ-STOCKSRC")
 	doc := c.ok("POST", "/api/v1/stock-ins", map[string]any{
@@ -124,7 +124,7 @@ func TestSourceStockDocumentSourceIdContract(t *testing.T) {
 	}); status != 400 || body["code"] == float64(0) {
 		t.Fatalf("invalid source_id UUID must be rejected at create time: %d %#v", status, body)
 	}
-	// 格式合法但订单不存在：原版建单放行（JJ6）。
+	// 格式合法但订单不存在：既有实现建单放行（JJ6）。
 	orphan := c.ok("POST", "/api/v1/stock-ins", map[string]any{
 		"warehouse_id": warehouse["id"], "source_id": "00000000-0000-0000-0000-000000000000",
 		"lines": []any{map[string]any{"product_id": product["id"], "qty": 1, "unit_cost": 1}},

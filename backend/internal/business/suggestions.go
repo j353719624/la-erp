@@ -83,15 +83,15 @@ func (s *Service) ConvertSuggestion(ctx context.Context, id string) (map[string]
 			}
 			price := readDecimal(product, "purchase_price")
 			if price.IsNegative() {
-				// 批次 CC 取证（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
-				// 原版**允许**负 purchase_price：POST /products 传 purchase_price=-5
+				// 批次 CC 取证（2026-10-14，运行快照）：
+				// 既有实现**允许**负 purchase_price：POST /products 传 purchase_price=-5
 				// → code:0，回读 -5（落库）。
 				// 但要把该商品送进采购建议需先让它产生 purchase 类 MRP 需求，
 				// 批次 CC 用 safety_stock=999999 构造仍未能使其进入任何建议单
-				//（原版 MRP 的采购需求覆盖范围与恢复端一致，均不含该商品）。
-				// 即「负采购价商品出现在待转建议行里」这一状态在原版实践中**难以构造**，
-				// 无原版文案可对齐 —— 保留 ErrUnsupported 作兜底，不自造中文。
-				// 若将来找到可复现路径，应按原版行为改为放行（负价会拉低采购总额，
+				//（既有实现 MRP 的采购需求覆盖范围与本实现一致，均不含该商品）。
+				// 即「负采购价商品出现在待转建议行里」这一状态在既有实现实践中**难以构造**，
+				// 无既有文案可对齐 —— 保留 ErrUnsupported 作兜底，不自造中文。
+				// 若将来找到可复现路径，应按既有行为改为放行（负价会拉低采购总额，
 				// 但那属于业务决策而非数据缺陷）。
 				return ErrUnsupported
 			}

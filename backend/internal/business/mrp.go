@@ -52,8 +52,8 @@ func (s *Service) RunMRP(ctx context.Context) (map[string]any, error) {
 			}
 			for _, item := range items {
 				scrap := readDecimal(item, "scrap_rate")
-				// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
-				// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
+				// 负损耗率：既有实现允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
+				// 属既有实现的校验缺失；本实现保留拒绝以免放大需求数量。
 				if scrap.IsNegative() {
 					return ErrKnownDefect
 				}
@@ -228,9 +228,9 @@ func (s *Service) GenerateMRPWorkOrders(ctx context.Context, id, user string) ([
 			if err != nil {
 				return err
 			}
-			// 批次 AA（2026-10-14，evidence/backend-runtime/audit-batch-aa-20261014.json）：
-			// **永不可达** —— 批次 Q 已证明原版建仓传 is_default=true 不抢占默认位、
-			// 默认仓数量恒为 1（原版库实测也是 1），恢复端亦已加
+			// 批次 AA（2026-10-14，运行快照）：
+			// **永不可达** —— 批次 Q 已证明既有实现建仓传 is_default=true 不抢占默认位、
+			// 默认仓数量恒为 1（既有实现库实测也是 1），本实现亦已加
 			// enforceSingleDefaultWarehouse 保证同一。
 			// 属防御性断言，保留 ErrUnsupported 作兜底，不自造文案。
 			if len(warehouses) != 1 {
@@ -240,8 +240,8 @@ func (s *Service) GenerateMRPWorkOrders(ctx context.Context, id, user string) ([
 			if err != nil {
 				return err
 			}
-			// 批次 AA 实测（2026-10-14，evidence/backend-runtime/audit-batch-aa-20261014.json）：
-			// 原版对一个**有 15 张 active BOM** 的商品（C79795FIFO）跑
+			// 批次 AA 实测（2026-10-14，运行快照）：
+			// 既有实现对一个**有 15 张 active BOM** 的商品（C79795FIFO）跑
 			// POST /mrp/requirements/{id}/generate-work-orders → **code:0 成功**，
 			// 生成的工单 bom_id 正是 `created_at` 最新的一张（4dae8092），
 			// 即「按 created_at DESC 取最新一张，不报错」。
@@ -286,7 +286,7 @@ func (s *Service) explodeMRP(ctx context.Context, tx *sql.Tx, productID string, 
 	if err != nil {
 		return err
 	}
-	// 原版回放 CC9b（2026-10-14）：同一产品多张 active BOM 时按 created_at DESC
+	// 回归回放 CC9b（2026-10-14）：同一产品多张 active BOM 时按 created_at DESC
 	// 取最新一张。原实现保留了 `len(boms) > 1 → ErrUnsupported`，但该查询带
 	// LIMIT 1，分支恒不可达，属死代码，已删除。
 	if len(boms) == 0 {
@@ -298,8 +298,8 @@ func (s *Service) explodeMRP(ctx context.Context, tx *sql.Tx, productID string, 
 	}
 	for _, item := range items {
 		scrap := readDecimal(item, "scrap_rate")
-		// 负损耗率：原版允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
-		// 属原版校验缺失；恢复端保留拒绝以免放大需求数量。
+		// 负损耗率：既有实现允许并落库（见 boms.go 同项注释与 2026-10-13 取证），
+		// 属既有实现的校验缺失；本实现保留拒绝以免放大需求数量。
 		if scrap.IsNegative() {
 			return ErrKnownDefect
 		}

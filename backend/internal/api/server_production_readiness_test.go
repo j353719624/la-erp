@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// TestServeHTTPRecoversPanic 锁定：处理器 panic 后返回原版通用 500，而不是掐断连接。
+// TestServeHTTPRecoversPanic 锁定：处理器 panic 后返回既有实现通用 500，而不是掐断连接。
 //
 // 修复前：ServeHTTP 没有 recover。net/http 的 conn.serve 虽有兜底（进程不会退出），
 // 但会直接关闭连接 —— 客户端拿到的是空响应/网络错误，且标准错误里只有堆栈，
@@ -29,9 +29,9 @@ func TestServeHTTPRecoversPanic(t *testing.T) {
 	if status != 500 {
 		t.Fatalf("期望 panic 被兜底为 500，实际 http=%d body=%v", status, body)
 	}
-	// 形态与已取证的原版通用 500 一致（business.ErrKnownNoMessage 同文案）
+	// 形态与已取证的既有实现通用 500 一致（business.ErrKnownNoMessage 同文案）
 	if text, _ := body["message"].(string); !strings.Contains(text, "系统内部错误，请稍后重试或联系管理员") {
-		t.Fatalf("期望原版通用 500 文案，实际 %v", body["message"])
+		t.Fatalf("期望既有实现通用 500 文案，实际 %v", body["message"])
 	}
 	// 服务仍然可用（进程没被打挂）
 	if after, _ := c.request("GET", "/api/v1/auth/me", nil); after != 200 {
@@ -41,8 +41,8 @@ func TestServeHTTPRecoversPanic(t *testing.T) {
 
 // TestTrailingSlashNormalized 锁定：/api/v1/xxx/ 与 /api/v1/xxx 等价。
 //
-// 原版（Gin）把两者视为同一路由；Go ServeMux 不会，修复前所有带尾斜杠的
-// 请求一律落到 404「路由不存在」。已取样 8 个资源（含带 id / 不带 id）确认原版
+// 既有实现（Gin）把两者视为同一路由；Go ServeMux 不会，修复前所有带尾斜杠的
+// 请求一律落到 404「路由不存在」。已取样 8 个资源（含带 id / 不带 id）确认既有实现
 // 行为，再全量扫描 105 个资源验证修复（见 eval-trailing-slash-sweep）。
 func TestTrailingSlashNormalized(t *testing.T) {
 	c, _ := setup(t)
@@ -66,8 +66,8 @@ func TestTrailingSlashNormalized(t *testing.T) {
 
 // TestLoginThrottle 锁定：登录失败限流的阈值、文案与冷却行为。
 //
-// 生产就绪度（2026-10-15）：恢复端此前**完全无限流**，口令可被枚举。
-// 原版取证（audit-batch-pp-login-throttle-20261015.txt，冷却满 5 分钟后重跑取得）：
+// 生产就绪度（2026-10-15）：本实现此前**完全无限流**，口令可被枚举。
+// 既有实现取证（audit-batch-pp-login-throttle-20261015.txt，冷却满 5 分钟后重跑取得）：
 //   · 连续失败 10 次仍是 401，**第 11 次**起 429
 //   · 文案逐字「登录尝试过于频繁，请 5 分钟后再试」
 //   · 按**用户名**计数：换一个用户名登录不受他人冷却影响
@@ -110,7 +110,7 @@ func TestLoginThrottle(t *testing.T) {
 		t.Fatalf("其他用户名不应受冷却影响，实际 %d", status)
 	}
 
-	// 冷却期内即使口令正确也被拒（原版实测第 ④ 组）
+	// 冷却期内即使口令正确也被拒（实测第 ④ 组）
 	if status, _ := post(victim, "admin123"); status != 429 {
 		t.Fatalf("冷却期内正确口令也应被拒（429），实际 %d", status)
 	}
@@ -118,9 +118,9 @@ func TestLoginThrottle(t *testing.T) {
 
 // TestApprovalListShape 锁定：审批资源列表是**裸数组**且忽略分页。
 //
-// 原版实测（audit-batch-pp-approvalflows-20261015.txt）：
+// 实测（audit-batch-pp-approvalflows-20261015.txt）：
 // 裸数组、page_size=2 仍返回全部、created_at 升序、不含 is_active。
-// 恢复端原先走通用注册器输出 {list,total} + 降序 + 带 is_active。
+// 本实现原先走通用注册器输出 {list,total} + 降序 + 带 is_active。
 func TestApprovalListShape(t *testing.T) {
 	c, _ := setup(t)
 	for _, res := range []string{"approval-flows", "approval-records"} {

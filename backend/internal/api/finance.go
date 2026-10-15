@@ -34,10 +34,10 @@ func (s *Server) registerFinance() {
 				}
 				data, err := s.business().UpdateInvoice(r.Context(), table, r.PathValue("id"), input, method == "POST")
 				if err != nil {
-					// 开票（POST /{id}/issue）的「记录不存在」在原版是**业务错误形态**
+					// 开票（POST /{id}/issue）的「记录不存在」在既有实现是**业务错误形态**
 					// 200 + code 10000 + 「应付单不存在」/「应收单不存在」（回放 OO
-					// 2026-10-15），而恢复端统一走 404「记录不存在」。
-					// PUT 分支的原版形态是 500，按铁律④不作语义证据，故保持原样。
+					// 2026-10-15），而本实现统一走 404「记录不存在」。
+					// PUT 分支的既有实现形态是 500，按铁律④不作语义证据，故保持原样。
 					if method == "POST" {
 						if errors.Is(err, database.ErrNotFound) {
 							write(w, 200, map[string]any{"code": 10000, "message": label + "不存在", "data": nil})
@@ -84,7 +84,7 @@ func (s *Server) registerFinance() {
 	}
 	for route, d := range business.Finances {
 		s.mux.Handle("GET /api/v1/"+route, s.protected("*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 批次 KK：原版支持 status / customer_id / supplier_id / currency_code 精确过滤，
+			// 批次 KK：既有实现支持 status / customer_id / supplier_id / currency_code 精确过滤，
 			// 且**忽略分页参数**（page_size=2 仍返回全部）。过滤字段是否生效由
 			// ListPayments 按「表上确有该列」判断（与批次 JJ 的结论一致）。
 			filters := map[string]string{}
@@ -152,7 +152,7 @@ func (s *Server) registerFinance() {
 		}
 		data, err := s.business().AccountBalance(r.Context(), r.PathValue("id"), r.URL.Query().Get("period"))
 		if err != nil {
-			// 回放 OO：原版科目不存在时返回 200 + code 10000 + 「科目不存在」，
+			// 回放 OO：既有实现科目不存在时返回 200 + code 10000 + 「科目不存在」，
 			// 与 GET /accounts/{id} 的 404「科目不存在」是**两套形态**，不能共用
 			// businessFailure 的默认分支（那个会输出 404「记录不存在」）。
 			if errors.Is(err, business.ErrAccountNotFound) {

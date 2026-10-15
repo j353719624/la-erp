@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 KK 的取证结论（2026-10-15 原版回放 192.168.110.97:18886）。
+// 本文件固化批次 KK 的取证结论（2026-10-15 回归回放（参考实例）。
 //
 // 起因：批次 KK 把路由对账从「只看路由存在性」升级为「逐方法语义比对」，
-// 暴露出 6 组「路由在原版存在、恢复端却落 501」的写路径：
+// 暴露出 6 组「路由在既有实现存在、本实现却落 501」的写路径：
 //
 //	① price-lists  ② permissions  ③ shareholders  ④ console/companies
 //	⑤ purchase-reconciliations/generate + piecework-records/import-processes
 //	⑥ sales-contracts/options（被 {id} 通配吞掉）+ 收付款单列表过滤
 //
-// 每条断言都对应 evidence/backend-runtime/audit-batch-kk-20261015.json 里的步骤号。
-// 断言原则与项目铁律一致：**原版有文案就逐字照抄**，不「优化」措辞。
+// 每条断言都对应 运行快照 里的步骤号。
+// 断言原则与项目铁律一致：**既有实现有文案就逐字照抄**，不「优化」措辞。
 
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
@@ -38,7 +38,7 @@ func allDigits(s string) bool {
 func TestKKPriceListWrites(t *testing.T) {
 	c, _ := setup(t)
 
-	// KK-1：缺 name → 400 原版 validator 文案
+	// KK-1：缺 name → 400 既有实现 validator 文案
 	status, body := c.request("POST", "/api/v1/price-lists", map[string]any{})
 	want := "请求参数错误: Key: 'createPriceListRequest.Name' Error:Field validation for 'Name' failed on the 'required' tag"
 	if status != http.StatusBadRequest || body["message"] != want {
@@ -55,10 +55,10 @@ func TestKKPriceListWrites(t *testing.T) {
 		t.Fatalf("创建未返回 id: %v", created)
 	}
 
-	// KK-3：原版**不查重**，同名可再建一条（恢复端不应加唯一性检查）
+	// KK-3：既有实现**不查重**，同名可再建一条（本实现不应加唯一性检查）
 	again := c.ok("POST", "/api/v1/price-lists", map[string]any{"name": "KK价目表"}).(map[string]any)
 	if again["id"] == id {
-		t.Fatal("同名价目表应能创建出第二条（原版不查重）")
+		t.Fatal("同名价目表应能创建出第二条（既有实现不查重）")
 	}
 
 	// KK-6：改名称 → 200，data 为 null
@@ -67,7 +67,7 @@ func TestKKPriceListWrites(t *testing.T) {
 		t.Fatalf("PUT /price-lists/{id} = %d %v, want 200/0/null", status, body)
 	}
 
-	// KK-7 / KK-8：记录不存在时原版回 **500 通用文案**，不是 404
+	// KK-7 / KK-8：记录不存在时既有实现回 **500 通用文案**，不是 404
 	for _, m := range []string{"PUT", "DELETE"} {
 		status, body = c.request(m, "/api/v1/price-lists/"+zeroUUID, map[string]any{"name": "x"})
 		if status != http.StatusInternalServerError || body["message"] != "系统内部错误，请稍后重试或联系管理员" {
@@ -192,7 +192,7 @@ func TestKKShareholderWrites(t *testing.T) {
 	}
 	id := created["id"].(string)
 
-	// KK-23：原版不查重
+	// KK-23：既有实现不查重
 	c.ok("POST", "/api/v1/shareholders", map[string]any{"name": "KK股东", "share_ratio": 0, "capital": 0})
 
 	// KK-24 / KK-25：改、删都返回 200 + data:null
@@ -218,7 +218,7 @@ func TestKKShareholderWrites(t *testing.T) {
 
 // TestKKCompanyWrites 部署控制台的公司写路径（回放 KK-29 / KK-code-* / KK-30 / KK-31）。
 //
-// 注意原版的检查顺序：**先格式后重复** —— code="Abc" 报的是格式错而非「已存在」，
+// 注意既有实现的检查顺序：**先格式后重复** —— code="Abc" 报的是格式错而非「已存在」，
 // 因为 "abc" 已存在但 "Abc" 格式不合法。
 func TestKKCompanyWrites(t *testing.T) {
 	c, _ := setup(t)
@@ -280,7 +280,7 @@ func TestKKCompanyWrites(t *testing.T) {
 
 // TestKKReconciliationAndImport 动作端点（回放 KK-32 ~ KK-35 + 二次订正取证）。
 //
-// 订正：初版取证用的参数名 `period` 是错的。原版校验的是 period_start / period_end
+// 订正：初版取证用的参数名 `period` 是错的。既有实现校验的是 period_start / period_end
 // 两个**都必填**的日期；`period` 无论取什么值都走「期间格式无效」分支。
 func TestKKReconciliationAndImport(t *testing.T) {
 	c, _, _, party := testFixture(t, "KK-RECON")
@@ -294,7 +294,7 @@ func TestKKReconciliationAndImport(t *testing.T) {
 		{"supplier_id": supplierID, "period_start": "2026-10-01"},
 		{"supplier_id": supplierID, "period_start": "bad", "period_end": "2026-10-31"},
 		{"supplier_id": supplierID, "period_start": "2026-13-01", "period_end": "2026-10-31"},
-		// 传原版不认的 period 参数，同样落到格式错分支
+		// 传既有实现不认的 period 参数，同样落到格式错分支
 		{"supplier_id": supplierID, "period": "2026-10"},
 	} {
 		status, body := c.request("POST", "/api/v1/purchase-reconciliations/generate", payload)
@@ -359,7 +359,7 @@ func TestKKReconciliationAndImport(t *testing.T) {
 // TestKKSalesContractOptions sales-contracts/options 之前被 {id} 通配吞掉，
 // 请求返回 400「无效的 ID」，导致销售订单表单的「关联合同」下拉永远加载不出来。
 //
-// 原版实测：返回**裸数组**；支持 customer_id；排除 status='cancelled'；
+// 实测：返回**裸数组**；支持 customer_id；排除 status='cancelled'；
 // 但**包含 status='draft'**（过滤条件是「非 cancelled」而非「仅 active」）。
 func TestKKSalesContractOptions(t *testing.T) {
 	c, _, _, party := testFixture(t, "KK-OPT")
@@ -414,7 +414,7 @@ func TestKKSalesContractOptions(t *testing.T) {
 
 // TestKKPaymentListFilters 收/付款单列表的过滤参数（2026-10-15 实测）。
 //
-// 原版行为（易误实现）：
+// 既有行为（易误实现）：
 //
 //	· 返回**裸数组**，且**忽略分页**（page_size=2 仍返回全部）
 //	· status 生效
@@ -452,7 +452,7 @@ func TestKKPaymentListFilters(t *testing.T) {
 	// 不分页：page_size 必须是**奇数**才会失败，故断言条数 >= 已建数量
 	all := list("?page=1&page_size=1")
 	if len(all) < 2 {
-		t.Fatalf("原版忽略分页，page_size=1 也应返回全部，实际 %d 条", len(all))
+		t.Fatalf("既有实现忽略分页，page_size=1 也应返回全部，实际 %d 条", len(all))
 	}
 	// status 过滤生效
 	confirmed := list("?status=confirmed")

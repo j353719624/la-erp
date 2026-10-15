@@ -2,9 +2,9 @@ package api
 
 // 本文件固化批次 EE 取证（2026-10-14）的结论：组合件端点族
 // /api/v1/combo-products（列表/详情/改配方/取消/组装/拆解/可用量）。
-// 证据见 evidence/backend-runtime/audit-batch-ee-20261014.json。
+// 证据见 运行快照。
 //
-// 关键口径（逐条对账过原版库存余额与 stock_movements）：
+// 关键口径（逐条对账过既有实现库存余额与 stock_movements）：
 //   ref_cost     = 配件在默认仓的库存均价；均价为 0 或无库存行时回落 purchase_price
 //   assemble     unit_cost = Σ(行 qty × ref_cost)
 //   disassemble  unit_cost = 成品在该仓的库存均价
@@ -46,7 +46,7 @@ func TestSourceComboMarkListAndUnmark(t *testing.T) {
 	if item["id"] != product["id"] || item["item_count"] != float64(1) {
 		t.Fatalf("list item=%#v", item)
 	}
-	// 不带 warehouse_id 时 stock / can_assemble 恒为 "0"（原版一致）
+	// 不带 warehouse_id 时 stock / can_assemble 恒为 "0"（与既有行为一致）
 	if item["stock"] != "0" || item["can_assemble"] != "0" {
 		t.Fatalf("stock/can_assemble must be \"0\" without warehouse_id: %#v", item)
 	}
@@ -90,7 +90,7 @@ func TestSourceComboDetailOfPlainProduct(t *testing.T) {
 	if detail["unit_cost"] != float64(0) || detail["total_cost"] != float64(0) {
 		t.Fatalf("plain unit/total must be numeric 0: %#v", detail)
 	}
-	// 非组合商品组装 / 拆解走原版文案
+	// 非组合商品组装 / 拆解走既有文案
 	for action, want := range map[string]string{"assemble": "该商品未配置组合配方，无法组装", "disassemble": "该商品未配置组合配方，无法拆解"} {
 		status, resp := c.request("POST", "/api/v1/combo-products/"+product["id"].(string)+"/"+action,
 			map[string]any{"warehouse_id": warehouse["id"], "qty": 1})
@@ -100,7 +100,7 @@ func TestSourceComboDetailOfPlainProduct(t *testing.T) {
 	}
 }
 
-// EE3：PUT 配方保存的边界文案（逐字对照原版）。
+// EE3：PUT 配方保存的边界文案（逐字对照既有实现）。
 func TestSourceComboSaveRejections(t *testing.T) {
 	c, product, component, _ := comboFixture(t, "EE-SAVE")
 	id := product["id"].(string)
@@ -139,7 +139,7 @@ func TestSourceComboSaveRejections(t *testing.T) {
 	if status != 200 || resp["code"] != float64(10000) || fmtMessage(resp) != "成品商品不存在" {
 		t.Fatalf("unknown product: %d %#v", status, resp)
 	}
-	// qty 字符串数字原版接受
+	// qty 字符串数字既有实现接受
 	c.ok("PUT", "/api/v1/combo-products/"+id, map[string]any{"lines": []any{map[string]any{"component_id": cid, "qty": "3"}}})
 	detail := c.ok("GET", "/api/v1/combo-products/"+id, nil).(map[string]any)
 	if detail["lines"].([]any)[0].(map[string]any)["qty"] != "3" {
@@ -183,7 +183,7 @@ func TestSourceComboIdAndAvailable(t *testing.T) {
 			t.Fatalf("available warehouse=%q: %d %#v", q, status, resp)
 		}
 	}
-	// 商品 / 仓库不存在时静默返回 0（原版不报错）
+	// 商品 / 仓库不存在时静默返回 0（既有实现不报错）
 	data := c.ok("GET", "/api/v1/combo-products/00000000-0000-0000-0000-000000000099/available?warehouse_id="+wh, nil).(map[string]any)
 	if data["can_assemble"] != "0" || data["stock"] != "0" {
 		t.Fatalf("available of unknown product=%#v", data)

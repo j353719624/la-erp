@@ -26,10 +26,10 @@ func (s *Service) WriteWorkCenter(ctx context.Context, id string, input map[stri
 			if err != nil {
 				return err
 			}
-			// 原版回放 CC3b（2026-10-14）：工作中心编辑时传入新 code 原版 code:0，
+			// 回归回放 CC3b（2026-10-14）：工作中心编辑时传入新 code 既有实现 code:0，
 			// 但**回读 code 仍是建单时的原值**（C2-WC1 不变），name/capacity/cost_rate
 			// 均正常更新。即 code 不可改、也不拒绝，只是静默沿用旧值。
-			// 原恢复端在 code 不同时返回 ErrUnsupported，属误拒，已移除。
+			// 原本实现在 code 不同时返回 ErrUnsupported，属误拒，已移除。
 			h["updated_at"] = now()
 		}
 		for _, k := range []string{"name", "manager", "remark", "status"} {
@@ -113,9 +113,9 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			if err != nil {
 				return err
 			}
-			// 原版回放 CC4（2026-10-14）：工艺已被工单关联后执行删除，原版返回
-			// 10000「工艺路线不存在」——即删除**按不存在处理**，而恢复端返回 501
-			// ErrUnsupported。原版语义等价于「有关联时不可删」，恢复端改为原文案。
+			// 回归回放 CC4（2026-10-14）：工艺已被工单关联后执行删除，既有实现返回
+			// 10000「工艺路线不存在」——即删除**按不存在处理**，而本实现返回 501
+			// ErrUnsupported。既有实现语义等价于「有关联时不可删」，本实现改为原文案。
 			var linked int
 			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM work_orders WHERE routing_id=? AND deleted_at IS NULL", id).Scan(&linked); err != nil {
 				return err
@@ -147,30 +147,30 @@ func (s *Service) WriteRouting(ctx context.Context, id string, input map[string]
 			if !ok {
 				return errors.New("工序格式错误")
 			}
-			// 批次 Y 精确取证（2026-10-14，evidence/backend-runtime/audit-batch-y-20261014.json）：
-			// 原版对 process_code / process_name **必填**（隔离实测：其余字段全合法时，
+			// 批次 Y 精确取证（2026-10-14，运行快照）：
+			// 既有实现对 process_code / process_name **必填**（隔离实测：其余字段全合法时，
 			// 缺任一项返回 HTTP **500**「系统内部错误，请稍后重试或联系管理员」——
 			// Go 结构体绑定失败，非业务校验）。
-			// 恢复端原先返回自造文案「工序编码和名称不能为空」，已按原版改为 500 + 原文案。
+			// 本实现原先返回自造文案「工序编码和名称不能为空」，已按既有实现改为 500 + 原文案。
 			if value(l, "process_code") == "" || value(l, "process_name") == "" {
 				return ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 			}
 			row := s.base("routing_steps")
-			// 批次 Y 精确取证（2026-10-14，evidence/backend-runtime/audit-batch-y-20261014.json）：
-			// 原版对 sequence 的约束（**其余字段全部合法**时的隔离实测）：
+			// 批次 Y 精确取证（2026-10-14，运行快照）：
+			// 既有实现对 sequence 的约束（**其余字段全部合法**时的隔离实测）：
 			//   整数 2 / 负整数 -1 / 不传 → code:0（不传时落库 0）
 			//   字符串 "2"              → HTTP **400**「系统内部错误，请稍后重试或联系管理员」
 			//   小数 1.5                → HTTP **400** 同上
-			// 即原版要求 sequence **要么不传，要么是 JSON 整数**。
+			// 即既有实现要求 sequence **要么不传，要么是 JSON 整数**。
 			//
 			// ⚠ 归因教训（本批次踩过的坑）：早期测试 TestSourceRoutingSequenceRequiresJSONInteger
 			// 用的键是 `steps`，结论正确；但批次 Y 首次取证时误用了 `lines` 键 ——
-			// 原版**只处理 `steps`，传 `lines` 会被完全忽略**（返回 code:0 且明细不落库），
-			// 于是得出「原版不校验 sequence」的相反结论。
+			// 既有实现**只处理 `steps`，传 `lines` 会被完全忽略**（返回 code:0 且明细不落库），
+			// 于是得出「既有实现不校验 sequence」的相反结论。
 			// **变量隔离必须同时固定「用哪个键」**，否则 400 归因会错到别的字段头上。
 			//
 			// 注意 api 层 decode 用 UseNumber()，故数字是 json.Number 而非 float64；
-			// 不能用 Number() 兜底 —— 它会把 "2" 转成 2 放行，与原版不符。
+			// 不能用 Number() 兜底 —— 它会把 "2" 转成 2 放行，与与既有行为不符。
 			sequence := decimal.Zero
 			if raw := l["sequence"]; raw != nil {
 				number, isNumeric := raw.(json.Number)

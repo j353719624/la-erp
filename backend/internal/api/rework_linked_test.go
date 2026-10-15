@@ -10,7 +10,7 @@ import (
 
 func TestOriginalLinkedReworkReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/rework/linked-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/rework/linked-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -72,8 +72,8 @@ func (s *Service) CreateAccount(ctx context.Context, input map[string]any) (map[
 func (s *Service) UpdateAccount(ctx context.Context, id string, input map[string]any) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := s.Store.GetWith(ctx, tx, "accounts", id); err != nil {
-			// 批次 PP（2026-10-15）：原版 PUT /accounts/{合法UUID不存在} 回
-			// 400「科目不存在」，恢复端此前直接透传 record not found（ORM 原文泄漏）。
+			// 批次 PP（2026-10-15）：既有实现 PUT /accounts/{合法UUID不存在} 回
+			// 400「科目不存在」，本实现此前直接透传 record not found（ORM 原文泄漏）。
 			if errors.Is(err, database.ErrNotFound) {
 				return ErrAccountNotFound
 			}
@@ -102,10 +102,10 @@ func (s *Service) DeleteAccount(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		// 回放 OO（2026-10-15）：原版删除**从未存在**的科目返回裸 400 + 通用文案，
-		// 恢复端原来 return nil（→ 200/code0）。
-		// 注意这里不能改成「不存在就报错」的通用写法：已软删的科目重复删除在原版是
-		// 200/code0（evidence/backend-runtime/account-flow-contracts.json case 31），
+		// 回放 OO（2026-10-15）：既有实现删除**从未存在**的科目返回裸 400 + 通用文案，
+		// 本实现原来 return nil（→ 200/code0）。
+		// 注意这里不能改成「不存在就报错」的通用写法：已软删的科目重复删除在既有实现是
+		// 200/code0（运行快照 case 31），
 		// 而上面的 SELECT **不过滤 deleted_at**，所以软删记录仍会走到下面继续处理。
 		// 只有「查无此行」才是真的从未存在。
 		if len(rows) == 0 {
@@ -141,14 +141,14 @@ func (s *Service) AccountTree(ctx context.Context) (any, error) {
 		for _, row := range byParent[parent] {
 			id := value(row, "id")
 			if path[id] {
-				// 批次 CC 取证（2026-10-14，evidence/backend-runtime/audit-batch-cc-20261014.json）：
-				// 环确实可以形成，但**形成后无法解开** —— 原版 PUT 传 parent_id 返回 code:0，
+				// 批次 CC 取证（2026-10-14，运行快照）：
+				// 环确实可以形成，但**形成后无法解开** —— 既有实现 PUT 传 parent_id 返回 code:0，
 				// 回读却是**原值不变**（parent_id 不在可改字段白名单内；name 等字段可正常改）。
-				// 恢复端行为**与原版一致**（实测 PUT parent_id 回读同样不变）。
-				// 此时 GET /accounts/tree 原版返回 code:0（未死循环），
+				// 本实现行为**与与既有行为一致**（实测 PUT parent_id 回读同样不变）。
+				// 此时 GET /accounts/tree 既有实现返回 code:0（未死循环），
 				// 本守卫则返回 ErrUnsupported —— 差异仅在「有环时的树端点行为」，
-				// 原版该场景的**具体输出结构未取证**，无文案可对齐，不自造。
-				// 保留 ErrUnsupported 作兜底（它同时防止恢复端自身的递归死循环）。
+				// 既有实现该场景的**具体输出结构未取证**，无文案可对齐，不自造。
+				// 保留 ErrUnsupported 作兜底（它同时防止本实现自身的递归死循环）。
 				return nil, ErrUnsupported
 			}
 			path[id] = true

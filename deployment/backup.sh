@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LA-ERP 恢复版 · SQLite 热备份脚本
+# LA-ERP · SQLite 热备份脚本
 #
 # 为什么不能直接 cp 数据库文件：
 #   SQLite 在运行中，直接复制可能拿到「写入到一半」的页，备份文件打不开，

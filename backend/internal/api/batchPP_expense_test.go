@@ -6,7 +6,7 @@ package api
 //   - tools/replay-batch-pp-expense.js（8 用例，audit-batch-pp-expense-20261015.txt）
 //   - tools/replay-batch-pp-expense2.js（E9/E10/E11，audit-batch-pp-expense2-20261015.txt）
 //
-// 原版文案一律是「只有<状态>的报销单才能<动作>」，恢复端此前是简写形态，
+// 既有文案一律是「只有<状态>的报销单才能<动作>」，本实现此前是简写形态，
 // 五个动作**逐条不同**，不得只改一条就推广。
 
 import (
@@ -64,7 +64,7 @@ func TestPPExpenseActionMessages(t *testing.T) {
 }
 
 // TestPPExpenseCancelOnlyDraft cancel 是**逻辑差异**而非仅文案：
-// 原版 submitted → cancel 被拒，恢复端原先放行。
+// 既有实现 submitted → cancel 被拒，本实现原先放行。
 func TestPPExpenseCancelOnlyDraft(t *testing.T) {
 	c, _ := setup(t)
 	// draft → cancel 必须成功（两端一致）

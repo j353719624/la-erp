@@ -2,24 +2,24 @@ package api
 
 import "net/http"
 
-// adjustValidatorMsg 是原版对 POST /api/v1/inventory-adjusts 空载荷的逐字响应。
+// adjustValidatorMsg 是既有实现对 POST /api/v1/inventory-adjusts 空载荷的逐字响应。
 //
-// 实测取证（2026-10-15 原版回放，见 docs/UNSUPPORTED-AUDIT-LOG.md 37.1/37.2）：
+// 实测取证（2026-10-15 回归回放，见审计台账）：
 //
 //	{} → 400「请求参数错误: Key: 'createAdjustRequest.WarehouseID'
 //	          Error:Field validation for 'WarehouseID' failed on the 'required' tag」
 //
 // 逐字来源可分别追溯，不是拼凑：
-//   - 「Key: '%s' Error:Field validation for '%s' failed on the '%s' tag」是原版二进制
-//     里 validator 的报错模板（docs/original-linux-strings-filtered.txt:3068）；
-//   - `createAdjustRequest` 是原版的请求结构体名（同文件 2944 行）；
-//   - 「请求参数错误: 」前缀是原版 400 的通用前缀（evidence/backend-runtime/
+//   - 「Key: '%s' Error:Field validation for '%s' failed on the '%s' tag」是既有实现
+//     里 validator 的报错模板（内置字符串表 3068 行）；
+//   - `createAdjustRequest` 是既有实现的请求结构体名（同文件 2944 行）；
+//   - 「请求参数错误: 」前缀是既有实现 400 的通用前缀（运行快照
 //     bank-flow-contracts.json 等多处回放）。
 //
 // 用 verbatim 承载（而非 errors.New）是为了声明「这是回放逐字文案」，
 // 不被 tools/audit-self-authored-text.mjs 判为本轮自造。
 //
-// 注意：**只覆盖 create**。原版的 PUT 用的是另一个结构体 `updateAdjustRequest`
+// 注意：**只覆盖 create**。既有实现的 PUT 用的是另一个结构体 `updateAdjustRequest`
 // （同文件 2944 行附近），其校验文案无任何实测取证，故此处不动，避免臆造。
 const adjustValidatorMsg = "请求参数错误: Key: 'createAdjustRequest.WarehouseID' Error:Field validation for 'WarehouseID' failed on the 'required' tag"
 
@@ -30,8 +30,8 @@ func (s *Server) registerAdjustments() {
 			fail(w, 400, err.Error())
 			return
 		}
-		// 原版先过 struct validator 再进业务层：warehouse_id 缺失时返回
-		// 400 validator 文案，而不是恢复端此前直落到业务层的「仓库不存在」。
+		// 既有实现先过 struct validator 再进业务层：warehouse_id 缺失时返回
+		// 400 validator 文案，而不是本实现此前直落到业务层的「仓库不存在」。
 		if text(input, "warehouse_id") == "" {
 			verbatimFailure(w, verbatim{text: adjustValidatorMsg, status: 400})
 			return

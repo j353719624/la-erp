@@ -36,22 +36,22 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 	creating := id == ""
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		raw, ok := input["entries"].([]any)
-		// 批次 V 取证（2026-10-14，evidence/backend-runtime/audit-batch-v-20261014.json）：
-		// 原版凭证**分录行数无上限**（借贷平衡前提下实测）：
+		// 批次 V 取证（2026-10-14，运行快照）：
+		// 既有实现凭证**分录行数无上限**（借贷平衡前提下实测）：
 		//   2 / 100 / 1000 / 1500 行 → code:0 全部建单成功
 		//   0 行   → 400「凭证分录不能为空」
 		//   1 行   → 400「借方金额与贷方金额必须相等」（借贷自然不平）
 		//   1001 行 → 400 同上（奇数行导致借贷不平，**不是行数超限**）
-		// 即原版的分录约束只有「非空」与「借贷相等」两条，没有 1000 行的硬上限。
-		// 原恢复端限制 2..1000 行，属误拒（会挡住合法的 1001+ 行凭证），已放宽为「非空」。
+		// 即既有实现的分录约束只有「非空」与「借贷相等」两条，没有 1000 行的硬上限。
+		// 原本实现限制 2..1000 行，属误拒（会挡住合法的 1001+ 行凭证），已放宽为「非空」。
 		if !ok || len(raw) == 0 {
 			return errors.New("凭证分录不能为空")
 		}
-		// 原版回放 KK5（2026-10-14，evidence/backend-runtime/audit-batch-k-20261014.json）：
+		// 回归回放 KK5（2026-10-14，运行快照）：
 		// 凭证传 type="adjustment"、带 source_id/source_type、带 currency_code —— 三者
-		// 原版**全部 code:0 接受**，即这三个字段原版均不校验。
-		// 原恢复端 return ErrUnsupported 属误拒，已移除。
-		// 真正被原版拒绝的是：分录借贷不等（400「借方金额与贷方金额必须相等」）
+		// 既有实现**全部 code:0 接受**，即这三个字段既有实现均不校验。
+		// 原本实现 return ErrUnsupported 属误拒，已移除。
+		// 真正被既有实现拒绝的是：分录借贷不等（400「借方金额与贷方金额必须相等」）
 		// 与缺 account_name（400，Go 结构体绑定失败）——两者由下方逻辑自然覆盖。
 		lines := []map[string]any{}
 		debit, credit := decimal.Zero, decimal.Zero
@@ -111,7 +111,7 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 				return errors.New("只有草稿状态的凭证才能编辑")
 			}
 		}
-		// 回放 OO（2026-10-15）：原版缺 type 返回裸 400 + 通用文案，恢复端原来把
+		// 回放 OO（2026-10-15）：既有实现缺 type 返回裸 400 + 通用文案，本实现原来把
 	// `constraint failed: NOT NULL constraint failed: vouchers.type (1299)` 原样回给
 	// 客户端 —— 与批次 OO 修的 approval_flows 是同一类实现泄漏，必须收口。
 	// 建单时 type 是 NOT NULL 列，缺了必然落到 DB 错误，故在建单分支先拦。
@@ -200,9 +200,9 @@ func (s *Service) VoucherAction(ctx context.Context, id, user, action string) (m
 			}
 			changes["deleted_at"] = now()
 		default:
-			// 原版 KK6 实测的动作集只有 approve / post / cancel，
-			// 以及 HTTP DELETE（非 POST /{id}/delete，后者原版 404）。
-			// confirm / reverse / void / audit 在原版全部 404，
+			// 既有实现 KK6 实测的动作集只有 approve / post / cancel，
+			// 以及 HTTP DELETE（非 POST /{id}/delete，后者既有实现 404）。
+			// confirm / reverse / void / audit 在既有实现全部 404，
 			// 故该 default 分支在路由层已不可达；无原文案可对齐，保留 ErrUnsupported。
 			return ErrUnsupported
 		}

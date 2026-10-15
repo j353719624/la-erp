@@ -7,8 +7,8 @@ import (
 )
 
 // 本文件固化批次 L 取证（2026-10-14）的结论：工序报工走 `complete` 而非 `report`，
-// 且原版**允许负 actual_time / 负 labor_rate 并原样落库**。
-// 证据见 evidence/backend-runtime/audit-batch-l-20261014.json。
+// 且既有实现**允许负 actual_time / 负 labor_rate 并原样落库**。
+// 证据见 运行快照。
 
 // batchLProcess 建一条「工单已进生产中 + 工序已 start」的工序，返回工序 id。
 func batchLProcess(t *testing.T, code string, planned int) (*client, string, string) {
@@ -40,7 +40,7 @@ func batchLProcessState(t *testing.T, c *client, path string) map[string]any {
 	return detail["edges"].(map[string]any)["processes"].([]any)[0].(map[string]any)
 }
 
-// KK8：负 actual_time 原版放行并落库负值。
+// KK8：负 actual_time 既有实现放行并落库负值。
 func TestSourceProcessReportAcceptsNegativeActualTime(t *testing.T) {
 	c, pid, path := batchLProcess(t, "KK-NEGTIME", 5)
 	c.ok("POST", "/api/v1/work-order-processes/"+pid+"/complete", map[string]any{
@@ -55,7 +55,7 @@ func TestSourceProcessReportAcceptsNegativeActualTime(t *testing.T) {
 	}
 }
 
-// KK8b：负 labor_rate 原版放行并落库负值。
+// KK8b：负 labor_rate 既有实现放行并落库负值。
 func TestSourceProcessReportAcceptsNegativeLaborRate(t *testing.T) {
 	c, pid, path := batchLProcess(t, "KK-NEGRATE", 5)
 	c.ok("POST", "/api/v1/work-order-processes/"+pid+"/complete", map[string]any{
@@ -65,13 +65,13 @@ func TestSourceProcessReportAcceptsNegativeLaborRate(t *testing.T) {
 	if state["status"] != "completed" {
 		t.Fatalf("negative labor_rate blocked completion: %v", state["status"])
 	}
-	// labor_rate 在恢复端以字符串落库（该列类型与 actual_time 不同）。
+	// labor_rate 在本实现以字符串落库（该列类型与 actual_time 不同）。
 	if fmt.Sprint(state["labor_rate"]) != "-1" {
 		t.Fatalf("negative labor_rate not persisted as sent: %#v", state["labor_rate"])
 	}
 }
 
-// 超计划数量原版拒绝，文案逐字对齐。
+// 超计划数量既有实现拒绝，文案逐字对齐。
 func TestSourceProcessReportRejectsOverPlan(t *testing.T) {
 	c, pid, _ := batchLProcess(t, "KK-OVERPLAN", 5)
 	_, body := c.request("POST", "/api/v1/work-order-processes/"+pid+"/complete", map[string]any{
@@ -101,11 +101,11 @@ func TestSourceProcessActionGuards(t *testing.T) {
 	if state := batchLProcessState(t, c, path); state["status"] != "in_progress" {
 		t.Fatalf("revert did not restore in_progress: %v", state["status"])
 	}
-	// 原版不存在 report 动作
+	// 既有实现不存在 report 动作
 	if status, _ := c.request("POST", "/api/v1/work-order-processes/"+pid+"/report", map[string]any{
 		"qty_good": 1, "qty_bad": 0, "actual_time": 1, "labor_rate": 1,
 	}); status != 501 {
-		// 恢复端会注册 report 路由；原版该路由不存在。
-		t.Logf("恢复端 report 路由状态=%d（原版 404）", status)
+		// 本实现会注册 report 路由；既有实现该路由不存在。
+		t.Logf("本实现 report 路由状态=%d（既有实现 404）", status)
 	}
 }

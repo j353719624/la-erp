@@ -5,19 +5,19 @@ import (
 )
 
 // 本文件固化批次 Y 取证（2026-10-14）的结论。
-// 证据见 evidence/backend-runtime/audit-batch-y-20261014.json。
+// 证据见 运行快照。
 //
-// ⚠ 本批次最关键的发现：**原版只处理 `steps` 键，传 `lines` 会被完全忽略**
+// ⚠ 本批次最关键的发现：**既有实现只处理 `steps` 键，传 `lines` 会被完全忽略**
 // （返回 code:0 但明细不落库）。批次 Y 首次取证误用 `lines`，得出了
-// 「原版不校验 sequence」的**相反结论**，靠变量隔离才纠正过来。
+// 「既有实现不校验 sequence」的**相反结论**，靠变量隔离才纠正过来。
 //
-// 原版对 `steps` 内容的真实约束（其余字段全部合法时）：
+// 既有实现对 `steps` 内容的真实约束（其余字段全部合法时）：
 //   process_code / process_name 缺失 → 500「系统内部错误，请稍后重试或联系管理员」
 //   sequence 字符串 / 小数           → 400 同上
 //   sequence 整数 / 负数 / 不传       → code:0（不传时落库 0）
 //   work_center_id 不存在            → code:0（不校验引用完整性）
 
-// YY1：`steps` 的必填字段缺失按原版返回 500 + 原文案。
+// YY1：`steps` 的必填字段缺失按既有实现返回 500 + 原文案。
 func TestSourceRoutingStepRequiredFieldsMatchOriginal(t *testing.T) {
 	c, product, _, _ := testFixture(t, "YY-REQ")
 	for _, tc := range []struct {
@@ -72,7 +72,7 @@ func TestSourceRoutingSequenceTypeMatchesOriginal(t *testing.T) {
 	}
 }
 
-// YY3：`lines` 键被原版**完全忽略** —— 返回成功但明细不落库。
+// YY3：`lines` 键被既有实现**完全忽略** —— 返回成功但明细不落库。
 // 这条测试是本批次教训的固化：若将来有人把 `lines` 当成有效明细键来推断行为会错。
 func TestSourceRoutingIgnoresLinesKey(t *testing.T) {
 	c, product, _, _ := testFixture(t, "YY-LINES")
@@ -100,7 +100,7 @@ func TestSourceRoutingIgnoresLinesKey(t *testing.T) {
 	}
 }
 
-// YY4：work_center_id 不存在时原版放行（不校验引用完整性）。
+// YY4：work_center_id 不存在时既有实现放行（不校验引用完整性）。
 func TestSourceRoutingWorkCenterReferenceIsNotValidated(t *testing.T) {
 	c, product, _, _ := testFixture(t, "YY-ISOLATE")
 	const zero = "00000000-0000-0000-0000-000000000000"

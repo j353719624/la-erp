@@ -28,28 +28,28 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 			if status != "draft" {
 				return errors.New("只有草稿状态的组装单才能确认")
 			}
-			// 批次 PP（2026-10-15）：原版 confirm 不只是改状态 ——
+			// 批次 PP（2026-10-15）：既有实现 confirm 不只是改状态 ——
 			// 还会**校验组件库存**并产生两条库存流水（组件出 / 成品入）。
-			// 恢复端原先只改状态，装配业务等于残的：
-			//   ① 组件超量也放行（原版回 200+10000「库存不足」）
+			// 本实现原先只改状态，装配业务等于残的：
+			//   ① 组件超量也放行（既有实现回 200+10000「库存不足」）
 			//   ② confirm 后库存与流水均无变化
-			// 证据：evidence/backend-runtime/audit-batch-pp-assembly{2,3,4}-20261015.txt。
+			// 证据：运行快照,3,4}-20261015.txt。
 			if err := s.confirmAssemblyStock(ctx, tx, row); err != nil {
 				return err
 			}
 			changes["status"], changes["confirmed_at"] = "confirmed", now()
 		case "cancel":
-			// 批次 PP（2026-10-15）：原版 cancel **只准入 draft**，confirmed /
+			// 批次 PP（2026-10-15）：既有实现 cancel **只准入 draft**，confirmed /
 			// cancelled 一律拒绝，且文案与 confirm 同构（「只有草稿状态的组装单
-			// 才能取消」）。恢复端原先放行 confirmed —— 而已确认的装配单已经
+			// 才能取消」）。本实现原先放行 confirmed —— 而已确认的装配单已经
 			// 产生组件出 / 成品入两条库存流水，允许取消会让库存与单据状态脱节。
-			// 证据：evidence/backend-runtime/audit-batch-pp-asm-statemachine-20261015.txt
+			// 证据：运行快照
 			// 矩阵 ③④⑤⑦ 四条。
 			if status != "draft" {
 				return errors.New("只有草稿状态的组装单才能取消")
 			}
 			changes["status"] = "cancelled"
-		// 原版 NN4 实测动作集只有 confirm / cancel，与恢复端白名单完全一致。
+		// 既有实现 NN4 实测动作集只有 confirm / cancel，与本实现白名单完全一致。
 		// 本 default 分支在 API 层 []string{...} 限定下**不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
@@ -66,7 +66,7 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 	return s.Store.Public("assembly_orders", result), nil
 }
 
-// confirmAssemblyStock 执行装配单确认的库存副作用，顺序与字段逐条对齐原版：
+// confirmAssemblyStock 执行装配单确认的库存副作用，顺序与字段逐条对齐既有行为：
 //
 //  ① 逐行扣减组件库存，任一行余额变负 →「库存不足」整体回滚
 //     流水：type=out, direction=-1, unit_cost=行 unit_cost,
@@ -134,7 +134,7 @@ func (s *Service) assemblyMove(ctx context.Context, tx *sql.Tx, productID, wareh
 	}
 	update := map[string]any{"qty_available": available.String(), stamp: now(), "updated_at": now()}
 	if kind == "in" {
-		// 原版入库按加权平均刷新 avg_cost（与出库侧一致，见 checks.go 的同款处理）。
+		// 既有实现入库按加权平均刷新 avg_cost（与出库侧一致，见 checks.go 的同款处理）。
 		update["avg_cost"] = unitCost.String()
 	}
 	if err := s.Store.UpdateWith(ctx, tx, "inventory_balances", value(balance, "id"), update); err != nil {
@@ -151,12 +151,12 @@ func (s *Service) assemblyMove(ctx context.Context, tx *sql.Tx, productID, wareh
 
 // ── 组件明细校验（批次 PP，2026-10-15）──────────────────────────────────
 //
-// 原版 POST /assemblies 与 PUT /assemblies/{id} 的组件明细校验共 7 段，
+// 既有实现 POST /assemblies 与 PUT /assemblies/{id} 的组件明细校验共 7 段，
 // 且是**分段全量前置**（不是逐行短路）—— 任一行在某段失败即整单失败，
 // 且前段优先于后段。这一点靠两组反例坐实，不能凭直觉写成逐行循环：
 //   · ⑫ 行1 qty=0 / 行2 product_id 非法 → 报 UUID 错（不是行1 的数量错）
 //   · ⑭ 行1 qty=0 / 行2 缺 product_id   → 报商品错（不是行1 的数量错）
-// 逐条证据：evidence/backend-runtime/audit-batch-pp-lines-shape{,2,3,4,5}-20261015.txt
+// 逐条证据：运行快照,2,3,4,5}-20261015.txt
 // 与 audit-batch-pp-put-lines{,2,3}-20261015.txt。
 const (
 	AssemblyLinesRequired   = "组件明细不能为空"        // A 段：lines 缺失 / nil / 空数组
@@ -164,16 +164,16 @@ const (
 	AssemblyQtyMustPositive = "组件数量必须大于0"       // G 段：任一行 qty ≤ 0
 )
 
-// AssemblyShapeFailure 是 B 段（明细形状非法）的原版降级形态：
+// AssemblyShapeFailure 是 B 段（明细形状非法）的既有实现降级形态：
 // lines 传非数组、或数组元素是标量（数字/字符串）→ **HTTP 400**，但文案是通用
-// 「系统内部错误，请稍后重试或联系管理员」（原版 JSON 绑定失败后套了通用文案）。
+// 「系统内部错误，请稍后重试或联系管理员」（既有实现 JSON 绑定失败后套了通用文案）。
 // 与 transfers.go 的 transferLinesShapeFailure 同款。
 var AssemblyShapeFailure = ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 // AssemblyGhostProductFailure 是 F 段：product_id 是**合法 UUID 但查无此商品**。
 //
 // 注意与 E 段区分：E（缺 product_id）走业务文案 200+10000，F（有合法 UUID 但查不到）
-// 走通用 500 —— 原版实测确实是两套不同形态，不是同一分支的两种写法，故不能合并。
+// 走通用 500 —— 实测确实是两套不同形态，不是同一分支的两种写法，故不能合并。
 var AssemblyGhostProductFailure = ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 
 // AssemblyLineSet 是校验通过后待落库的规范化明细（数值已解码，避免二次解析）。
@@ -183,13 +183,13 @@ type AssemblyLineSet struct {
 	Costs []decimal.Decimal
 }
 
-// ValidateAssemblyLines 按原版顺序全量校验组件明细，返回可安全落库的明细集。
+// ValidateAssemblyLines 按既有实现顺序全量校验组件明细，返回可安全落库的明细集。
 //
 // 分段顺序：B 形状 → C UUID → D 数值 → E/F 商品 → G 数量（仅 POST）。
-// requireQty 区分 POST 与 PUT：**原版 PUT 不校验数量为正**（实测 qty=0 →
+// requireQty 区分 POST 与 PUT：**既有实现 PUT 不校验数量为正**（实测 qty=0 →
 // code:0 且原样落库 qty=0），只有 POST 要求 qty > 0。
 func (s *Service) ValidateAssemblyLines(ctx context.Context, raw []any, requireQty bool) (*AssemblyLineSet, error) {
-	// ── B：形状。null 行按原版视作**空对象**继续走 E 段（[null] → 商品不存在）。──
+	// ── B：形状。null 行按既有实现视作**空对象**继续走 E 段（[null] → 商品不存在）。──
 	lines := make([]map[string]any, 0, len(raw))
 	for _, v := range raw {
 		switch t := v.(type) {
@@ -253,7 +253,7 @@ func (s *Service) ValidateAssemblyLines(ctx context.Context, raw []any, requireQ
 
 // assemblyDecimal 解码明细里的数值字段（qty / unit_cost）。
 //
-// 原版非数字串 → 400「请求参数错误: error decoding string 'abc': can't convert abc
+// 既有实现非数字串 → 400「请求参数错误: error decoding string 'abc': can't convert abc
 // to decimal」，与 transfers.go 的 transferDecimal 同源。不能用 business.Number ——
 // 后者返回的是单据文案「数值格式错误，最多20位整数和12位小数」，形态不符。
 // unit_cost 允许为负（回放：unit_cost=-1 → code:0 建单成功），故不做符号判断。
@@ -270,13 +270,13 @@ func assemblyDecimal(raw any) (decimal.Decimal, error) {
 
 // WriteAssemblyLines 把校验通过的明细落进 assembly_order_lines。
 //
-// 批次 PP（2026-10-15）：恢复端此前**完全不写明细** —— 建单返回成功，
+// 批次 PP（2026-10-15）：本实现此前**完全不写明细** —— 建单返回成功，
 // 但 GET /assemblies/{id} 的 edges.lines 恒为空数组，装配单的组件清单永远丢失。
-// 原版回读的明细行只含 line_no / product_id / qty / unit_cost / batch_no / remark，
+// 既有实现回读的明细行只含 line_no / product_id / qty / unit_cost / batch_no / remark，
 // **不回写** product_name / product_code / spec / unit_id（这几列实测为 NULL），
-// 故这里也不写，避免自造原版没有的字段。
+// 故这里也不写，避免自造既有实现没有的字段。
 //
-// replace=true 是 PUT 语义：先软删该单旧行再重写（原版 PUT 不带 lines → 明细清空；
+// replace=true 是 PUT 语义：先软删该单旧行再重写（既有实现 PUT 不带 lines → 明细清空；
 // 带 lines → 整体重写，见 audit-batch-pp-put-lines-20261015.txt）。
 func (s *Service) WriteAssemblyLines(ctx context.Context, assemblyID string, set *AssemblyLineSet, replace bool) error {
 	if replace {
@@ -308,9 +308,9 @@ func (s *Service) WriteAssemblyLines(ctx context.Context, assemblyID string, set
 }
 
 func (s *Service) AssemblyBOMComponents(ctx context.Context, productID string) ([]map[string]any, error) {
-	// 回放 OO（2026-10-15）：原版 product_id 缺失**或不是合法 UUID**都返回
+	// 回放 OO（2026-10-15）：既有实现 product_id 缺失**或不是合法 UUID**都返回
 	// 裸 400 + 「无效的商品ID」；只有合法 UUID（哪怕查无数据）才返回 200 + 空数组。
-	// 恢复端原来只判空，且用业务错误形态（200/10000「产品不能为空」），两处都不同。
+	// 本实现原来只判空，且用业务错误形态（200/10000「产品不能为空」），两处都不同。
 	if _, err := uuid.Parse(productID); err != nil {
 		return nil, ErrKnownNoMessage{Status: 400, Note: "无效的商品ID"}
 	}

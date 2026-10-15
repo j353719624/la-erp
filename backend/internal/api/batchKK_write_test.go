@@ -5,22 +5,22 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 KK 第三轮取证的结论（2026-10-15 原版回放 192.168.110.97:18886）：
+// 本文件固化批次 KK 第三轮取证的结论（2026-10-15 回归回放（参考实例）：
 // 写路径「记录不存在」的响应形态。
 //
 // 起因：前两轮核对了「路由在不在」与「列表形状」，但没核对过**写路径的失败形态**。
 // 扫描器 tools/scan-write-labels.mjs 对 Resources 里每张表的 PUT/DELETE 各打一次
 // 「不存在的 id」，发现 66 处不一致：
 //
-//	51 处：原版 200 + code 10000 + 中文文案，恢复端 404 + code 404
-//	15 处：原版**没有**该写路由（404「路由不存在」），恢复端却注册了
+//	51 处：既有实现 200 + code 10000 + 中文文案，本实现 404 + code 404
+//	15 处：既有实现**没有**该写路由（404「路由不存在」），本实现却注册了
 //
-// 证据：evidence/backend-runtime/audit-batch-kk-write-labels-20261015.json
+// 证据：运行快照
 
-// TestKKWriteNotFoundBusiness 51 处「原版返回业务错误形态」的写路径。
+// TestKKWriteNotFoundBusiness 51 处「既有实现返回业务错误形态」的写路径。
 func TestKKWriteNotFoundBusiness(t *testing.T) {
 	c, _ := setup(t)
-	// 逐字文案取自原版回放；这里抽 8 张表做代表性断言，其余由配置表保证。
+	// 逐字文案取自回归回放；这里抽 8 张表做代表性断言，其余由配置表保证。
 	cases := []struct{ route, message string }{
 		{"products", "商品不存在"},
 		{"customers", "客户不存在"},
@@ -34,7 +34,7 @@ func TestKKWriteNotFoundBusiness(t *testing.T) {
 	for _, tc := range cases {
 		for _, method := range []string{"PUT", "DELETE"} {
 			if hasMethod(writeRouteAbsent[tc.route], method) {
-				continue // 原版没有该写路由，由另一条用例覆盖
+				continue // 既有实现没有该写路由，由另一条用例覆盖
 			}
 			status, body := c.request(method, "/api/v1/"+tc.route+"/"+zeroUUID, map[string]any{"name": "x"})
 			if status != http.StatusOK || body["code"] != float64(10000) || body["message"] != tc.message {
@@ -48,8 +48,8 @@ func TestKKWriteNotFoundBusiness(t *testing.T) {
 	}
 }
 
-// TestKKWriteRouteAbsent 15 处「原版没有该写路由」的写路径：
-// 恢复端不得自动补出，须逐字返回 404「路由不存在」。
+// TestKKWriteRouteAbsent 15 处「既有实现没有该写路由」的写路径：
+// 本实现不得自动补出，须逐字返回 404「路由不存在」。
 //
 // 关键：这些是**按方法**而非按表 —— 同一张表可能 DELETE 存在而 PUT 不存在
 // （如 crm-activities / expense-claims / fixed-assets / leads 只有 DELETE）。
@@ -74,10 +74,10 @@ func TestKKWriteRouteAbsent(t *testing.T) {
 		// DELETE 走业务错误形态而非「路由不存在」
 		status, body = c.request("DELETE", "/api/v1/"+route+"/"+zeroUUID, nil)
 		if status == http.StatusNotFound && body["message"] == "路由不存在" {
-			t.Fatalf("DELETE /%s 被误关成「路由不存在」，原版该方法存在", route)
+			t.Fatalf("DELETE /%s 被误关成「路由不存在」，既有实现该方法存在", route)
 		}
 	}
-	// 回放实测 11 张表存在「原版无写路由」的情况
+	// 回放实测 11 张表存在「既有实现无写路由」的情况
 	if len(writeRouteAbsent) != 11 {
 		t.Fatalf("writeRouteAbsent 配了 %d 张表，回放实测 11 张", len(writeRouteAbsent))
 	}

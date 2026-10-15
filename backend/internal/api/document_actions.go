@@ -201,7 +201,7 @@ func (s *Server) registerDocumentActions() {
 			fail(w, 400, err.Error())
 			return
 		}
-		// 原版回放（2026-10-14，audit-batch-gg/gg2/gg14）：草稿询价单录入报价一律拒绝。
+		// 回归回放（2026-10-14，audit-batch-gg/gg2/gg14）：草稿询价单录入报价一律拒绝。
 		if text(rfq, "status") != "confirmed" {
 			verbatimFailure(w, verbatim{text: "只有已确认的询价单才能录入供应商报价"})
 			return
@@ -230,7 +230,7 @@ func (s *Server) registerDocumentActions() {
 				verbatimFailure(w, verbatim{text: "报价明细数量必须大于 0"})
 				return
 			}
-			// 原版放行负单价（回放 gg14：price=-1 仍 code:0），恢复端此前拒绝属误拒
+			// 既有实现放行负单价（回放 gg14：price=-1 仍 code:0），本实现此前拒绝属误拒
 			price, _ := business.Number(line["price"])
 			product, err := s.Store.Get(r.Context(), "products", text(line, "product_id"))
 			if err != nil {

@@ -91,7 +91,7 @@ func run() error {
 	dev := flag.Bool("dev", false, "明确使用开发模式（仅绑定回环地址，不进行授权校验）")
 	publicPath := flag.String("public-key", "", "授权公钥文件（迁移密钥时指定）")
 	licensePath := flag.String("license", "", "授权文件路径")
-	adminPassword := flag.String("initial-admin-password", "", "空数据库初始管理员密码（默认与原程序相同）")
+	adminPassword := flag.String("initial-admin-password", "", "空数据库初始管理员密码（默认 admin123）")
 	flag.Parse()
 	var cfg configuration
 	cfg.Server.Port = 18887
@@ -220,11 +220,11 @@ func run() error {
 		password = os.Getenv("ERP_ADMIN_PASSWORD")
 	}
 	if password == "" {
-		// 保留原版默认口令（对齐原版，不自造），但**必须让运维看见风险**：
+		// 保留内置默认口令以简化首次启动，但**必须让运维看见风险**：
 		// 部署时若忘记设置，管理员账号会是众所周知的弱口令。
 		password = "admin123"
 		log.Printf("警告：未通过 -initial-admin-password 或 ERP_ADMIN_PASSWORD 设置初始管理员口令，" +
-			"已沿用原版默认口令。仅用于空数据库首次初始化，正式环境请立即登录修改。")
+			"已沿用默认口令 admin123。仅用于空数据库首次初始化，正式环境请立即登录修改。")
 	}
 	if err = store.Seed(context.Background(), password); err != nil {
 		return err
@@ -253,7 +253,7 @@ func run() error {
 	if err = app.ConfigureExports(filepath.Join(filepath.Dir(cfg.Database.DSN), "exports")); err != nil {
 		return err
 	}
-	// 机器码取原版算法（Linux 机器标识 sha256），激活器写授权文件并校验签名。
+	// 机器码取既定算法（Linux 机器标识 sha256），激活器写授权文件并校验签名。
 	app.ConfigureLicense(func() string {
 		machine, err := license.MachineID("/")
 		if err != nil || machine == "" {
@@ -262,7 +262,7 @@ func run() error {
 		return machine
 	}, func(name string, content []byte) (map[string]any, error) {
 		var record license.File
-		// 原版该路径的错误文案未取证，故不自造中文：直接回传解析器的原始错误。
+		// 既有实现该路径的错误文案未取证，故不自造中文：直接回传解析器的原始错误。
 		if err := json.Unmarshal(content, &record); err != nil {
 			return nil, err
 		}

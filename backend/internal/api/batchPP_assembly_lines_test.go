@@ -8,9 +8,9 @@ import (
 
 // 批次 PP（2026-10-15）· 装配单组件明细的**七段校验**与 PUT 重写语义。
 //
-// 每一条期望值都来自原版回放，不是推测。证据文件：
-//   evidence/backend-runtime/audit-batch-pp-lines-shape{,2,3,4,5}-20261015.txt  （POST）
-//   evidence/backend-runtime/audit-batch-pp-put-lines{,2,3}-20261015.txt        （PUT）
+// 每一条期望值都来自回归回放，不是推测。证据文件：
+//   运行快照,2,3,4,5}-20261015.txt  （POST）
+//   运行快照,2,3}-20261015.txt        （PUT）
 //
 // 这些用例存在的理由：七段顺序里有三处**反直觉**，写成朴素的「逐行循环依次校验」
 // 就会错，靠用例钉死：
@@ -105,7 +105,7 @@ func TestAssemblyLineValidationSegments(t *testing.T) {
 	}
 }
 
-// TestAssemblyUnitCostMayBeNegative 原版允许 unit_cost 为负（与 qty 不同）。
+// TestAssemblyUnitCostMayBeNegative 既有实现允许 unit_cost 为负（与 qty 不同）。
 // 回放：unit_cost=-1 → code:0 建单成功（audit-batch-pp-lines-shape5-20261015.txt ⑱）。
 func TestAssemblyUnitCostMayBeNegative(t *testing.T) {
 	c, s := setup(t)
@@ -125,14 +125,14 @@ func TestAssemblyUnitCostMayBeNegative(t *testing.T) {
 		t.Fatalf("明细条数 = %d, want 1", len(lines))
 	}
 	if got := fmt.Sprint(lines[0].(map[string]any)["unit_cost"]); got != "-1" {
-		t.Errorf("unit_cost 落库 = %s, want -1（原版原样落库，不拒绝负数）", got)
+		t.Errorf("unit_cost 落库 = %s, want -1（既有实现原样落库，不拒绝负数）", got)
 	}
 }
 
 // TestAssemblyPutRewritesLines PUT 的明细**整体重写**语义（批次 PP，
 // audit-batch-pp-put-lines{,2,3}-20261015.txt）。
 //
-// 原版行为，三条全部与「只改表头」的直觉相反：
+// 既有行为，三条全部与「只改表头」的直觉相反：
 //   · 带 lines（含空数组）→ 软删旧行 + 写入新行
 //   · 不带 lines          → 只清空明细，**不**报「组件明细不能为空」
 //   · 校验比 POST 少一段：**不校验数量为正**（qty=0 原样落库）
@@ -180,7 +180,7 @@ func TestAssemblyPutRewritesLines(t *testing.T) {
 		t.Errorf("PUT 带 2 行 = http%d %v, want 200 code=0", status, body)
 	}
 	if got := lineCount(id); got != 2 {
-		t.Errorf("PUT 后明细行数 = %d, want 2（原版整体重写）", got)
+		t.Errorf("PUT 后明细行数 = %d, want 2（既有实现整体重写）", got)
 	}
 	// ② 不带 lines → 明细清空，且不报「组件明细不能为空」
 	id2 := newOrder("ASMPP-PUT-2")
@@ -188,7 +188,7 @@ func TestAssemblyPutRewritesLines(t *testing.T) {
 		t.Errorf("PUT 不带 lines = http%d %v, want 200 code=0", status, body)
 	}
 	if got := lineCount(id2); got != 0 {
-		t.Errorf("PUT 不带 lines 后明细行数 = %d, want 0（原版清空）", got)
+		t.Errorf("PUT 不带 lines 后明细行数 = %d, want 0（既有实现清空）", got)
 	}
 	// ③ lines=[] → 同样清空
 	id3 := newOrder("ASMPP-PUT-3")
@@ -233,6 +233,6 @@ func TestAssemblyPutRewritesLines(t *testing.T) {
 		t.Fatalf("qty=0 后明细行数 = %d, want 1", len(lines))
 	}
 	if q := fmt.Sprint(lines[0].(map[string]any)["qty"]); q != "0" {
-		t.Errorf("qty 落库 = %s, want 0（原版原样落库）", q)
+		t.Errorf("qty 落库 = %s, want 0（既有实现原样落库）", q)
 	}
 }

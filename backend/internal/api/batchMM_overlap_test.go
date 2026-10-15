@@ -12,15 +12,15 @@ import (
 //
 // 背景：fix-bank-adj / fix-period 两个代理先后指出，
 // `accountingPeriodOverlaps` 的实现与仓库里的证据 JSON 逐条矛盾。
-// 根因是那 40 条 probe 一直只躺在 `evidence/backend-runtime/*.json` 里，
+// 根因是那 40 条 probe 一直只躺在 `运行快照` 里，
 // **没有任何一条进测试** —— 证据改了不会让 CI 变红，回归就无从发现。
 // 本文件把 15 条已对齐的断言写成表驱动测试，并显式登记 1 条已知差异。
 //
 // 证据：
-//   evidence/backend-runtime/audit-batch-mm-period-crosscheck-20261015.json
+//   运行快照
 //     （未污染基准 2260 年，16 条 probe，逐行 same=15 / differ=1）
 //
-// ⚠ 边界语义的前史（勿凭直觉改判据，详见 docs/UNSUPPORTED-AUDIT-LOG.md 37.7~37.12）：
+// ⚠ 边界语义的前史（勿凭直觉改判据，详见审计台账~37.12）：
 //   曾按「闭区间」「左开右闭」「零值不短路」反复实现过，每次都有一两条边界对不上。
 //   最终由枚举四种开闭组合定为 **开区间 (start, end)** —— 两端都不含端点，
 //   是唯一能同时满足「起点==基准终点 → 放行」与「终点==基准起点 → 放行」、
@@ -28,7 +28,7 @@ import (
 
 // softDeletePeriod 直接软删测试造的会计期间。
 //
-// 不能用 DELETE 端点清理：**恢复端与原版都没有 DELETE /accounting-periods/{id}**
+// 不能用 DELETE 端点清理：**本实现与既有实现都没有 DELETE /accounting-periods/{id}**
 // （实测两端均 404「路由不存在」），这一致性本身已对齐，不要用端点做清理。
 func softDeletePeriod(t *testing.T, s *Server, id string) {
 	t.Helper()
@@ -62,7 +62,7 @@ func TestMMAccountingPeriodCreateValidation(t *testing.T) {
 			}
 		})
 	}
-	// start_date 非 RFC3339 时，原版先在 Go 侧解析日期绑定就 400 了 —— 早于 period 校验。
+	// start_date 非 RFC3339 时，既有实现先在 Go 侧解析日期绑定就 400 了 —— 早于 period 校验。
 	// 错误文案含 Go time.Parse 的原始输出，只断言状态码与「请求参数错误: parsing time」前缀。
 	status, body := c.request("POST", "/api/v1/accounting-periods", map[string]any{
 		"period": "2260-02", "start_date": "2260-02-01", "end_date": "2260-02-28T00:00:00+08:00",
@@ -85,7 +85,7 @@ func TestMMAccountingPeriodCreateValidation(t *testing.T) {
 // TestMMAccountingPeriodOverlapOpenInterval 重叠判据 = **开区间 (start, end)**。
 //
 // 基准为 `2260-01-01T00:00:00+08:00 .. 2260-01-31T00:00:00+08:00`（单月区间）。
-// 15 条断言全部来自原版实测，见 crosscheck 证据文件。
+// 15 条断言全部来自实测，见 crosscheck 证据文件。
 func TestMMAccountingPeriodOverlapOpenInterval(t *testing.T) {
 	c, s := setup(t)
 	const Y = "2260"
@@ -146,13 +146,13 @@ func TestMMAccountingPeriodOverlapOpenInterval(t *testing.T) {
 
 // TestMMAccountingPeriodSamePeriodConflict 同 period 的两种冲突形态。
 //
-// 原版对 period 重复**不是**用业务校验拦，而是靠数据库唯一索引兜底，
+// 既有实现对 period 重复**不是**用业务校验拦，而是靠数据库唯一索引兜底，
 // 两种情形形态不同：
 //
 //	同 period 同日期   → 先被日期重叠规则拦下 → 200 + 10000「该期间与已存在的会计期间重叠」
 //	同 period 不同日期 → 绕过业务校验、撞 UNIQUE 索引 → **500 通用文案**
 //
-// 恢复端此前一律 400「会计期间编码或名称已存在」，由
+// 本实现此前一律 400「会计期间编码或名称已存在」，由
 // failureForTable + uniqueConflictAsServerError 覆盖为 500。
 func TestMMAccountingPeriodSamePeriodConflict(t *testing.T) {
 	c, s := setup(t)
@@ -172,7 +172,7 @@ func TestMMAccountingPeriodSamePeriodConflict(t *testing.T) {
 		t.Fatalf("同 period 同日期 = %d %v, want 200/10000/%s", status, got, mmOverlapMsg)
 	}
 
-	// 同 period 不同日期 → 撞唯一索引，原版当未处理异常抛 500
+	// 同 period 不同日期 → 撞唯一索引，既有实现当未处理异常抛 500
 	status, got = c.request("POST", "/api/v1/accounting-periods", map[string]any{
 		"period":     Y + "-01",
 		"start_date": Y + "-06-01T00:00:00+08:00",
@@ -185,10 +185,10 @@ func TestMMAccountingPeriodSamePeriodConflict(t *testing.T) {
 
 // TestMMAccountingPeriodZeroValue 「缺 start_date/end_date」时两端一致。
 //
-// ⚠ 本用例的前身叫 TestMMAccountingPeriodKnownGap，把「原版判重叠、恢复端放行」
+// ⚠ 本用例的前身叫 TestMMAccountingPeriodKnownGap，把「既有实现判重叠、本实现放行」
 // 登记成已知差异。**那条结论是错的**，已在 2026-10-15 推翻：
-// crosscheck 证据里 `period 不同 + 缺日期 → 原版判重叠` 那一轮，
-// 原版库里已积累数十条前几轮回放留下的残数据（原版**没有**
+// crosscheck 证据里 `period 不同 + 缺日期 → 既有实现判重叠` 那一轮，
+// 既有实现库里已积累数十条前几轮回放留下的残数据（既有实现**没有**
 // `DELETE /accounting-periods/{id}`，删不掉），被测请求的 period 撞上了其中一条，
 // 于是被 period 重复的规则拦下，而非零值语义。
 //
@@ -209,31 +209,31 @@ func TestMMAccountingPeriodZeroValue(t *testing.T) {
 	defer softDeletePeriod(t, s, created["id"].(string))
 
 	// period 与基准不同、日期也不带（落 Go 零值）→ 两端均放行
-	// 原版实测（2440 / 2450 两个两端均确认为空的年份）：
+	// 实测（2440 / 2450 两个两端均确认为空的年份）：
 	//   空库缺省 / 有基准缺省 / 有基准显式传零值 / 有基准日期不相关 —— 4 条全部 200 success
 	status, body := c.request("POST", "/api/v1/accounting-periods", map[string]any{"period": Y + "-09"})
 	if status != http.StatusOK || body["code"] != float64(0) {
-		t.Fatalf("缺日期建期间 = %d %v, want 200/0（原版在干净库上同样放行）", status, body)
+		t.Fatalf("缺日期建期间 = %d %v, want 200/0（既有实现在干净库上同样放行）", status, body)
 	}
 	if row, ok := body["data"].(map[string]any); ok && row["id"] != nil {
 		softDeletePeriod(t, s, row["id"].(string))
 	}
 
-	// ⚠ 唯一未对齐：**库里存在跨年区间记录时**，原版把零值区间判为重叠。
+	// ⚠ 唯一未对齐：**库里存在跨年区间记录时**，既有实现把零值区间判为重叠。
 	//
 	// 受控对照取证（tools/replay-batch-mm-selfprove.js，2490 / 2500 两个
 	// 两端均确认为空的年份，每条探测的 period 运行前均未被占用）：
 	//
 	//	A 组 库中仅一条跨年区间 `2490-01-31T00:00 .. 2491-01-31T00:00`
-	//	  字段缺省（零值）   → 原版重叠 / 恢复端放行   ← 本用例登记的差异
-	//	  显式传零值        → 原版重叠 / 恢复端放行   ← 同上
+	//	  字段缺省（零值）   → 参考实现重叠 / 既有实现放行   ← 本用例登记的差异
+	//	  显式传零值        → 参考实现重叠 / 既有实现放行   ← 同上
 	//	  真实日期不重叠    → 两端放行
 	//	  真实日期与基准相交 → 两端放行（01-10 早于起点 01-31，开区间不相交）
 	//	B 组 库中仅一条同月单点 → 四条全部两端一致
 	//
-	// 即「字段缺省」与「显式传零值」在原版走**同一分支**，
+	// 即「字段缺省」与「显式传零值」在既有实现走**同一分支**，
 	// 差异只由「库中是否有跨年区间记录」触发。根因未定位，证据不足**不臆造**，
-	// 保持恢复端现状（放行）并在此显式登记。
+	// 保持本实现现状（放行）并在此显式登记。
 	const Z = "2291"
 	crossYear := c.ok("POST", "/api/v1/accounting-periods", map[string]any{
 		"period":     Z + "-05",
@@ -247,7 +247,7 @@ func TestMMAccountingPeriodZeroValue(t *testing.T) {
 		t.Fatalf("跨年区间存在时缺省建期间 = %d %v, want 200", status, body)
 	}
 	if body["code"] == float64(0) {
-		t.Logf("已知差异仍在：原版在跨年区间存在时判重叠(%s)，当前实现放行。根因待取证，勿臆造修复。", mmOverlapMsg)
+		t.Logf("已知差异仍在：既有实现在跨年区间存在时判重叠(%s)，当前实现放行。根因待取证，勿臆造修复。", mmOverlapMsg)
 	}
 	if row, ok := body["data"].(map[string]any); ok && row["id"] != nil {
 		softDeletePeriod(t, s, row["id"].(string))

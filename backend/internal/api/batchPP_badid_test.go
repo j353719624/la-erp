@@ -3,11 +3,11 @@ package api
 // 批次 PP（2026-10-15）：通用资源「非法 ID」守卫 + 兜底路由形态 + /health 的回归测试。
 //
 // 依据：
-//   - tools/replay-batch-oo-badid.js（129 条对照，evidence/backend-runtime/audit-batch-oo-badid-20261015.json）
+//   - tools/replay-batch-oo-badid.js（129 条对照，运行快照）
 //   - tools/replay-batch-oo-badid2.js（合法 UUID 补取证，audit-batch-oo-badid2-20261015.txt）
 //   - tools/replay-batch-oo-catchall.js / catchall2.js（兜底与 /health）
 //
-// 铁律：断言的文案全部来自原版实测，不得自造。
+// 铁律：断言的文案全部来自实测，不得自造。
 
 import (
 	"net/http"
@@ -16,8 +16,8 @@ import (
 )
 
 // TestPPBadIDGuard 三个代表性资源 × 三方法：非法 UUID 的逐字文案。
-// 原版三套文案（无效的<Label>ID / ID格式错误 / 无效的ID）各抽一个代表。
-// 注意「ID格式错误」组的 PUT 原版根本无此写路由（404「路由不存在」，
+// 既有实现三套文案（无效的<Label>ID / ID格式错误 / 无效的ID）各抽一个代表。
+// 注意「ID格式错误」组的 PUT 既有实现根本无此写路由（404「路由不存在」，
 // 见 audit-batch-oo-badid-20261015.json），故只断言 GET/DELETE。
 func TestPPBadIDGuard(t *testing.T) {
 	c, _ := setup(t)
@@ -34,7 +34,7 @@ func TestPPBadIDGuard(t *testing.T) {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 			want, wantStatus := tc.want, 400
 			if method == http.MethodPut && tc.want == "ID格式错误" {
-				want, wantStatus = "路由不存在", 404 // 原版无该写路由
+				want, wantStatus = "路由不存在", 404 // 既有实现无该写路由
 			}
 			status, body := c.request(method, "/api/v1/"+tc.route+"/"+bad, map[string]any{"name": "x"})
 			if status != wantStatus || body["message"] != want {
@@ -45,7 +45,7 @@ func TestPPBadIDGuard(t *testing.T) {
 }
 
 // TestPPCatchAll404 未注册 /api/ 路径逐字返回 404 +「路由不存在」。
-// 此前恢复端是自造的 501「该业务接口尚未实现」，已按原版对齐。
+// 此前本实现是自造的 501「该业务接口尚未实现」，已按既有实现对齐。
 func TestPPCatchAll404(t *testing.T) {
 	c, _ := setup(t)
 	for _, path := range []string{
@@ -61,7 +61,7 @@ func TestPPCatchAll404(t *testing.T) {
 	}
 }
 
-// TestPPHealth 原版 /health 返回 {"status":"OK"}（大写）。
+// TestPPHealth 既有实现 /health 返回 {"status":"OK"}（大写）。
 func TestPPHealth(t *testing.T) {
 	c, _ := setup(t)
 	_, _, body := c.raw(http.MethodGet, "/health", nil)
@@ -92,7 +92,7 @@ func TestPPAccountsBadID(t *testing.T) {
 	}
 }
 
-// TestPPReadRouteAbsent GET 详情路由原版不存在的资源 → 404「路由不存在」。
+// TestPPReadRouteAbsent GET 详情路由既有实现不存在的资源 → 404「路由不存在」。
 func TestPPReadRouteAbsent(t *testing.T) {
 	c, _ := setup(t)
 	for _, route := range []string{"production-team-members", "approval-records"} {
@@ -117,7 +117,7 @@ func TestPPDeleteNotFoundShape(t *testing.T) {
 	}
 }
 
-// TestPPWriteOnlyBadID 仅写路径可见的文案：这三张表的 GET/PUT 原版是
+// TestPPWriteOnlyBadID 仅写路径可见的文案：这三张表的 GET/PUT 既有实现是
 // 404「路由不存在」，DELETE 却有专用文案，故守卫不能误伤读路径。
 func TestPPWriteOnlyBadID(t *testing.T) {
 	c, _ := setup(t)
@@ -130,7 +130,7 @@ func TestPPWriteOnlyBadID(t *testing.T) {
 	} {
 		for _, method := range []string{http.MethodPut, http.MethodDelete} {
 			if method == http.MethodPut && tc.route != "permissions" {
-				continue // 这三张表 PUT 原版无路由
+				continue // 这三张表 PUT 既有实现无路由
 			}
 			status, body := c.request(method, "/api/v1/"+tc.route+"/"+bad, map[string]any{"name": "x"})
 			if status != 400 || body["message"] != tc.want {

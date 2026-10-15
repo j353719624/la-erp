@@ -54,7 +54,7 @@ func (s *Server) registerPrintTemplates() {
 		}
 		respond(w, 200, s.public(r, printTemplateResource, rows[0]))
 	})))
-	// 原版该路径存在（缺参时按参数缺失处理），此处与 {id} 字面量路由共存。
+	// 既有实现该路径存在（缺参时按参数缺失处理），此处与 {id} 字面量路由共存。
 	s.mux.Handle("GET /api/v1/print-templates/by-type", s.protected("print_template", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "缺少 doc_type 参数")
 	})))
@@ -78,9 +78,9 @@ func (s *Server) registerPrintTemplates() {
 		row["created_at"] = now
 		row["updated_at"] = now
 		row["deleted_at"] = nil
-		// 回放 NN（2026-10-15）：原版对缺 doc_type / 缺 name / 两者都缺**一律**
+		// 回放 NN（2026-10-15）：既有实现对缺 doc_type / 缺 name / 两者都缺**一律**
 		// 回同一句 400「doc_type 与 name 必填」，不区分缺哪个。
-		// 原恢复端的「缺少单据类型」「缺少模板名称」是自造文案，已替换。
+		// 原本实现的「缺少单据类型」「缺少模板名称」是自造文案，已替换。
 		if text(row, "doc_type") == "" || text(row, "name") == "" {
 			fail(w, 400, "doc_type 与 name 必填")
 			return
@@ -114,8 +114,8 @@ func (s *Server) registerPrintTemplates() {
 			fail(w, 400, err.Error())
 			return
 		}
-		// 回放 NN（2026-10-15）：原版 `PUT` 空载荷返回 **200 code 0** 并回传原记录，
-		// 不是 400。原恢复端的「没有可更新的字段」是自造文案，已移除 ——
+		// 回放 NN（2026-10-15）：既有实现 `PUT` 空载荷返回 **200 code 0** 并回传原记录，
+		// 不是 400。原本实现的「没有可更新的字段」是自造文案，已移除 ——
 		// 空载荷只写 updated_at，仍走正常返回路径。
 		changes := printTemplateRow(body)
 		changes["updated_at"] = database.Now()
@@ -194,14 +194,14 @@ func (s *Server) registerPrintTemplates() {
 	})))
 }
 
-// printTemplateNotFound 是打印模板**写路径**在记录不存在时原版的降级形态。
+// printTemplateNotFound 是打印模板**写路径**在记录不存在时既定的降级形态。
 //
-// 回放 NN（2026-10-15，evidence/backend-runtime/audit-batch-nn-piecework-20261015.json）：
+// 回放 NN（2026-10-15，运行快照）：
 // PUT / DELETE / duplicate 在不存在的 id 上**全部**返回
 // 500「系统内部错误，请稍后重试或联系管理员」，而 GET 详情返回
 // 404「打印模板不存在」——同一资源两套形态，勿统一。
 //
-// 成因推断：原版这些写路径直接 UPDATE / SELECT，命中不到行时落到通用 500，
+// 成因推断：既有实现这些写路径直接 UPDATE / SELECT，命中不到行时落到通用 500，
 // 与调拨单的仓库引用（外键兜底落成 500）是同一类降级。
 func printTemplateNotFound(w http.ResponseWriter) {
 	fail(w, 500, "系统内部错误，请稍后重试或联系管理员")
@@ -209,7 +209,7 @@ func printTemplateNotFound(w http.ResponseWriter) {
 
 // printTemplateAny 按 id 取打印模板，**不过滤软删**。
 //
-// 回放：DELETE 一个已软删的 id → 200 code 0（原版是裸 UPDATE，命中行即成功），
+// 回放：DELETE 一个已软删的 id → 200 code 0（既有实现是裸 UPDATE，命中行即成功），
 // 而 DELETE 一个从未存在的 id → 500。这两者只有「不过滤软删」才能区分 ——
 // Store.Get 会过滤 deleted_at，用它会把已软删也判成不存在。
 func (s *Server) printTemplateAny(r *http.Request, id string) (map[string]any, error) {

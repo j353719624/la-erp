@@ -6,22 +6,22 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 HH 的取证结论（2026-10-14 原版回放 192.168.110.97:18886）。
+// 本文件固化批次 HH 的取证结论（2026-10-14 回归回放（参考实例）。
 //
 // 背景：backend/internal/api/read_resources.json 的 69 条通用读资源此前只核对了
 // 「路由是否存在」，从未核对过响应契约。批次 HH 用
-// tools/replay-batch-hh.js 向原版逐条回放列表与详情，实测出：
-//   - 列表形状：69/69 均为 {total, list} —— 与恢复端一致，无差异
-//   - 详情不存在的形态：原版分三类
+// tools/replay-batch-hh.js 向既有实现逐条回放列表与详情，实测出：
+//   - 列表形状：69/69 均为 {total, list} —— 与本实现一致，无差异
+//   - 详情不存在的形态：既有实现分三类
 //       ① HTTP 404 + code 404 +「<中文单据名>不存在」
 //       ② HTTP 200 + code 10000 +「<中文名>不存在」
 //       ③ HTTP 404/500 +「系统内部错误，请稍后重试或联系管理员」
-//     恢复端原先一律 404 +「<表名>不存在」，38 条不符
-//   - 详情路由有无：8 条资源原版没有详情路由（404「路由不存在」），
-//     恢复端被通用读资源自动补出，已显式关掉
+//     本实现原先一律 404 +「<表名>不存在」，38 条不符
+//   - 详情路由有无：8 条资源既有实现没有详情路由（404「路由不存在」），
+//     本实现被通用读资源自动补出，已显式关掉
 //
-// 证据：evidence/backend-runtime/audit-batch-hh-20261014.json
-// 差异对照：tools/probe-read-contract.js（对原版/恢复端跑同一份探测）
+// 证据：运行快照
+// 差异对照：tools/probe-read-contract.js（对既有实现/本实现跑同一份探测）
 
 // TestBatchHHReadResourceListShape 列表形状：全部资源均为 {total, list}。
 func TestBatchHHReadResourceListShape(t *testing.T) {
@@ -51,7 +51,7 @@ func TestBatchHHReadResourceListShape(t *testing.T) {
 	}
 }
 
-// TestBatchHHDetailNotFoundContract 详情不存在的形态：逐条比对原版实测的
+// TestBatchHHDetailNotFoundContract 详情不存在的形态：逐条比对实测的
 // HTTP 状态码、body.code 与逐字文案。
 func TestBatchHHDetailNotFoundContract(t *testing.T) {
 	c, _ := setup(t)
@@ -100,7 +100,7 @@ func TestBatchHHDetailSuccessPassThrough(t *testing.T) {
 	}
 }
 
-// TestBatchHHDetailRouteAbsent 原版没有详情路由的 8 条资源：恢复端不得自动补出。
+// TestBatchHHDetailRouteAbsent 既有实现没有详情路由的 8 条资源：本实现不得自动补出。
 func TestBatchHHDetailRouteAbsent(t *testing.T) {
 	c, _ := setup(t)
 	absent := []string{

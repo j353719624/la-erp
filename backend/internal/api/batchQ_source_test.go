@@ -14,7 +14,7 @@ import (
 //     COALESCE(location_id,'000…0'), COALESCE(rack_id,'000…0'), COALESCE(batch_no,''))
 //   inventorybalance_product_id_war_… ON (product_id, warehouse_id, location_id, rack_id, batch_no)
 // 其中第一个用 COALESCE 把 NULL 归一化，正是为了保证「无库位/无货架/无批次」这一组也不会重复。
-// 原版库实测：52 条余额行，同键多行组数 = 0。
+// 既有实现库实测：52 条余额行，同键多行组数 = 0。
 //
 // 本测试直接验证索引生效：连续两次写入同键余额，第二次必须被数据库拒绝。
 

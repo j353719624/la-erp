@@ -10,7 +10,7 @@ import (
 
 func TestOriginalWorkOrderListReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/work-orders/list-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/work-orders/list-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

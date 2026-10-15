@@ -7,9 +7,9 @@ import (
 )
 
 // 本文件固化批次 M 取证（2026-10-14）的结论：盘点不比对账面与实时余额、
-// 成本型调整接受任意数量。证据见 evidence/backend-runtime/audit-batch-m-20261014.json。
+// 成本型调整接受任意数量。证据见 运行快照。
 
-// KK9：盘点期间账面被改动不影响提交，原版仍按创建时的 book_qty 算差异。
+// KK9：盘点期间账面被改动不影响提交，既有实现仍按创建时的 book_qty 算差异。
 func TestSourceStocktakeToleratesBookQuantityDrift(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "KK-DRIFT")
 	check := c.ok("POST", "/api/v1/inventory-checks", map[string]any{
@@ -31,7 +31,7 @@ func TestSourceStocktakeToleratesBookQuantityDrift(t *testing.T) {
 	}).(map[string]any)
 	c.ok("POST", "/api/v1/stock-ins/"+seed["id"].(string)+"/confirm", nil)
 
-	// 提交实盘数：原版放行，且差异仍按 book_qty 计算
+	// 提交实盘数：既有实现放行，且差异仍按 book_qty 计算
 	target := float64(3)
 	if v, err := parseFloat(book); err == nil {
 		target = v + 3
@@ -55,7 +55,7 @@ func TestSourceStocktakeToleratesBookQuantityDrift(t *testing.T) {
 	}
 }
 
-// KK9b：盘点中提交原单上没有的明细行 —— 原版整体替换行集（批次 P）。
+// KK9b：盘点中提交原单上没有的明细行 —— 既有实现整体替换行集（批次 P）。
 func TestSourceStocktakeRejectsUnknownLine(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "KK-NEWLINE")
 	check := c.ok("POST", "/api/v1/inventory-checks", map[string]any{
@@ -64,8 +64,8 @@ func TestSourceStocktakeRejectsUnknownLine(t *testing.T) {
 	}).(map[string]any)
 	path := "/api/v1/inventory-checks/" + check["id"].(string)
 	c.ok("POST", path+"/start", nil)
-	// 批次 P 实测（2026-10-14）：提交原单上没有的商品，原版同样放行——
-	// 明细被整体替换，新行 book_qty 取当前实时余额。恢复端原先返回「盘点明细不存在」，属误拒。
+	// 批次 P 实测（2026-10-14）：提交原单上没有的商品，既有实现同样放行——
+	// 明细被整体替换，新行 book_qty 取当前实时余额。本实现原先返回「盘点明细不存在」，属误拒。
 	other := c.ok("POST", "/api/v1/products", map[string]any{"code": "KK-NEWLINE-P", "name": "KK-NEWLINE-P"}).(map[string]any)
 	c.ok("PUT", path, map[string]any{
 		"warehouse_id": warehouse["id"],
@@ -108,14 +108,14 @@ func TestSourceCostAdjustmentAcceptsQuantity(t *testing.T) {
 	}
 }
 
-// 批次 BB：负损耗率已改为**与原版一致地放行**，不再需要 ErrKnownDefect 标记。
+// 批次 BB：负损耗率已改为**与与既有行为一致地放行**，不再需要 ErrKnownDefect 标记。
 //
-// 原断言（负损耗率必须被拒、且标为「有意不对齐原版缺陷」）依据的是「scrap_rate<0
+// 原断言（负损耗率必须被拒、且标为「有意不对齐既有行为缺陷」）依据的是「scrap_rate<0
 // 会放大需求量」，但批次 T 实测证明 scrap_rate 是**百分数**：-0.1 只造成 0.1% 级偏差。
-// 该前提被推翻后，把一个小幅无害的偏差标成「原版缺陷」是过度反应 ——
-// 恢复端现已与原版行为一致（放行）。
+// 该前提被推翻后，把一个小幅无害的偏差标成「既有实现缺陷」是过度反应 ——
+// 本实现现已与既有行为一致（放行）。
 //
-// 仍然保留 ErrKnownDefect 的是 **qty <= 0**（原版放行但会让组件需求恒为 0 或为负，
+// 仍然保留 ErrKnownDefect 的是 **qty <= 0**（既有实现放行但会让组件需求恒为 0 或为负，
 // 属可被正常输入触发的实质缺陷），见 batchC_source_test.go 的 CC8。
 func TestSourceNegativeScrapIsAcceptedLikeOriginal(t *testing.T) {
 	c, product, _, _ := testFixture(t, "KK-DEFECT")

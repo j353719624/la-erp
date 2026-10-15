@@ -10,13 +10,13 @@ import (
 // 本文件把批次 NN 的**计件与打印模板**两端对照取证固化成回归测试。
 //
 // 背景：fix-bank-adj 留档称这三类资源「写路径有缺口」但未附证据。批次 NN 实测
-// （evidence/backend-runtime/audit-batch-nn-piecework-20261015.json 27 条、
+// （运行快照 27 条、
 // -piecework2-20261015.json 22 条）确认缺口存在，但形态与留档不同：
-// 不是路由缺失，而是**恢复端用通用必填校验自造了一套原版没有的 4xx**，
-// 且漏掉了原版真正的业务校验链。
+// 不是路由缺失，而是**本实现用通用必填校验自造了一套既有实现没有的 4xx**，
+// 且漏掉了既定的业务校验链。
 //
-// ⚠ 原版这三个资源的 4xx 只出现在**解码层**（decimal / time 解析失败），
-// 业务层一律是 200 + code 10000 + 中文文案。恢复端原先正好反过来。
+// ⚠ 这三个资源的 4xx 只出现在**解码层**（decimal / time 解析失败），
+// 业务层一律是 200 + code 10000 + 中文文案。本实现原先正好反过来。
 //
 // 另有一处**功能性**缺口：`GET /piecework-records/importable-processes` 被通用
 // `GET /piecework-records/{id}` 通配吞掉，前端「导入工序报工」页面加载不出列表
@@ -134,8 +134,8 @@ func TestNNPieceworkRecordValidation(t *testing.T) {
 
 // TestNNPieceworkRecordCode 计件登记单号是**自动生成**的 JJ 流水号。
 //
-// 原恢复端把 code 列进了必填，调用方不传就在第一步被 400 挡掉；
-// 通用 record() 的兜底值 `PIECEWORK_RECORD-<uuid12>` 也与原版不符。
+// 原本实现把 code 列进了必填，调用方不传就在第一步被 400 挡掉；
+// 通用 record() 的兜底值 `PIECEWORK_RECORD-<uuid12>` 也与与既有行为不符。
 func TestNNPieceworkRecordCode(t *testing.T) {
 	c, _ := setup(t)
 	doc := c.ok("POST", "/api/v1/piecework-records", map[string]any{
@@ -157,7 +157,7 @@ func TestNNImportableProcesses(t *testing.T) {
 	if status, body := c.request("GET", "/api/v1/piecework-records/importable-processes?period=2030-01", nil); status != 200 || body["code"] != float64(0) {
 		t.Fatalf("带 period = %d %v, want 200/0", status, body)
 	}
-	// 原版返回**空数组**，不是 list/total 分页对象
+	// 既有实现返回**空数组**，不是 list/total 分页对象
 	data := c.ok("GET", "/api/v1/piecework-records/importable-processes?period=2030-01", nil)
 	if _, ok := data.([]any); !ok {
 		t.Fatalf("data = %T %v, want 数组", data, data)
@@ -216,7 +216,7 @@ func TestNNPrintTemplateWrite(t *testing.T) {
 
 // TestNNPrintTemplateIdempotent PUT 空载荷放行、DELETE 幂等。
 //
-// 回放：原版 `PUT` 空载荷返回 200 code 0 并回传原记录；`DELETE` 对已软删的 id
+// 回放：既有实现 `PUT` 空载荷返回 200 code 0 并回传原记录；`DELETE` 对已软删的 id
 // 再删一次仍返回 200 code 0（裸 UPDATE 命中行即成功），只有从未存在的 id 才 500。
 func TestNNPrintTemplateIdempotent(t *testing.T) {
 	c, _ := setup(t)

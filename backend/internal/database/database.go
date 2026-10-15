@@ -170,14 +170,14 @@ func (s *Store) GetWith(ctx context.Context, db Executor, table, id string) (map
 
 // listExtraFilters 是「列存在也不一定支持」的外键/单号过滤，按表白名单。
 //
-// 原版回放 JJ2 对 30 个有数据的资源逐一探测（用不可能命中的值，看 total 是否掉 0），
+// 回归回放 JJ2 对 30 个有数据的资源逐一探测（用不可能命中的值，看 total 是否掉 0），
 // 实测出的支持情况**与列是否存在并不一致**：
 //   - work_order_id：生产领料/入库/退料支持；返工单、工序汇报、外协单**不支持**
 //   - source_type：凭证、收付款计划、库存流水支持；序列号**不支持**
 //   - customer_id / supplier_id / order_no：销售/采购单据类支持
 //
-// 未采样的表（原版上数据 < 4 条，探不出结果）按「有该列就支持」放行，
-// 因为前端若会发这个参数，通常意味着原版确实支持。
+// 未采样的表（既有实现上数据 < 4 条，探不出结果）按「有该列就支持」放行，
+// 因为前端若会发这个参数，通常意味着既有实现确实支持。
 var listExtraFilters = map[string][]string{
 	"crm_opportunities":        {"customer_id"},
 	"vouchers":                 {"source_type"},
@@ -199,7 +199,7 @@ var listExtraFilters = map[string][]string{
 	"production_receipts":      {"work_order_id"},
 	"production_returns":       {"work_order_id"},
 	"leads":                    {"customer_id"},
-	// 有反证、明确不支持的（列存在但原版不过滤）：
+	// 有反证、明确不支持的（列存在但既有实现不过滤）：
 	//   serial_numbers.source_type、work_order_processes.work_order_id、
 	//   rework_orders.work_order_id、subcontract_orders.work_order_id
 }
@@ -215,7 +215,7 @@ func contains(list []string, value string) bool {
 
 // listDateColumn 记录「start_date / end_date 日期区间」在各表上作用于哪一列。
 //
-// 原版回放 JJ2 探测出哪些表接受日期参数，JJ3-B / JJ5 / JJ6 进一步确定作用列：
+// 回归回放 JJ2 探测出哪些表接受日期参数，JJ3-B / JJ5 / JJ6 进一步确定作用列：
 //
 //	sales_orders / purchase_orders / sales_returns → order_date
 //	stock_movements                                → created_at
@@ -253,8 +253,8 @@ func (s *Store) List(ctx context.Context, table string, q url.Values) ([]map[str
 			args = append(args, "%"+value+"%")
 		}
 	}
-	// ── 以下外键过滤是原版回放 JJ2（2026-10-14）实测补的 ──
-	// 恢复端此前只认一组「通用」字段，销售订单列表页发的 customer_id 被静默忽略，
+	// ── 以下外键过滤是回归回放 JJ2（2026-10-14）实测补的 ──
+	// 本实现此前只认一组「通用」字段，销售订单列表页发的 customer_id 被静默忽略，
 	// 等于筛选失效。用「不可能命中的值」逐个探测，total 掉 0 即证明该参数被当作过滤条件。
 	//
 	// 但**不是所有表都支持**：同样是带 work_order_id 列的表，生产领料/入库/退料支持，

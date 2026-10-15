@@ -10,7 +10,7 @@ import (
 
 func TestOriginalUnstartedProcessReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/work-orders/unstarted-process-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/work-orders/unstarted-process-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

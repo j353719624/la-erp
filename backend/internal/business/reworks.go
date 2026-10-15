@@ -65,15 +65,15 @@ func (s *Service) WriteRework(ctx context.Context, id string, input map[string]a
 			if state == "completed" || state == "cancelled" {
 				return fmt.Errorf("工单状态（%s）不允许新建领料/入库/退料单", state)
 			}
-			// 批次 BB 取证（2026-10-14，evidence/backend-runtime/audit-batch-bb-20261014.json）：
-			// 原版返工单的工单状态白名单**完整覆盖全部 5 个状态**（抽样实测）：
+			// 批次 BB 取证（2026-10-14，运行快照）：
+			// 既有实现返工单的工单状态白名单**完整覆盖全部 5 个状态**（抽样实测）：
 			//   draft / confirmed / in_progress               → code:0
 			//   completed / cancelled                         → 10000
 			//     「工单状态（X）不允许新建领料/入库/退料单」（X 为实际状态，逐字一致）
 			//   work_order_id 指向不存在的工单                → 10000「工单不存在」
-			// 即上方两处校验（completed/cancelled 拒绝 + 本白名单）与原版**逐字一致**。
+			// 即上方两处校验（completed/cancelled 拒绝 + 本白名单）与既有实现**逐字一致**。
 			// 本守卫只在这 5 个取值之外（如历史脏数据）才触发 → 属**防御性断言**，
-			// 无原版文案可对齐，不自造，保留 ErrUnsupported 作兜底。
+			// 无既有文案可对齐，不自造，保留 ErrUnsupported 作兜底。
 			if state != "draft" && state != "confirmed" && state != "in_progress" {
 				return ErrUnsupported
 			}
@@ -158,8 +158,8 @@ func (s *Service) ReworkAction(ctx context.Context, id, action string) (map[stri
 				return errors.New("已完成的返工单不能取消")
 			}
 			changes["status"] = "cancelled"
-		// 原版 NN6 实测动作集只有 confirm / complete / cancel；delete 为 HTTP DELETE 形态。
-		// 与恢复端白名单一致，本 default **不可达**，保留作兜底。
+		// 既有实现 NN6 实测动作集只有 confirm / complete / cancel；delete 为 HTTP DELETE 形态。
+		// 与本实现白名单一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

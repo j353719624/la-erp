@@ -14,8 +14,8 @@ func TestCustomReportRunSQLReadOnlyContract(t *testing.T) {
 	}).(map[string]any)
 	rows := data["rows"].([]any)
 	if len(rows) != 1 || rows[0].(map[string]any)["probe_value"] != float64(7) { t.Fatalf("rows=%#v", rows) }
-	// 原版回放 DD（2026-10-14，evidence/backend-runtime/audit-batch-d-20261014.json）：
-	// 只读边界与恢复端一致，但原版返回业务错误文案而非 501——
+	// 回归回放 DD（2026-10-14，运行快照）：
+	// 只读边界与本实现一致，但既有实现返回业务错误文案而非 501——
 	// 非 SELECT/WITH → 「仅支持 SELECT 查询语句」；含分号 → 「不支持多条语句」。
 	// 本测试原先断言 501，已按取证结论改为比对原文案。
 	status, body := c.request("POST", "/api/v1/custom-reports/run-sql", map[string]any{"query_sql": "UPDATE products SET name='bad'"})
@@ -26,7 +26,7 @@ func TestCustomReportRunSQLReadOnlyContract(t *testing.T) {
 	if status != 200 || body["code"] == float64(0) || body["message"] != "不支持多条语句" {
 		t.Fatalf("multi-statement query: %d %#v", status, body)
 	}
-	// WITH 与小写 select 原版放行。
+	// WITH 与小写 select 既有实现放行。
 	probes := c.ok("POST", "/api/v1/custom-reports/run-sql", map[string]any{
 		"query_sql": "with probe as (select 5 as v) select v from probe",
 	}).(map[string]any)

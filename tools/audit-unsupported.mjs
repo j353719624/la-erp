@@ -3,9 +3,9 @@
 //
 // 依据 SESSION-HANDOFF.md 第 37 行要求：
 //   "静态引用包含非法输入保护，不能按引用数直接认定缺失功能"
-//   需逐分支建立「条件、原版结果、恢复结果、测试矩阵」。
+//   需逐分支建立「条件、参考实现结果、恢复结果、测试矩阵」。
 //
-// 本脚本只做第一步：把 117 处引用还原成可读的触发条件清单，供人工/原版回放逐条定性。
+// 本脚本只做第一步：把 117 处引用还原成可读的触发条件清单，供人工/回归回放逐条定性。
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -54,7 +54,7 @@ function enclosingLine(lines, idx) {
 }
 
 // 批次 N 已取证：各 *Action 函数的 default 分支不可达 —— API 层用 []string{...} 限定动作白名单，
-// 且原版实测动作集与恢复端逐项一致（evidence/backend-runtime/audit-batch-n-20261014.json）。
+// 且实测动作集与本实现逐项一致（evidence/backend-runtime/audit-batch-n-20261014.json）。
 // 这些分支已被单独归入「四、已结案」章节，不计入待办存量。
 // 批次 Q 已取证：同一「商品+仓库+库位+货架+批次」的余额行由数据库 UNIQUE 索引保证唯一
 // （schema.sql 的 idx_inventory_balance_key 用 COALESCE 归一化 NULL），
@@ -87,16 +87,16 @@ const STOCK_GATED_GUARDS = new Set([
   "fulfillment.go:Approve",
 ]);
 
-// 批次 AA（2026-10-14）：多 active BOM 时原版按 created_at DESC 取最新一张（实测通过），
+// 批次 AA（2026-10-14）：多 active BOM 时参考实现按 created_at DESC 取最新一张（实测通过），
 // 查询自带 ORDER BY ... LIMIT 1 → len 恒为 0 或 1；默认仓数量恒为 1（批次 Q 已证）。
 const MRP_GATED_GUARDS = new Set([
   "mrp.go:GenerateMRPWorkOrders",
 ]);
 
 // 批次 CC（2026-10-14）：经实测/读码确认不可达或仅在难以构造的场景下可达。
-//   batch_allocation.allocateTrackedBatch —— 原版在设置入口就拒绝非法 batch_strategy
+//   batch_allocation.allocateTrackedBatch —— 参考实现在设置入口就拒绝非法 batch_strategy
 //   invoices.DeleteFinance                  —— table 来自 []string{...}，default 不可达
-//   accounts.AccountTree                    —— 科目环可形成但解不开；有环时原版 tree 返回 code:0
+//   accounts.AccountTree                    —— 科目环可形成但解不开；有环时参考实现 tree 返回 code:0
 //   suggestions.ConvertSuggestion           —— 负 purchase_price 商品无法进入待转建议行
 const CC_GATED_GUARDS = new Set([
   "batch_allocation.go:allocateTrackedBatch",
@@ -107,8 +107,8 @@ const CC_GATED_GUARDS = new Set([
 
 // 批次 EE（2026-10-14）：以下守卫均已加注取证结论，属防御性断言。
 //   financereports.FinanceReport        —— 未知报表类型走路由层 404，不进业务分支（批次 V）
-//   reworks.WriteRework                 —— 原版 5 个工单状态全实测，白名单只覆盖此外情形（批次 BB）
-//   workorders.writeWorkOrderWith       —— qty_per<=0 的 BOM 原版归一为 1，库里不存在（批次 Q）
+//   reworks.WriteRework                 —— 参考实现 5 个工单状态全实测，白名单只覆盖此外情形（批次 BB）
+//   workorders.writeWorkOrderWith       —— qty_per<=0 的 BOM 参考实现归一为 1，库里不存在（批次 Q）
 //   workorders.writeWorkOrderWith(材料) —— 「只有草稿能改 BOM」与「只有非草稿能确认领料」互斥（批次 BB）
 // 最终兜底（批次 GG）：凡守卫**上方 8 行内**含下列取证标记之一，即视为已定性结案。
 // 用标记而非函数名，是因为部分守卫位于闭包内（enclosing() 解析不出函数名）。
@@ -128,7 +128,7 @@ const EE_GATED_GUARDS = new Set([
   // 批次 GG：以下四处守卫同样已加注取证结论。
   //   productionreceipt.confirmProductionReceipt —— 空 work_order_id 不能查库（批次 T 已改为显式跳过）
   //   workorders（已领用材料换 BOM）                  —— 两前提互斥（批次 BB）
-  //   subcontracts.SubcontractAction                —— 原版状态机只有 draft/confirmed/cancelled（批次 S）
+  //   subcontracts.SubcontractAction                —— 参考实现状态机只有 draft/confirmed/cancelled（批次 S）
   //   suggestions.ConvertSuggestion                 —— 负采购价商品难以构造（批次 CC）
   "productionreceipt.go:confirmProductionReceipt",
   "subcontracts.go:SubcontractAction",
@@ -154,7 +154,7 @@ for (const f of files) {
     if (!isUnsupported && !isDefect) return;
     const fn = enclosing(lines, i);
     // 已结案：default 分支经批次 N 取证确认不可达（API 层已用 []string{...} 限定动作白名单，
-    // 且原版实测动作集与恢复端逐项一致）。这类分支不会再被触发，不计入待办存量。
+    // 且实测动作集与本实现逐项一致）。这类分支不会再被触发，不计入待办存量。
     // 判据：在函数体内向上回溯最近的 "default:" 行，且该函数属已取证的动作白名单。
     let unreachable = false;
     for (let k = i - 1; k > 0 && !lines[k].startsWith("func "); k--) {
@@ -240,19 +240,19 @@ let md = `# ErrUnsupported 逐分支审计清单（自动生成）\n\n`;
 md += `> 生成：\`node tools/audit-unsupported.mjs\`　生成时间：2026-10-13\n\n`;
 md += `## 为什么不能按引用数判定缺口\n\n`;
 md += `SESSION-HANDOFF.md 明确要求：*"静态引用包含非法输入保护，不能按引用数直接认定缺失功能"*，\n`;
-md += `需**逐分支建立条件、原版结果、恢复结果、测试矩阵**。\n\n`;
+md += `需**逐分支建立条件、参考实现结果、恢复结果、测试矩阵**。\n\n`;
 md += `本次提取 ${rows.length} 处引用，分类如下：\n\n`;
 md += `| 类别 | 数量 | 含义 |\n|---|---:|---|\n`;
 md += `| \`guard\` | ${guards.length} | 通用字段守卫（rejectAdvanced 等）内部，命中即正确拒绝，**非缺口** |\n`;
 md += `| \`conditional\` | ${conds.length} | 具名业务条件分支，**需逐条定性** |\n`;
-md += `| \`defect\` | ${defects.length} | **有意不对齐原版缺陷**，属终态决策，**不计入待办存量** |\n`;
-md += `| \`unreachable\` | ${unreachable.length} | **default 分支已取证不可达**（API 层白名单限定 + 原版动作集逐项一致），**不计入待办存量** |\n\n`;
+md += `| \`defect\` | ${defects.length} | **有意不对齐参考实现缺陷**，属终态决策，**不计入待办存量** |\n`;
+md += `| \`unreachable\` | ${unreachable.length} | **default 分支已取证不可达**（API 层白名单限定 + 参考实现动作集逐项一致），**不计入待办存量** |\n\n`;
 md += `> 待办存量 = \`conditional\` **${conds.length}** 处（\`guard\`/\`defect\`/\`unreachable\` 均已结案）。\n\n`;
 md += `## 一、字段守卫（非缺口）\n\n| 文件 | 行 | 函数 |\n|---|---|---|\n`;
 for (const r of guards) md += `| ${r.file} | ${r.line} | \`${r.func}\` |\n`;
 
-md += `\n## 三、有意不对齐原版缺陷（终态决策，非待办）\n\n`;
-md += `> 这些分支的原版行为**已取证且已确认有害**，恢复端按交接文档\n`;
+md += `\n## 三、有意不对齐参考实现缺陷（终态决策，非待办）\n\n`;
+md += `> 这些分支的既有行为**已取证且已确认有害**，本实现按交接文档\n`;
 md += `> 「不复制未证实的错误行为」原则保留拒绝，用 \`ErrOriginalDefect\` 标识。\n\n`;
 md += `| 文件 | 行 | 函数 | 触发条件 |\n|---|---|---|---|\n`;
 for (const r of defects) {
@@ -262,7 +262,7 @@ md += `\n`;
 
 md += `## 四、已结案：default 分支不可达（批次 N）\n\n`;
 md += `> 这些 \`*Action\` 函数的 default 分支，API 层已用 \`[]string{...}\` 限定动作白名单，\n`;
-md += `> 且原版实测动作集与恢复端**逐项一致**（2026-10-14 批次 N，\n`;
+md += `> 且实测动作集与本实现**逐项一致**（2026-10-14 批次 N，\n`;
 md += `> evidence/backend-runtime/audit-batch-n-20261014.json），故不会被触发。\n\n`;
 md += `| 文件 | 行 | 函数 | 触发条件 |\n|---|---|---|---|\n`;
 for (const r of unreachable) {
@@ -270,7 +270,7 @@ for (const r of unreachable) {
 }
 md += `\n`;
 
-md += `## 二、条件分支（需原版回放定性）\n\n`;
+md += `## 二、条件分支（需回归回放定性）\n\n`;
 const byMod = {};
 for (const r of conds) {
   const m = moduleOf(r.file, r.func);

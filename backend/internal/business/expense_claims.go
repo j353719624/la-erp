@@ -53,9 +53,9 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 		}
 		status := value(row, "status")
 		changes := map[string]any{"updated_at": now()}
-		// 批次 PP（2026-10-15）：五个动作的**文案**原版逐字不同，已逐条取证
+		// 批次 PP（2026-10-15）：五个动作的**文案**既有实现逐字不同，已逐条取证
 		// （tools/replay-batch-pp-expense.js，audit-batch-pp-expense-20261015.txt）。
-		// 原版一律带「的……单」，恢复端此前的简写形态全部不符。
+		// 既有实现一律带「的……单」，本实现此前的简写形态全部不符。
 		switch action {
 		case "submit":
 			if status != "draft" {
@@ -102,14 +102,14 @@ func (s *Service) ExpenseAction(ctx context.Context, id, action string, input ma
 			changes["status"] = "rejected"
 		case "cancel":
 			// 批次 PP（2026-10-15）：这里不只是文案差异，是**逻辑差异**。
-			// 原版实测 submitted → cancel 被拒（audit-batch-pp-expense2-20261015.txt E9），
-			// 只允许 draft 取消；恢复端原先放行 draft + submitted。
+			// 实测 submitted → cancel 被拒（audit-batch-pp-expense2-20261015.txt E9），
+			// 只允许 draft 取消；本实现原先放行 draft + submitted。
 			if status != "draft" {
 				return errors.New("只有草稿状态的报销单才能取消")
 			}
 			changes["status"] = "cancelled"
-		// 原版 NN1 实测动作集为 submit / approve / paid / reject / cancel，
-		// 与恢复端白名单逐项一致，本 default **不可达**，保留作兜底。
+		// 既有实现 NN1 实测动作集为 submit / approve / paid / reject / cancel，
+		// 与本实现白名单逐项一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}

@@ -3,7 +3,7 @@ package api
 // platform.go —— 平台/设置类端点（批次 FF，2026-10-14）。
 //
 // 路由覆盖对账（tools/audit-route-coverage.mjs，1158 个候选路径）查出
-// 原版有、恢复端无的 94 条路径；本文件收敛其中「平台与设置」一族：
+// 既有实现有、本实现无的 94 条路径；本文件收敛其中「平台与设置」一族：
 //
 //	GET  /api/v1/audit-logs            操作日志分页（username/action/起止日期过滤）
 //	GET  /api/v1/console/companies     部署控制台公司清单（单公司部署返回 1 条）
@@ -18,8 +18,8 @@ package api
 //	POST /api/v1/dict/types            新增类型（含首条）
 //	PUT  /api/v1/dict/types/{code}     类型改名
 //
-// 文案口径：有回放证据的逐字照抄（见 evidence/backend-runtime/api-contracts.json）；
-// 无回放证据的校验提示沿用恢复端既有框架文案风格（fail 层），不自造业务语义文案。
+// 文案口径：有回放证据的逐字照抄（见 运行快照）；
+// 无回放证据的校验提示沿用本实现既有框架文案风格（fail 层），不自造业务语义文案。
 
 import (
 	"crypto/sha256"
@@ -90,7 +90,7 @@ func (s *Server) registerPlatform() {
 	})))
 
 	// ---- 部署控制台：公司清单 ----
-	// 原版回放（api-contracts.json / 批次 KK-28）：字段
+	// 回归回放（api-contracts.json / 批次 KK-28）：字段
 	// {id, code, name, status, is_default, db_path, db_size, loaded, created_at}。
 	// 批次 KK 恢复了 POST/PUT 写路径（见 gapKK_writes.go），故这里改为从
 	// `companies` 表读，而不是硬编码单条 —— 否则新建的公司不会出现在清单里。
@@ -134,7 +134,7 @@ func (s *Server) registerPlatform() {
 	})
 
 	// ---- 机器码 ----
-	// 原版 dist 路由串（docs/original-fpk-evidence.md）确认存在；
+	// 既有实现 dist 路由串（打包清单）确认存在；
 	// 算法取 internal/license.MachineID（首个可读机器标识的 sha256 hex）。
 	s.mux.Handle("GET /api/v1/license/machine-code", s.authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		code := s.machineCode()
@@ -142,9 +142,9 @@ func (s *Server) registerPlatform() {
 	})))
 
 	// ---- 授权激活 ----
-	// 原版路由（docs/original-frontend-api-contracts.txt）：POST /v1/license/activate，
+	// 既有实现路由（前端接口契约表）：POST /v1/license/activate，
 	// 支持 multipart 文件与 JSON {content} 两种形态；响应 {activated, file, message}。
-	// 恢复端由 cmd 注入激活器（写授权文件 + 热更新状态），未注入时返回 501。
+	// 本实现由 cmd 注入激活器（写授权文件 + 热更新状态），未注入时返回 501。
 	s.mux.Handle("POST /api/v1/license/activate", s.protected("license_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.licenseActivate == nil {
 			fail(w, 501, "该业务接口尚未实现：POST /api/v1/license/activate")
@@ -321,7 +321,7 @@ func (s *Server) dictRow(body map[string]any) map[string]any {
 	return row
 }
 
-// machineCode 机器码：优先 cmd 注入的原版算法（Linux 机器标识 sha256），
+// machineCode 机器码：优先 cmd 注入的既定算法（Linux 机器标识 sha256），
 // 未注入或读取失败时退化为宿主名哈希，保证端点恒有稳定输出。
 func (s *Server) machineCode() string {
 	if s.machineCodeFn != nil {

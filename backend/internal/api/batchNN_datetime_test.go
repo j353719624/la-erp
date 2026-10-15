@@ -25,7 +25,7 @@ import (
 
 // TestNNDateTimeIsTimeType 钉死「datetime 列读回来是 time.Time」这一事实。
 //
-// 这条不是断言原版行为，而是**锁定恢复端的运行前提**：一旦换驱动或改列类型
+// 这条不是断言既有行为，而是**锁定本实现的运行前提**：一旦换驱动或改列类型
 // 导致这里变成 string，本测试会红，提示重新评估 dateText 的必要性。
 func TestNNDateTimeIsTimeType(t *testing.T) {
 	_, s := setup(t)
@@ -181,7 +181,7 @@ func TestNNOrderExpectedDate(t *testing.T) {
 
 // TestNNOrderDateInvalid 订单日期非法的形态是 **400**，不是业务 10000。
 //
-// 原恢复端的「日期格式错误」（200 + code 10000）是自造文案；原版是
+// 原本实现的「日期格式错误」（200 + code 10000）是自造文案；既有实现是
 // 400 + 「请求参数错误: parsing time … as "2006-01-02T15:04:05Z07:00"」。
 // layout 必须是 RFC3339（错误信息里没有 .999999999），不能用 RFC3339Nano。
 func TestNNOrderDateInvalid(t *testing.T) {

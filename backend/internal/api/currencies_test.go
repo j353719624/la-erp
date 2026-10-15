@@ -12,7 +12,7 @@ import (
 
 func TestOriginalCurrencyReplay(t *testing.T) {
 	c, s := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/currency-flow-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/currency-flow-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestOriginalCurrencyReplay(t *testing.T) {
 			t.Fatalf("currency case %d expected=%v actual=%v", i, expected["data"], actual["data"])
 		}
 	}
-	raw, err = readEvidenceSnapshot(t, "backend-runtime/currencies-including-deleted.json")
+	raw, err = readSnapshot(t, "backend-runtime/currencies-including-deleted.json")
 	if err != nil {
 		t.Fatal(err)
 	}

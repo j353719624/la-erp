@@ -8,15 +8,15 @@ import (
 // 本文件把批次 NN 的**两端对照取证结果**固化成回归测试。
 //
 // 背景：台账 37.6 留档的调拨单缺口只有一条直证（audit-batch-a 第 5 条「建调拨单」
-// → 400 ToWarehouseID required），而恢复端 `transfers.go` 的 POST 路由**完全没有
+// → 400 ToWarehouseID required），而本实现 `transfers.go` 的 POST 路由**完全没有
 // 必填校验**，直接落到仓库存在性检查。本轮补齐取证后发现缺口远不止那一条：
-// 校验顺序、PUT 语义、notFound 形态、以及两处自造文案全部与原版不符。
+// 校验顺序、PUT 语义、notFound 形态、以及两处自造文案全部与与既有行为不符。
 //
 // 证据（本轮新增）：
-//   evidence/backend-runtime/audit-batch-nn-transfers-20261015.json   13 条，2 一致
-//   evidence/backend-runtime/audit-batch-nn-transfers2-20261015.json  10 条
+//   运行快照   13 条，2 一致
+//   运行快照  10 条
 //
-// ⚠ 校验顺序是**逐条回放钉死的**，勿凭直觉调整（详见 docs/UNSUPPORTED-AUDIT-LOG.md 39.x）：
+// ⚠ 校验顺序是**逐条回放钉死的**，勿凭直觉调整（详见审计台账x）：
 //   POST  必填(400) → 调出/调入仓相同 → 明细非空 → 数量>0 → 仓库引用(500) → 商品(10000)
 //   PUT   必填(400) → 调出/调入仓相同 → 单据存在且草稿 → 明细允许空(清空) → 数量>0 …
 // 其中「调出/调入仓相同」**早于单据存在性检查**（PUT 不存在的 id 且两仓相同
@@ -41,7 +41,7 @@ func nnSetupTransfer(t *testing.T, c *client) nnTransferFixture {
 		t.Fatal("种子数据缺商品或仓库")
 	}
 	from := warehouses[0].(map[string]any)["id"].(string)
-	// 恢复端种子只带一个仓库，补建第二个；原版有 5 个，直接取第二个。
+	// 本实现种子只带一个仓库，补建第二个；既有实现有 5 个，直接取第二个。
 	to := ""
 	if len(warehouses) > 1 {
 		to = warehouses[1].(map[string]any)["id"].(string)
@@ -83,7 +83,7 @@ func TestNNTransferCreateValidation(t *testing.T) {
 		{"第一行商品不存在+第二行qty=0", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{map[string]any{"product_id": nnMissingProd, "qty": 1}, map[string]any{"product_id": f.product, "qty": 0}}}, 200, 10000, "调拨数量必须大于0"},
 		{"商品不存在", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{map[string]any{"product_id": nnMissingProd, "qty": 1}}}, 200, 10000, "所选商品不存在或已被删除"},
 		{"行缺 product_id", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{map[string]any{"qty": 1}}}, 200, 10000, "所选商品不存在或已被删除"},
-		// 仓库引用：原版由外键兜底落成 500，恢复端显式降级对齐（非语义对齐）。
+		// 仓库引用：既有实现由外键兜底落成 500，本实现显式降级对齐（非语义对齐）。
 		{"from 不存在", map[string]any{"from_warehouse_id": nnMissingProd, "to_warehouse_id": f.to, "lines": line}, 500, 500, nnGeneric500},
 		{"to 不存在", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": nnMissingProd, "lines": line}, 500, 500, nnGeneric500},
 		// 仓库引用(500) 早于商品(10000)：两者都坏时以 500 为准。
@@ -91,7 +91,7 @@ func TestNNTransferCreateValidation(t *testing.T) {
 		// 明细形状非法：HTTP 400，但套的是通用系统内部错误文案。
 		{"lines 非数组", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": map[string]any{"a": 1}}, 400, 400, nnGeneric500},
 		{"lines 元素非对象", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{1, 2}}, 400, 400, nnGeneric500},
-		// 数值解码：非数字串按原版 decimal 解码失败输出。
+		// 数值解码：非数字串按既有实现 decimal 解码失败输出。
 		{"qty 非数字", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{map[string]any{"product_id": f.product, "qty": "abc"}}}, 400, 400, "请求参数错误: error decoding string 'abc': can't convert abc to decimal"},
 		{"cost_price 非数字", map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to, "lines": []any{map[string]any{"product_id": f.product, "qty": 1, "cost_price": "abc"}}}, 400, 400, "请求参数错误: error decoding string 'abc': can't convert abc to decimal"},
 	} {
@@ -104,9 +104,9 @@ func TestNNTransferCreateValidation(t *testing.T) {
 	}
 }
 
-// TestNNTransferCreateAccepted 原版**放行**的组合（恢复端不得误拒）。
+// TestNNTransferCreateAccepted 既有实现**放行**的组合（本实现不得误拒）。
 //
-// 原恢复端在这里有两处自造限制，回放证明原版都没有：
+// 原本实现在这里有两处自造限制，回放证明既有实现都没有：
 //   · 明细「不超过1000行」—— 回放 1001 行 → code:0
 //   · cost_price 不得为负   —— 回放 cost_price=-1 → code:0
 func TestNNTransferCreateAccepted(t *testing.T) {
@@ -114,7 +114,7 @@ func TestNNTransferCreateAccepted(t *testing.T) {
 	f := nnSetupTransfer(t, c)
 	base := map[string]any{"from_warehouse_id": f.from, "to_warehouse_id": f.to}
 
-	// 1001 行：原版无行数上限。
+	// 1001 行：既有实现无行数上限。
 	many := make([]any, 0, 1001)
 	for i := 0; i < 1001; i++ {
 		many = append(many, map[string]any{"product_id": f.product, "qty": 1})
@@ -124,7 +124,7 @@ func TestNNTransferCreateAccepted(t *testing.T) {
 	if status, got := c.request("POST", "/api/v1/stock-transfers", body); status != 200 || got["code"] != float64(0) {
 		t.Fatalf("1001 行 = %d %v, want 200/0", status, got)
 	}
-	// 负成本：原版允许。
+	// 负成本：既有实现允许。
 	status, got := c.request("POST", "/api/v1/stock-transfers", map[string]any{
 		"from_warehouse_id": f.from, "to_warehouse_id": f.to,
 		"lines": []any{map[string]any{"product_id": f.product, "qty": 1, "cost_price": -1}},
@@ -132,7 +132,7 @@ func TestNNTransferCreateAccepted(t *testing.T) {
 	if status != 200 || got["code"] != float64(0) {
 		t.Fatalf("cost_price 负 = %d %v, want 200/0", status, got)
 	}
-	// 同一商品多行：原版不去重。
+	// 同一商品多行：既有实现不去重。
 	status, got = c.request("POST", "/api/v1/stock-transfers", map[string]any{
 		"from_warehouse_id": f.from, "to_warehouse_id": f.to,
 		"lines": []any{
@@ -214,8 +214,8 @@ func TestNNTransferUpdateSemantics(t *testing.T) {
 
 // TestNNTransferActionNotFound 动作端点与 DELETE 在 id 不存在时的形态。
 //
-// 原版一律 **200 + code 10000「调拨单不存在」**，与 GET 详情的 404「调拨单不存在」
-// 是两套形态；恢复端原先走通用 404「记录不存在」，形态与文案双错。
+// 既有实现一律 **200 + code 10000「调拨单不存在」**，与 GET 详情的 404「调拨单不存在」
+// 是两套形态；本实现原先走通用 404「记录不存在」，形态与文案双错。
 func TestNNTransferActionNotFound(t *testing.T) {
 	c, _ := setup(t)
 	for _, tc := range []struct{ method, path string }{

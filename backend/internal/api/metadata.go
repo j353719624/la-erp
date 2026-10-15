@@ -2,7 +2,7 @@ package api
 
 // metadata.go —— 元数据模块剩余端点（批次 FF，2026-10-14）。
 //
-// 路由覆盖对账查出 metadata 一族原版有、恢复端无的路径；generic reader 只注册了
+// 路由覆盖对账查出 metadata 一族既有实现有、本实现无的路径；generic reader 只注册了
 // `GET /metadata/entities`（read_resources.json），其余全部缺失。本文件补齐：
 //
 //	GET    /api/v1/metadata/entities/code/{code}    按编码取实体
@@ -36,7 +36,7 @@ package api
 //	PUT    /api/v1/dynamic/{entityCode}/{id}        编辑
 //	DELETE /api/v1/dynamic/{entityCode}/{id}        删除
 //
-// 模板列表/详情的响应形状取自原版回放（evidence/backend-runtime/api-contracts.json
+// 模板列表/详情的响应形状取自回归回放（运行快照
 // 的 GET /api/v1/metadata/templates 记录）：项含
 // {id, created_at, updated_at, category, name, description, icon, entity_code,
 //  is_system, is_active, edges:{fields:[…]}}；字段项含
@@ -60,7 +60,7 @@ func (s *Server) registerMetadata() {
 	s.mux.Handle("GET /api/v1/metadata/entities/code/{code}", s.protected("metadata", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.Store.Rows(r.Context(), "SELECT * FROM entity_defs WHERE code=? AND deleted_at IS NULL", r.PathValue("code"))
 		if err != nil || len(rows) == 0 {
-			// 原版回放 GG12（2026-10-14）：不存在的实体返回 HTTP 500 + 通用文案，不是 404
+			// 回归回放 GG12（2026-10-14）：不存在的实体返回 HTTP 500 + 通用文案，不是 404
 			fail(w, 500, "系统内部错误，请稍后重试或联系管理员")
 			return
 		}
@@ -68,7 +68,7 @@ func (s *Server) registerMetadata() {
 	})))
 
 	// 实体写路径：路由覆盖对账未采集到（前端与文档都无引用），由批次 GG 回放发现。
-	// 契约（evidence/backend-runtime/audit-batch-gg-20261014.json + 现场回放）：
+	// 契约（运行快照 + 现场回放）：
 	//   POST   /metadata/entities      缺 table_name → 10000「表名不能为空」
 	//                                  重复 code / 建表失败 → 500 系统内部错误
 	//   GET    /metadata/entities/{id} 不存在 → 500 系统内部错误
@@ -375,7 +375,7 @@ func (s *Server) registerMetadata() {
 	s.mux.Handle("GET /api/v1/metadata/templates/current", s.protected("metadata", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.Store.Rows(r.Context(), "SELECT * FROM industry_templates WHERE is_applied=1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1")
 		if err != nil || len(rows) == 0 {
-			// 原版回放：未应用任何模板时 data 为 null（api-contracts.json）。
+			// 回归回放：未应用任何模板时 data 为 null（api-contracts.json）。
 			respond(w, 200, nil)
 			return
 		}
@@ -460,7 +460,7 @@ func (s *Server) registerMetadata() {
 			fail(w, 404, "模板不存在")
 			return
 		}
-		// 设当前：先清掉其他模板的 is_applied，再标记本模板（原版为单选语义）。
+		// 设当前：先清掉其他模板的 is_applied，再标记本模板（既有实现为单选语义）。
 		if _, err = s.Store.DB.ExecContext(r.Context(), "UPDATE industry_templates SET is_applied=0,updated_at=? WHERE is_applied=1 AND id<>? AND deleted_at IS NULL", database.Now(), r.PathValue("id")); err != nil {
 			s.failure(w, err, "模板")
 			return
@@ -564,7 +564,7 @@ func (s *Server) registerMetadata() {
 	s.mux.Handle("GET /api/v1/dynamic/{entityCode}", s.protected("metadata", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		table, ok := s.entityTable(r, r.PathValue("entityCode"))
 		if !ok {
-			// 原版回放 GG13/GG14：实体不存在时 HTTP 200 + code 10000 + 通用文案
+			// 回归回放 GG13/GG14：实体不存在时 HTTP 200 + code 10000 + 通用文案
 			verbatimFailure(w, verbatim{text: "系统内部错误，请稍后重试或联系管理员"})
 			return
 		}
@@ -582,7 +582,7 @@ func (s *Server) registerMetadata() {
 	s.mux.Handle("GET /api/v1/dynamic/{entityCode}/{id}", s.protected("metadata", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		table, ok := s.entityTable(r, r.PathValue("entityCode"))
 		if !ok {
-			// 原版回放 GG13/GG14：实体不存在时 HTTP 200 + code 10000 + 通用文案
+			// 回归回放 GG13/GG14：实体不存在时 HTTP 200 + code 10000 + 通用文案
 			verbatimFailure(w, verbatim{text: "系统内部错误，请稍后重试或联系管理员"})
 			return
 		}
@@ -657,7 +657,7 @@ func (s *Server) registerMetadata() {
 }
 
 // entityTable 实体编码 → 表名（仅未删除实体）。
-// dynamicEntityColumns 动态实体表的固定列（原版回放 GG17：POST /dynamic/{code} 的返回行
+// dynamicEntityColumns 动态实体表的固定列（回归回放 GG17：POST /dynamic/{code} 的返回行
 // 形如 {id, code, name, status, remark, created_at, updated_at, deleted_at, created_by,
 // updated_by} + field_defs 里定义的自定义列）。
 var dynamicEntityColumns = []string{
@@ -700,7 +700,7 @@ func (s *Server) entityTable(r *http.Request, code string) (string, bool) {
 	return table, true
 }
 
-// entityView 实体详情（含 edges.fields，与原版 GORM preload 形状一致）。
+// entityView 实体详情（含 edges.fields，与既有实现 GORM preload 形状一致）。
 func (s *Server) entityView(r *http.Request, row map[string]any) map[string]any {
 	view := s.Store.Public("entity_defs", row)
 	fields := []map[string]any{}
@@ -741,7 +741,7 @@ func (s *Server) fieldRow(body map[string]any) map[string]any {
 	return row
 }
 
-// templateView 行业模板公开展望：严格按原版回放形状裁剪
+// templateView 行业模板公开展望：严格按回归回放形状裁剪
 // （不含 categories/units/is_applied 等内部列，字段走 edges.fields）。
 func (s *Server) templateView(r *http.Request, row map[string]any) map[string]any {
 	view := map[string]any{

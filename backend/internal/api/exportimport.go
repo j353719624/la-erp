@@ -38,8 +38,8 @@ type ieField struct {
 	Combine bool   // true：值以空格追加到同 Column（颜色/尺码合并成规格）
 	Default string // 该列留空时的默认值
 
-	// 类型错误文案口径（原版回放 2026-10-14，audit-batch-gg3-20261014.json）。
-	// 原版对同一类列有两种写法，得看具体列：
+	// 类型错误文案口径（回归回放 2026-10-14，audit-batch-gg3-20261014.json）。
+	// 既有实现对同一类列有两种写法，得看具体列：
 	//   ErrMode ""    → 「<列名> 格式错误: <底层错误>」（payment_term / credit_limit / sale_price）
 	//   ErrMode "int" → 「<名字>必须为非负整数: <值>」（保质期(天) / rows）
 	//   ErrMode "num" → 「<名字>必须为非负数: <值>」（容量）
@@ -47,7 +47,7 @@ type ieField struct {
 	ErrLabel string // ErrMode 非空的文案名字；留空取表头
 }
 
-// ieRequired 必填校验（原版只校验一项，文案各不相同）。
+// ieRequired 必填校验（既有实现只校验一项，文案各不相同）。
 type ieRequired struct {
 	Header  string // 判空的列（表头）
 	Also    string // 与 Header 同时判空的另一列（「款号与款名不能同时为空」）
@@ -64,10 +64,10 @@ type ieSpec struct {
 	Required []ieRequired // 必填校验（顺序即报错顺序）
 }
 
-// categoryCreateFailure 分类名称参照不到时的原版文案。
+// categoryCreateFailure 分类名称参照不到时的既有文案。
 //
-// 原版对找不到的分类名会尝试**自动建分类**，而建分类缺少 code 必然失败，
-// 故稳定返回这句（回放 N2:2026-10-14，evidence/.../audit-batch-gg3-20261014.json）。
+// 既有实现对找不到的分类名会尝试**自动建分类**，而建分类缺少 code 必然失败，
+// 故稳定返回这句（回放 N2:2026-10-14，运行快照）。
 const categoryCreateFailure = "创建分类失败: ent: missing required field \"Category.code\""
 
 // importExportSpecs 各导入导出对象的列定义。
@@ -298,7 +298,7 @@ func (s *Server) exportRows(r *http.Request, spec ieSpec) ([]map[string]any, err
 		code := r.URL.Query().Get("entity")
 		table, ok := s.entityTable(r, code)
 		if !ok {
-			// 原版回放 GG16：HTTP 200 + code 10000「实体不存在: <编码>」
+			// 回归回放 GG16：HTTP 200 + code 10000「实体不存在: <编码>」
 			return nil, verbatim{text: "实体不存在: " + code}
 		}
 		return s.Store.Rows(r.Context(), "SELECT * FROM "+database.Quote(table)+" WHERE deleted_at IS NULL ORDER BY created_at DESC")
@@ -549,7 +549,7 @@ func (s *Server) importData(w http.ResponseWriter, r *http.Request, kind string)
 		verbatimFailure(w, err)
 		return
 	}
-	// 原版对「无数据行」与「解析不出内容」都不报错，直接返回 total=0（回放 GG27/GG32）
+	// 既有实现对「无数据行」与「解析不出内容」都不报错，直接返回 total=0（回放 GG27/GG32）
 	index := map[string]int{}
 	for i, name := range table[0] {
 		index[strings.TrimSpace(name)] = i
@@ -680,7 +680,7 @@ func (s *Server) buildImportRow(ctx context.Context, tx *importTx, spec ieSpec, 
 		}
 		return strings.TrimSpace(line[i])
 	}
-	// 必填校验在字段解析之前：原版回放 N4 里「款号填了不存在的款 + 颜色留空」
+	// 必填校验在字段解析之前：回归回放 N4 里「款号填了不存在的款 + 颜色留空」
 	// 报的是「规格维度「颜色」不能为空」，而不是款号的参照错误。
 	for _, item := range spec.Required {
 		value := cell(item.Header)
@@ -846,7 +846,7 @@ func (s *Server) assignImportedUserRoles(tx *importTx, userID, roles, now string
 // dynamicFields 动态实体的列定义（field_defs：code → name）。
 func (s *Server) dynamicFields(r *http.Request, entityCode string) ([]ieField, error) {
 	if entityCode == "" {
-		// 原版回放 GG15/GG17/GG18：HTTP 400「entity 参数不能为空」
+		// 回归回放 GG15/GG17/GG18：HTTP 400「entity 参数不能为空」
 		return nil, verbatim{text: "entity 参数不能为空", status: 400}
 	}
 	rows, err := s.Store.Rows(r.Context(),
@@ -855,7 +855,7 @@ func (s *Server) dynamicFields(r *http.Request, entityCode string) ([]ieField, e
 	if err != nil {
 		return nil, err
 	}
-	// 原版对「有表无字段」的实体不报错：导出给空表头，导入走到
+	// 既有实现对「有表无字段」的实体不报错：导出给空表头，导入走到
 	// 「模板包含未知字段列: <表头>」（回放 GG29/GG33）。故这里返回空列而非错误。
 	fields := make([]ieField, 0, len(rows))
 	for _, row := range rows {
@@ -864,7 +864,7 @@ func (s *Server) dynamicFields(r *http.Request, entityCode string) ([]ieField, e
 	return fields, nil
 }
 
-// exportHeader 导出表头。动态实体（meta）原版写作「名称(code)」，导入时按 code 匹配。
+// exportHeader 导出表头。动态实体（meta）既有实现写作「名称(code)」，导入时按 code 匹配。
 func exportHeader(spec ieSpec, field ieField) string {
 	if spec.Dynamic {
 		return field.Header + "(" + field.Column + ")"
@@ -872,7 +872,7 @@ func exportHeader(spec ieSpec, field ieField) string {
 	return field.Header
 }
 
-// importHeaderKey 解析导入表头：原版先按「名称(code)」取括号内 code，再按 code 匹配。
+// importHeaderKey 解析导入表头：既有实现先按「名称(code)」取括号内 code，再按 code 匹配。
 func importHeaderKey(spec ieSpec, header string) string {
 	if !spec.Dynamic {
 		return header
@@ -1029,7 +1029,7 @@ func readCSV(payload []byte) ([][]string, error) {
 	reader.TrimLeadingSpace = true
 	rows, err := reader.ReadAll()
 	if err != nil {
-		// 原版对解析不出内容的 CSV 不报错：按 0 行处理，导入结果 total=0
+		// 既有实现对解析不出内容的 CSV 不报错：按 0 行处理，导入结果 total=0
 		// （回放 GG27：二进制垃圾当作一行表头，无数据行，且无 messages）
 		return nil, nil
 	}
@@ -1046,7 +1046,7 @@ func readCSV(payload []byte) ([][]string, error) {
 func readXLSX(payload []byte) ([][]string, error) {
 	file, err := excelize.OpenReader(bytes.NewReader(payload))
 	if err != nil {
-		// 原版回放 GG28：HTTP 500「XLSX 打开失败: zip: not a valid zip file」
+		// 回归回放 GG28：HTTP 500「XLSX 打开失败: zip: not a valid zip file」
 		return nil, verbatim{text: "XLSX 打开失败: " + err.Error(), status: 500}
 	}
 	defer func() { _ = file.Close() }()
@@ -1061,7 +1061,7 @@ func readXLSX(payload []byte) ([][]string, error) {
 	return rows, nil
 }
 
-// ieFormatError 类型错误文案：原版按列有两种写法（回放 N3/GG25/GG26）。
+// ieFormatError 类型错误文案：既有实现按列有两种写法（回放 N3/GG25/GG26）。
 //   ErrMode ""    → 「<列名> 格式错误: <底层错误>」
 //   ErrMode "int" → 「<名字>必须为非负整数: <值>」
 //   ErrMode "num" → 「<名字>必须为非负数: <值>」
@@ -1086,7 +1086,7 @@ func ieMissingMessage(ref *ieRef, raw string) string {
 
 // ieErrorLabel 类型错误文案里的字段名。
 //
-// 原版回放里 ASCII 列名后面带一个空格、中文名不带：
+// 回归回放里 ASCII 列名后面带一个空格、中文名不带：
 //   「payment_term 格式错误: …」「rows 必须为非负整数: abc」
 //   「保质期(天)必须为非负整数: abc」「容量必须为非负数: abc」
 // 故按是否纯 ASCII 决定是否补空格。

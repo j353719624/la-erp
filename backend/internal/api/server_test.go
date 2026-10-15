@@ -79,7 +79,7 @@ func TestSourceSchemaAndDefaults(t *testing.T) {
 	if err := s.Store.DB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	// 163 = 162（原版新鲜安装快照）+ companies（批次 KK 恢复 console/companies 写路径时新增）
+	// 163 = 162（既有实现新鲜安装快照）+ companies（批次 KK 恢复 console/companies 写路径时新增）
 	if tables != 163 {
 		t.Fatalf("tables=%d", tables)
 	}
@@ -173,7 +173,7 @@ func TestBasicCRUDAndDepartmentCycles(t *testing.T) {
 		t.Fatalf("cycle=%d", status)
 	}
 	c.ok("PUT", "/api/v1/departments/"+child["id"].(string)+"/move", map[string]any{"parent_id": nil})
-	// 批次 PP（2026-10-15）：原版对一切未注册 /api/ 路径逐字返回
+	// 批次 PP（2026-10-15）：既有实现对一切未注册 /api/ 路径逐字返回
 	// 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，8 条对照 100%）。
 	if status, body := c.request("POST", "/api/v1/work-orders/unknown/finish", map[string]any{}); status != 404 || body["message"] != "路由不存在" {
 		t.Fatalf("unimplemented operation = %d %v, want 404 路由不存在", status, body)
@@ -191,7 +191,7 @@ func fields(value map[string]any) []string {
 }
 func TestOriginalCreateResponseContracts(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/api-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/api-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func normalizeContract(value any) any {
 }
 func TestOriginalCollectionContracts(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/api-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/api-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestOriginalCollectionContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 批次 EE（2026-10-14）：/api/v1/combo-products 端点族已恢复，解除忽略。
-	// 原版契约为空列表（total=0 / list=[]），恢复端同形态，纳入比对。
+	// 既有实现契约为空列表（total=0 / list=[]），本实现同形态，纳入比对。
 	ignored := map[string]bool{"/api/v1/portal/admin/orders": true, "/api/v1/portal/admin/customers": true, "/api/v1/work-order-processes/pending": true}
 	checked := 0
 	for _, original := range contracts {
@@ -326,7 +326,7 @@ func TestOriginalCollectionContracts(t *testing.T) {
 		})
 		checked++
 	}
-	// 81 → 82：批次 EE 恢复 /api/v1/combo-products 后，原版该契约（空列表）纳入比对。
+	// 81 → 82：批次 EE 恢复 /api/v1/combo-products 后，既有实现该契约（空列表）纳入比对。
 	if checked != 82 {
 		t.Fatalf("checked original collection contracts=%d", checked)
 	}

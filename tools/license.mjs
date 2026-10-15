@@ -130,7 +130,7 @@ function cli() {
     console.log(JSON.stringify(verifyLicense(JSON.parse(fs.readFileSync(required(options, 'file'), 'utf8')), fs.readFileSync(required(options, 'public'), 'utf8'), { machine: options['machine-id'], edition: options.edition || 'pro' }), null, 2));
   } else if (cmd === 'rotate') {
     const original = path.resolve(required(options, 'server')), out = path.resolve(required(options, 'out'));
-    if (original === out) throw Error('输出文件不能覆盖原程序');
+    if (original === out) throw Error('输出文件不能覆盖既有实现');
     const result = rotateServerPublicKey(fs.readFileSync(original), fs.readFileSync(required(options, 'public'), 'utf8'));
     writeNew(out, result.binary, 0o755);
     console.log(JSON.stringify({ offset: result.offset, original_sha256: result.original_sha256, migrated_sha256: result.migrated_sha256 }, null, 2));

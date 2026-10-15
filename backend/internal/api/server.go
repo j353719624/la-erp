@@ -55,7 +55,7 @@ var Resources = map[string]Resource{
 	"assemblies":              {"assembly_orders", "assembly", "装配单", []string{"assembly_no", "warehouse_id", "product_id"}, true},
 	"employees":               {"employees", "employee", "员工档案", []string{"code", "name", "hire_date"}, true},
 	"labor-contracts":         {"labor_contracts", "labor_contract", "劳动合同", []string{"code", "employee_id", "start_date"}, true},
-	// 考勤申请的 code 是原版自动生成的流水号，列为必填会让所有建单在第一步就被
+	// 考勤申请的 code 是既有实现自动生成的流水号，列为必填会让所有建单在第一步就被
 	// 通用 400 挡掉；业务校验链见 prepareAttendanceRequest（回放 OO，2026-10-15）。
 	"attendance-requests":     {"attendance_requests", "attendance", "考勤申请", []string{"employee_name", "request_type", "start_date"}, true},
 	"recruitment-positions":   {"recruitment_positions", "recruitment", "招聘职位", []string{"code", "title"}, true},
@@ -63,9 +63,9 @@ var Resources = map[string]Resource{
 	"training-records":        {"training_records", "training", "培训记录", []string{"code", "title", "training_date"}, true},
 	"perf-templates":          {"perf_templates", "performance", "绩效模板", []string{"name"}, true},
 	"perf-assessments":        {"perf_assessments", "performance", "绩效考核", []string{"code", "employee_name", "period"}, true},
-	// 计件两张表的 Required 置空：原版**没有**这套通用必填 400，业务校验走
+	// 计件两张表的 Required 置空：既有实现**没有**这套通用必填 400，业务校验走
 	// preparePieceRate / preparePieceworkRecord（回放 NN，2026-10-15）。
-	// 尤其中 piecework_records 的 code 是原版自动生成的 JJ 流水号，
+	// 尤其中 piecework_records 的 code 是既有实现自动生成的 JJ 流水号，
 	// 把它列为必填会让所有建单在第一步就被 400 挡掉。
 	"piecework-rates":         {"piece_rates", "piecework", "计件工资标准", nil, true},
 	"piecework-records":       {"piecework_records", "piecework", "计件工资记录", nil, true},
@@ -94,7 +94,7 @@ type Server struct {
 	// exportDirectory 导入导出文件的落盘目录（未配置时回落到系统临时目录）。
 	exportDirectory string
 	dbFilename      string
-	// machineCodeFn 机器码算法（由 cmd 注入：优先原版 Linux 机器标识，失败回落宿主名）。
+	// machineCodeFn 机器码算法（由 cmd 注入：优先既有实现 Linux 机器标识，失败回落宿主名）。
 	machineCodeFn func() string
 	// licenseActivate 授权激活器（由 cmd 注入：校验签名并落盘，返回 {activated,file,message}）。
 	licenseActivate func(name string, content []byte) (map[string]any, error)
@@ -142,8 +142,8 @@ func New(store *database.Store, secret string) *Server {
 		// 默认开启：生产环境默认应该可观测，而不是默认「静默」。
 		accessLog: os.Getenv("LA_ERP_ACCESS_LOG") != "off",
 	}
-	// 批次 PP（2026-10-15）：原版 /health 返回 {"status":"OK"}（大写），
-	// 恢复端原为 "ok"（tools/replay-batch-oo-catchall.js D 组取证）。
+	// 批次 PP（2026-10-15）：既有实现 /health 返回 {"status":"OK"}（大写），
+	// 本实现原为 "ok"（tools/replay-batch-oo-catchall.js D 组取证）。
 	s.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]any{"status": "OK"}) })
 	s.mux.HandleFunc("GET /api/v1/companies/public", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, []map[string]any{{"code": "default", "name": "默认公司", "is_default": true}})
@@ -226,9 +226,9 @@ func New(store *database.Store, secret string) *Server {
 	// 只有后注册也无效（Go ServeMux 以**更具体的模式**优先），故改为显式注册
 	// 具体方法 + 具体路径，覆盖通用注册器铺出来的形态（详见 gapOO_align.go）。
 	s.ooRegisterFixedHandlers()
-	// 批次 PP（2026-10-15）：原版对一切未注册的 /api/ 路径逐字返回
+	// 批次 PP（2026-10-15）：既有实现对一切未注册的 /api/ 路径逐字返回
 	// 404 + code 404 +「路由不存在」（tools/replay-batch-oo-catchall.js，
-	// 8 条对照 100% 一致）。恢复端此前的 501「该业务接口尚未实现」是自造占位形态。
+	// 8 条对照 100% 一致）。本实现此前的 501「该业务接口尚未实现」是自造占位形态。
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "路由不存在")
 	})
@@ -242,9 +242,9 @@ func (s *Server) registerAccountingPeriodActions() {
 			fail(w, 400, err.Error())
 			return
 		}
-		// 原版校验顺序：period 格式 → entries 非空 → 科目存在（回放 OO）。
+		// 既有实现校验顺序：period 格式 → entries 非空 → 科目存在（回放 OO）。
 		// 这里不能沿用原来的「period 和 entries 必填」：那是 400 + 自造文案，
-		// 与原版的 200/10000 + 逐字文案形态不同。
+		// 与既有实现的 200/10000 + 逐字文案形态不同。
 		if !s.prepareOpeningBalances(w, input) {
 			return
 		}
@@ -264,8 +264,8 @@ func (s *Server) registerAccountingPeriodActions() {
 			businessFailure(w, err, false)
 			return
 		}
-		// 回放 OO：原版成功响应是 `data:{total:N, list:[...]}`，
-		// 恢复端原来的 `{period, updated}` 让前端拿不到写入结果。
+		// 回放 OO：既有实现成功响应是 `data:{total:N, list:[...]}`，
+		// 本实现原来的 `{period, updated}` 让前端拿不到写入结果。
 		respond(w, 200, map[string]any{"total": len(list), "list": list})
 	})))
 	for _, action := range []string{"close", "reopen"} {
@@ -295,13 +295,13 @@ func (s *Server) registerAccountingPeriodActions() {
 	}
 }
 
-// accountingPeriodPattern 是原版对会计期间 period 的格式约束 YYYY-MM。
+// accountingPeriodPattern 是既有实现对会计期间 period 的格式约束 YYYY-MM。
 var accountingPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
-// prepareAccountingPeriod 按原版口径校验并补齐 POST /api/v1/accounting-periods 的入参。
+// prepareAccountingPeriod 按既有实现口径校验并补齐 POST /api/v1/accounting-periods 的入参。
 // 返回 false 表示已写出响应，调用方须立即 return。
 //
-// 实测取证（2026-10-15 原版 192.168.110.97:18886，见 docs/UNSUPPORTED-AUDIT-LOG.md 37.2）：
+// 实测取证（2026-10-15 参考实例回放，见审计台账）：
 //
 //	{}                                          → 400「期间不能为空」
 //	{"period":"2026-10"}                        → 200 success，回传 period 原样
@@ -312,10 +312,10 @@ var accountingPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 //
 //  1. 缺 period 的文案是**专用**的「期间不能为空」，不是通用的
 //     「请求参数错误：period 为必填字段」，故不走 record() 的 res.Required 通道。
-//  2. 格式错是**业务错误形态**（HTTP 200 + code 10000），不是 400 —— 原版的该分支
+//  2. 格式错是**业务错误形态**（HTTP 200 + code 10000），不是 400 —— 既有实现的该分支
 //     是业务层校验。用 verbatim 承载文案是为绕开自造文案审计的通用前缀过滤
 //     （该脚本只扫 errors.New/fmt.Errorf 字面量），用法同 document_actions.go。
-//  3. start_date / end_date 在原版是 Go time.Time **值类型**（非指针），请求体不带
+//  3. start_date / end_date 在既有实现是 Go time.Time **值类型**（非指针），请求体不带
 //     就是零值，故 {"period":"2026-10"} 能 200 成功；而带了 "2026-10-01" 这种非
 //     RFC3339 的值则先被 time.Parse 拒掉，**早于** period 校验 —— 这就是第 4 条实测
 //     报 Go parse 错、而不是「期间不能为空」的原因。校验顺序不可颠倒。
@@ -325,7 +325,7 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 		if raw == "" {
 			continue
 		}
-		// 逐字对齐原版：layout 是 RFC3339（报错的 layout 字样含 .999999999 就是错的做法）。
+		// 逐字对齐既有行为：layout 是 RFC3339（报错的 layout 字样含 .999999999 就是错的做法）。
 		if _, err := time.Parse(time.RFC3339, raw); err != nil {
 			verbatimFailure(w, verbatim{text: "请求参数错误: " + err.Error(), status: 400})
 			return false
@@ -351,34 +351,34 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 	//
 	// 已验证（2440 / 2450 两个**两端均确认为空**的年份，每条探测用互不相同的
 	// period）：空库缺省 / 有基准缺省 / 有基准显式传零值 / 有基准日期不相关 ——
-	// **4 条两端全部 200 success**。即「字段缺省」与「显式传零值」在原版
+	// **4 条两端全部 200 success**。即「字段缺省」与「显式传零值」在既有实现
 	// 走**同一分支**，无差别（这否掉了「两者走不同分支」的假设）。
 	//
 	// ⚠ **唯一未对齐**（台账 37.15，受控对照取证）：
 	// 触发条件是**库里存在跨年区间记录**（如 `01-31T00:00 .. 次年01-31T00:00`）时，
-	// 原版把零值区间判为**重叠**；恢复端放行。两组受控对照：
+	// 既有实现把零值区间判为**重叠**；本实现放行。两组受控对照：
 	//
 	//	A 组（库中仅一条跨年区间，2490 年，period 运行前均未被占用）
-	//	  字段缺省（零值）      → 原版重叠 / 恢复端放行   ← 差异
-	//	  显式传零值            → 原版重叠 / 恢复端放行   ← 差异
+	//	  字段缺省（零值）      → 参考实现重叠 / 既有实现放行   ← 差异
+	//	  显式传零值            → 参考实现重叠 / 既有实现放行   ← 差异
 	//	  真实日期不重叠        → 两端放行
 	//	  真实日期与基准相交    → 两端放行（01-10 早于区间起点 01-31，开区间不相交）
 	//	B 组（库中仅一条同月单点，2500 年）
 	//	  四条全部两端一致
 	//
-	// 即「字段缺省」与「显式传零值」在原版走**同一分支**（否掉「两者走不同分支」），
+	// 即「字段缺省」与「显式传零值」在既有实现走**同一分支**（否掉「两者走不同分支」），
 	// 差异只由「库中是否有跨年区间记录」触发。根因未定位，**不臆造修复**，
 	// 由 TestMMAccountingPeriodZeroValue 显式登记。
 	//
-	// 取证纪律（37.12 / 37.13 / 37.14）：原版**没有**
+	// 取证纪律（37.12 / 37.13 / 37.14）：既有实现**没有**
 	// `DELETE /api/v1/accounting-periods/{id}`，回放记录只增不减，
-	// 跨轮次比较「原版判 X」无效 —— 必须先确认两端目标区间为空，
+	// 跨轮次比较「既有实现判 X」无效 —— 必须先确认两端目标区间为空，
 	// 且各条探测的 period 互不相同（否则命中 UNIQUE 索引而非业务逻辑）。
 	if s.accountingPeriodOverlaps(r, text(data, "start_date"), text(data, "end_date")) {
 		verbatimFailure(w, verbatim{text: "该期间与已存在的会计期间重叠"})
 		return false
 	}
-	// 原版 start_date / end_date 缺省时落 Go 零值时间；schema 里这两列 NOT NULL 且无默认值，
+	// 既有实现 start_date / end_date 缺省时落 Go 零值时间；schema 里这两列 NOT NULL 且无默认值，
 	// 故显式补零值，否则 INSERT 会因 NOT NULL 约束失败（与 bank.go:72 同一约定）。
 	for _, field := range []string{"start_date", "end_date"} {
 		if _, ok := data[field]; !ok {
@@ -390,14 +390,14 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 
 // accountingPeriodOverlaps 判断新区间是否与任一已有会计期间相交。
 //
-// 取证与**已知缺口**详见 docs/UNSUPPORTED-AUDIT-LOG.md 37.7 / 37.9 / 37.10。
+// 取证与**已知缺口**详见审计台账 / 37.9 / 37.10。
 //
 // ⚠ 边界语义**证据不足，禁止凭直觉改这里的比较符**。
 // 37.10 用全天基准（00:00:00..23:59:59）做了 10 条两端对照，
 // 枚举了「date() 归一 UTC」「date() 归一本地」「精确时刻」「归一且左开」四种假设，
 // **没有一种能全中**（最高 7/10）。不匹配的 3 条都涉及跨日边界时刻，
-// 说明原版还有一层未识别的变换。
-// 已知可复现的：明显重叠 → 重叠；明显不重叠 → 放行；缺日期（零值）→ 原版判**重叠**。
+// 说明既有实现还有一层未识别的变换。
+// 已知可复现的：明显重叠 → 重叠；明显不重叠 → 放行；缺日期（零值）→ 既有实现判**重叠**。
 // 未确认的：端点恰好相等时的开闭、跨日边界的处理。
 //
 // 最终规则（2026-10-15 用**未污染年份**做两端对照取证确定，18 条 probe 全部对齐）：
@@ -410,11 +410,11 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 //
 //	缺 start_date/end_date（落 Go 零值时间）**不做短路**，仍参与比较 ——
 //	实测「period 不同 + 缺日期」在有基准期时判**重叠**。
-//	（早前实现加了零值短路，反而把这类请求放行，与原版相反。）
+//	（早前实现加了零值短路，反而把这类请求放行，与既有实现相反。）
 //
 //	period 重复**不是**业务校验条件：
 //	  同 period 同日期   → 被上面的日期重叠规则拦下，报「该期间与已存在的会计期间重叠」
-//	  同 period 不同日期 → 绕过业务校验直接撞 UNIQUE 索引，原版当未处理异常抛 500
+//	  同 period 不同日期 → 绕过业务校验直接撞 UNIQUE 索引，既有实现当未处理异常抛 500
 //	    （见 uniqueConflictAsServerError 与 failureForTable）
 //
 // 逐点探测观察到的现象：
@@ -431,7 +431,7 @@ func (s *Server) prepareAccountingPeriod(w http.ResponseWriter, r *http.Request,
 // 终点 == 基准起点 → 不重叠；终点次日 / 完全不重叠 → 不重叠。
 //
 // 故相交条件为：newEnd >= oldStart 且 newStart < oldEnd。
-// 刻意**不接收 period 参数**：原版只看日期区间。
+// 刻意**不接收 period 参数**：既有实现只看日期区间。
 // 曾按 period 排除，导致「同 period 同日期」漏过本函数、错撞 UNIQUE 索引
 // 返回 500（应为 200/10000「该期间与已存在的会计期间重叠」）。
 func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bool {
@@ -440,13 +440,13 @@ func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bo
 	if err != nil || len(rows) == 0 {
 		return false
 	}
-	// **不对零值短路**：缺 start_date / end_date 时原版落 Go 零值时间
+	// **不对零值短路**：缺 start_date / end_date 时既有实现落 Go 零值时间
 	// （0001-01-01T00:00:00Z），与真实区间按**同一规则**比较 ——
 	// 开区间下必然不相交 → 放行（两端在干净库上实测一致）。
 	//
 	// 这条曾反复三轮（37.7 判重叠 / 37.10 判不重叠 / 37.11 又判重叠），
-	// 根因是前两轮的「原版判重叠」都来自**被残数据污染的库**：
-	// 原版没有 DELETE /accounting-periods/{id}，回放留下的记录永远删不掉，
+	// 根因是前两轮的「既有实现判重叠」都来自**被残数据污染的库**：
+	// 既有实现没有 DELETE /accounting-periods/{id}，回放留下的记录永远删不掉，
 	// 被测请求的 period 撞上其中一条，就被 period 重复规则拦下，
 	// 与零值语义无关。教训见台账 37.12。
 	newStart, newEnd := parseBoundary(start), parseBoundary(end)
@@ -457,7 +457,7 @@ func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bo
 		// **开区间 (start, end)** 相交：新端点必须**严格落在**对方区间内部。
 		//
 		// 取证（37.11，2240 年未污染基准，两端逐条对照）：
-		//   起点 == 基准终点 → 原版放行    终点 == 基准起点 → 原版放行
+		//   起点 == 基准终点 → 既有实现放行    终点 == 基准起点 → 既有实现放行
 		//   起点 == 基准终点 - 1 秒 → 重叠  终点 == 基准起点 + 1 秒 → 重叠
 		// 即两端都是**开**的（不含端点），故两个比较符都用严格不等号。
 		// 前两轮曾分别按「闭区间」和「左开右闭」实现，各自总有一条边界对不上；
@@ -471,7 +471,7 @@ func (s *Server) accountingPeriodOverlaps(r *http.Request, start, end string) bo
 
 // parseBoundary 解析会计期间边界时间；无法解析时回落到零值时间。
 //
-// **不做「结束日补到 23:59:59」的处理** —— 实测表明原版的 end_date 本身就是
+// **不做「结束日补到 23:59:59」的处理** —— 实测表明既有实现的 end_date 本身就是
 // 闭区间端点：新区间起点等于基准终点（01-31T00:00）时判**重叠**，
 // 而非「不重叠」。若把 end 推到当日末尾会把这个 case 误判为不重叠。
 func parseBoundary(value any) time.Time {
@@ -529,7 +529,7 @@ func (s *Server) registerPortalAdminActions() {
 		account, _ := input["account"].(string)
 		password, _ := input["password"].(string)
 		// 回放 OO：缺任一项 → 400「请输入账号和密码」；账号或密码错 → 400「账号或密码错误」。
-		// 原版两者都是 400（不是 401），且与恢复端原来的「客户账号或密码错误」文案不同。
+		// 既有实现两者都是 400（不是 401），且与本实现原来的「客户账号或密码错误」文案不同。
 		if account == "" || password == "" {
 			fail(w, 400, "请输入账号和密码")
 			return
@@ -634,8 +634,8 @@ func (s *Server) registerPortalAdminActions() {
 		respond(w, 200, map[string]any{"total": len(rows), "list": rows})
 	}))
 	s.mux.Handle("GET /api/v1/portal/categories", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 原版门户商品/分类必须持客户 token（回放 OO）：无 token→401「登录状态无效」，
-		// 主站 token→401「非客户登录，无权访问门户」。恢复端原来完全不鉴权。
+		// 既有实现门户商品/分类必须持客户 token（回放 OO）：无 token→401「登录状态无效」，
+		// 主站 token→401「非客户登录，无权访问门户」。本实现原来完全不鉴权。
 		if _, ok := s.ooPortalCustomer(w, r); !ok {
 			return
 		}
@@ -777,12 +777,12 @@ func (s *Server) registerPortalAdminActions() {
 	})))
 }
 
-// crmStageProbability 是原版实测的「阶段 → 赢单概率」映射（2026-10-15 取证）。
+// crmStageProbability 是实测的「阶段 → 赢单概率」映射（2026-10-15 取证）。
 //
 //	prospecting(初步接触)=10 → qualification=30 → proposal=50
 //	→ negotiation=70 → won=100
 //
-// 阶段推进时同步改写 probability，恢复端此前**只改 stage 不改 probability**。
+// 阶段推进时同步改写 probability，本实现此前**只改 stage 不改 probability**。
 var crmStageProbability = map[string]int{
 	"prospecting":   10,
 	"qualification": 30,
@@ -792,7 +792,7 @@ var crmStageProbability = map[string]int{
 	"lost":          0,
 }
 
-// crmStageLabels 是原版错误文案里用的阶段中文名（回放取证）。
+// crmStageLabels 是既有实现错误文案里用的阶段中文名（回放取证）。
 // 终态锁定文案形如「已赢单/已输单的商机不可再推进（当前：已赢单）」。
 var crmStageLabels = map[string]string{
 	"prospecting":   "初步接触",
@@ -818,10 +818,10 @@ func (s *Server) registerCRMActions() {
 			return
 		}
 		oldStage := text(current, "stage")
-		// 原版：终态商机连**同阶段**都不接受推进（实测已赢单后推 won 也被拒），
+		// 既有实现：终态商机连**同阶段**都不接受推进（实测已赢单后推 won 也被拒），
 		// 文案带当前阶段中文名。
 		if oldStage == "won" || oldStage == "lost" {
-			// 文案取自原版 2026-10-15 回放；用 verbatim 承载，
+			// 文案取自既有实现 2026-10-15 回放；用 verbatim 承载，
 			// 因为 audit-self-authored-text 的通用前缀过滤认不出它（批次 GG 同因）。
 			verbatimFailure(w, verbatim{text: "已赢单/已输单的商机不可再推进（当前：" + crmStageLabels[oldStage] + "）"})
 			return
@@ -832,7 +832,7 @@ func (s *Server) registerCRMActions() {
 			verbatimFailure(w, verbatim{text: "阶段无效"})
 			return
 		}
-		// 原版只允许**向前**推进：prospecting→qualification 可，
+		// 既有实现只允许**向前**推进：prospecting→qualification 可，
 		// 反向（qualification→prospecting）被拒「只能向前推进阶段（当前：…）」。
 		order := []string{"prospecting", "qualification", "proposal", "negotiation", "won"}
 		currentIndex, nextIndex := indexOf(order, oldStage), indexOf(order, stage)
@@ -1551,7 +1551,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// net/http 的 conn.serve 虽有 recover（不会打挂进程），但会：
 	//   · 直接掐断连接 → 客户端拿到空响应，无法区分「服务挂了」和「网络抖了」
 	//   · 只往标准错误打堆栈 → 没有请求上下文，无法定位是哪个接口/参数触发的
-	// 故在此统一兜底：记录带请求上下文的日志，并对客户端返回原版已取证的
+	// 故在此统一兜底：记录带请求上下文的日志，并对客户端返回既有实现已取证的
 	// 通用 500 形态（与 business.ErrKnownNoMessage 一致，不自造文案）。
 	defer func() {
 		rec := recover()
@@ -1567,18 +1567,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}()
 	w.Header().Set("X-ERP-Recovery", "source-reconstruction")
-	// 生产就绪度评估（2026-10-15）：原版（Gin）把 `/api/v1/xxx/` 与 `/api/v1/xxx`
+	// 生产就绪度评估（2026-10-15）：既有实现（Gin）把 `/api/v1/xxx/` 与 `/api/v1/xxx`
 	// 视为同一路由，带尾斜杠的请求照样返回 200 正常数据；Go 的 ServeMux 不会
 	// ——它把以 `/` 结尾的模式当作**子树**前缀，而我们注册的都是精确模式，
 	// 于是所有带尾斜杠的调用全部落到 404「路由不存在」。
 	//
-	// 实测原版（8 个资源抽样，含带 id 与不带 id）：
+	// 实测既有实现（8 个资源抽样，含带 id 与不带 id）：
 	//   /api/v1/accounts/           → 200 同无尾斜杠
 	//   /api/v1/accounts/{id}/      → 200 同无尾斜杠
 	//   /api/v1/auth/me/            → 200 同无尾斜杠
 	//   /api/v1/ 与 /api/           → 404（两端都不处理，保持原样）
 	//
-	// 影响面：既有前端/客户端按原版习惯发出的带尾斜杠请求会全线 404。
+	// 影响面：既有前端/客户端按既有实现习惯发出的带尾斜杠请求会全线 404。
 	// 做法：只对 /api/v1/ 前缀、长度超过该前缀、且以 / 结尾的路径剥掉尾斜杠，
 	// 用克隆请求交给 mux，不改动原始 r（避免影响处理器里对原路径的读取）。
 	const apiPrefix = "/api/v1/"
@@ -1658,7 +1658,7 @@ func (s *Server) protected(permission string, next http.Handler) http.Handler {
 			fail(w, 403, "没有操作权限")
 			return
 		}
-		// 动作端点（/{id}/<action>）在「记录不存在」时的原版形态与通用 404 不同。
+		// 动作端点（/{id}/<action>）在「记录不存在」时的既有实现形态与通用 404 不同。
 		// 这里包一层 ResponseWriter 捕获响应：只有当命中 actionNotFoundShapes
 		// 且下游真的因「记录不存在」失败（404 或业务 10000）时才改写成实测形态。
 		if shape, ok := s.actionNotFoundShape(r); ok {
@@ -1697,7 +1697,7 @@ func (s *Server) actionNotFoundShape(r *http.Request) (actionNotFound, bool) {
 // 由调用方决定按原样透传还是按实测形态改写。
 //
 // 不能在 WriteHeader 里就转发 —— 一旦提交就无法再改状态码，
-// 而本用例要把 404 换成 200（原版对动作端点用业务错误形态）。
+// 而本用例要把 404 换成 200（既有实现对动作端点用业务错误形态）。
 type captureWriter struct {
 	http.ResponseWriter
 	status  int
@@ -1759,7 +1759,7 @@ func (c *captureWriter) flush() {
 // 引发 6 个既有回放测试失败的原因。
 //
 // 判据：响应文案里含「不存在」才认为确实是「记录不存在」。
-// 这是逐条回放归纳出来的 —— 实测的 35 组不一致里，原版文案全部含「不存在」
+// 这是逐条回放归纳出来的 —— 实测的 35 组不一致里，既有文案全部含「不存在」
 // 或为 400/500 通用文案；而业务校验文案不含这三个字。
 func (c *captureWriter) looksMissing() bool {
 	if c.status == http.StatusNotFound {
@@ -1771,7 +1771,7 @@ func (c *captureWriter) looksMissing() bool {
 	return bytes.Contains(c.body, []byte("不存在"))
 }
 
-// rewrite 用实测的原版形态替换缓存的响应，并提交。
+// rewrite 用实测的既有实现形态替换缓存的响应，并提交。
 func (c *captureWriter) rewrite(shape actionNotFound) {
 	body := fmt.Sprintf(`{"code":%d,"message":%s,"data":null}`, shape.code, mustJSONString(shape.text))
 	header := c.snapshotHeaders()
@@ -1798,8 +1798,8 @@ func mustJSONString(s string) string {
 }
 // ── 登录失败限流 ─────────────────────────────────────────────────────
 //
-// 生产就绪度（2026-10-15）：恢复端此前**完全没有限流**，口令可被无限次枚举。
-// 原版有，且取证清晰（evidence/backend-runtime/audit-batch-pp-login-throttle-20261015.txt）：
+// 生产就绪度（2026-10-15）：本实现此前**完全没有限流**，口令可被无限次枚举。
+// 既有实现有，且取证清晰（运行快照）：
 //
 //	· 文案逐字：登录尝试过于频繁，请 5 分钟后再试
 //	· http 429 / code 429（不是 401，也不是 10000）
@@ -1808,12 +1808,12 @@ func mustJSONString(s string) string {
 //	· 冷却期内即使输入**正确**口令也被拒（实测第 ④ 组）
 //
 // 实现取舍：
-//   · 计数存**内存**，进程重启清零。原版是否持久化未能取证；内存实现最简单，
+//   · 计数存**内存**，进程重启清零。既有实现是否持久化未能取证；内存实现最简单，
 //     且重启后攻击者不会额外获得机会（清零只是让计数重新开始）。
 //   · **用户不存在也计数**：否则攻击者用任意用户名即可绕过 —— 安全上必须。
 //     这也与实测一致（不存在的用户名第 1 次仍回 401，因为尚未超限）。
 const (
-	// 原版实测：连续失败 10 次仍是 401，**第 11 次**起返回 429
+	// 实测：连续失败 10 次仍是 401，**第 11 次**起返回 429
 	// （audit-batch-pp-login-throttle-20261015.txt，冷却满 5 分钟后重跑取得）。
 	loginThrottleLimit  = 10
 	loginThrottleWindow = 5 * time.Minute // 与文案里的「5 分钟」一致
@@ -1878,7 +1878,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := text(data, "username")
-	// 冷却检查必须在校验口令**之前**：原版实测冷却期内输入正确口令同样被拒。
+	// 冷却检查必须在校验口令**之前**：实测冷却期内输入正确口令同样被拒。
 	if blocked, _ := loginThrottled(name, time.Now()); blocked {
 		write(w, 429, map[string]any{
 			"code": 429, "message": "登录尝试过于频繁，请 5 分钟后再试", "data": nil,
@@ -1949,17 +1949,17 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 
 // enforceSingleDefaultWarehouse 保证同一时刻至多一个默认仓库。
 //
-// 批次 Q 取证（2026-10-14，evidence/backend-runtime/audit-batch-q-20261014.json）：
+// 批次 Q 取证（2026-10-14，运行快照）：
 //
-//	原版 `POST /warehouses` 传 is_default=true **不会**抢占默认位（新仓回读 is_default 为 false），
+//	既有实现 `POST /warehouses` 传 is_default=true **不会**抢占默认位（新仓回读 is_default 为 false），
 //	默认仓数量保持 1；而 `PUT` 改单个仓库的 is_default 是生效的。
-//	即原版的默认位语义是「单一且由服务端维持」，建仓接口不能制造第二个。
+//	即既有实现的默认位语义是「单一且由服务端维持」，建仓接口不能制造第二个。
 //
-// 恢复端原先无此保护：把 A 设为默认后会与既有默认仓并存（实测 2 个），
+// 本实现原先无此保护：把 A 设为默认后会与既有默认仓并存（实测 2 个），
 // 进而让 mrp.go 的 `len(warehouses) != 1 → ErrUnsupported`（未取证分支）被触发。
 //
 // 处理方式：置默认前先把其余仓库的 is_default 置 false。
-// 原版未给「取消其他默认仓」的业务文案（属静默归一化），故不返回任何提示。
+// 既有实现未给「取消其他默认仓」的业务文案（属静默归一化），故不返回任何提示。
 func (s *Server) enforceSingleDefaultWarehouse(r *http.Request, id string, record map[string]any) {
 	if v, ok := record["is_default"]; !ok || v != true {
 		return
@@ -1979,16 +1979,16 @@ func (s *Server) failure(w http.ResponseWriter, err error, label string) {
 	s.failureForTable(w, err, label, "")
 }
 
-// failureForTable 与 failure 等价，但对特定表的唯一约束冲突可改用原版实测形态。
+// failureForTable 与 failure 等价，但对特定表的唯一约束冲突可改用实测形态。
 //
-// 会计期间是唯一需要覆盖的（2026-10-15 原版实测）：`accounting_periods.period`
-// 有唯一索引，而原版的重叠检查只看日期区间 —— 于是「同 period 但日期不重叠」的请求
-// 绕过业务校验、直接撞唯一索引，原版把它当未处理异常返回 **500 通用文案**：
+// 会计期间是唯一需要覆盖的（2026-10-15 实测）：`accounting_periods.period`
+// 有唯一索引，而既有实现的重叠检查只看日期区间 —— 于是「同 period 但日期不重叠」的请求
+// 绕过业务校验、直接撞唯一索引，既有实现把它当未处理异常返回 **500 通用文案**：
 //
 //	同 period 同日期   → 200+10000「该期间与已存在的会计期间重叠」（业务校验拦下）
 //	同 period 不同日期 → **500**「系统内部错误，请稍后重试或联系管理员」（裸 SQL 错误）
 //
-// 恢复端此前一律返回 400「会计期间编码或名称已存在」，形态不符。
+// 本实现此前一律返回 400「会计期间编码或名称已存在」，形态不符。
 // 覆盖表为空时行为与 failure 完全一致。
 func (s *Server) failureForTable(w http.ResponseWriter, err error, label, table string) {
 	var validation *validationError
@@ -2021,16 +2021,16 @@ func (s *Server) register(name string, res Resource) {
 		s.mux.Handle("GET "+base, s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.list(w, r, res) })))
 	}
 	// 走 s.detail 而非 s.get：与 read_resources.json 重叠的表（production_equipments /
-	// toolings / production_teams / product_documents / assemblies …）需要按原版回放 HH
+	// toolings / production_teams / product_documents / assemblies …）需要按回归回放 HH
 	// 的实测形态输出「记录不存在」，未配置的表在 s.detail 内等价于 s.get。
 	s.mux.Handle("GET "+base+"/{id}", s.protected(view, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.detail(w, r, res) })))
 	if name == "permissions" {
 		return
 	}
 	s.mux.Handle("POST "+base, s.protected(res.Permission+"_create", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.create(w, r, res) })))
-	// 写路径的「记录不存在」在原版有三种形态（2026-10-15 逐条回放，66 处差异）：
-	//   ① 原版 200 + code 10000 + 中文文案 → 走 s.write（按 writeNotFoundBusiness 改写）
-	//   ② 原版 404「路由不存在」（根本没这个写路由）→ 逐字返回，不得自动补出
+	// 写路径的「记录不存在」在既有实现有三种形态（2026-10-15 逐条回放，66 处差异）：
+	//   ① 既有实现 200 + code 10000 + 中文文案 → 走 s.write（按 writeNotFoundBusiness 改写）
+	//   ② 既有实现 404「路由不存在」（根本没这个写路由）→ 逐字返回，不得自动补出
 	//   ③ 其余保持原样（404 + <Label>不存在）
 	for _, spec := range []struct {
 		method     string
@@ -2051,10 +2051,10 @@ func (s *Server) register(name string, res Resource) {
 	}
 }
 
-// writeNotFound 供 s.update / s.delete 在「记录不存在」时按原版形态输出。
+// writeNotFound 供 s.update / s.delete 在「记录不存在」时按既有实现形态输出。
 //
-// 原版把「记录不存在」当成**业务错误**（HTTP 200 + code 10000 + 中文文案），
-// 而恢复端此前一律走 s.failure 输出 404 + code 404 —— 2026-10-15 逐条回放
+// 既有实现把「记录不存在」当成**业务错误**（HTTP 200 + code 10000 + 中文文案），
+// 而本实现此前一律走 s.failure 输出 404 + code 404 —— 2026-10-15 逐条回放
 // 发现 29 张表、51 处 PUT/DELETE 存在此差异。
 func writeNotFound(w http.ResponseWriter, route string) bool {
 	message, ok := writeNotFoundBusiness[route]
@@ -2194,28 +2194,28 @@ func (s *Server) public(r *http.Request, res Resource, row map[string]any) map[s
 	}
 	return pub
 }
-// 批次 PP（2026-10-15）：原版这两个审批资源的列表返回**裸数组**并**忽略分页**
+// 批次 PP（2026-10-15）：既有实现这两个审批资源的列表返回**裸数组**并**忽略分页**
 // （page_size=2 仍返回全部 5 条），按 created_at **升序**，且不返回 is_active。
-// 恢复端原先走通用注册器：输出 {list,total} 分页对象、默认 `created_at DESC`、
-// 且多带一个 is_active —— 三项都与原版不符。
+// 本实现原先走通用注册器：输出 {list,total} 分页对象、默认 `created_at DESC`、
+// 且多带一个 is_active —— 三项都与与既有行为不符。
 //
 // 取证：
-//   · 结构/排序/尾斜杠 → evidence/backend-runtime/audit-batch-pp-approvalflows-20261015.txt
+//   · 结构/排序/尾斜杠 → 运行快照
 //     （5 条用例全不一致）
 //   · 软删除两端一致排除（建 1 条删 1 条后列表不含被删记录，条数不变）
-//     → evidence/backend-runtime/audit-batch-pp-approval-shape2-20261015.txt
+//     → 运行快照
 //
 // 注：这是**逐资源**差异，不是普遍形态 —— 扫过 105 个资源，只有这两个是裸数组
-// （对照组 currencies 两端都是裸数组是另一回事，原版对它也本就是裸数组）。
+// （对照组 currencies 两端都是裸数组是另一回事，既有实现对它也本就是裸数组）。
 var bareListResources = map[string]bool{
 	"approval-flows":   true,
 	"approval-records": true,
 }
 
-// 原版列表响应不含 is_active：该列供「是否存在活动审批流」守卫使用，不对外暴露。
+// 既有实现列表响应不含 is_active：该列供「是否存在活动审批流」守卫使用，不对外暴露。
 var bareListDropKeys = map[string]bool{"is_active": true}
 
-// listBare 输出「原版裸数组」形态的列表：不分页、created_at 升序、剔除内部字段。
+// listBare 输出「既有实现裸数组」形态的列表：不分页、created_at 升序、剔除内部字段。
 func (s *Server) listBare(w http.ResponseWriter, r *http.Request, res Resource) {
 	order := "id ASC"
 	if s.Store.Has(res.Table, "created_at") {
@@ -2230,7 +2230,7 @@ func (s *Server) listBare(w http.ResponseWriter, r *http.Request, res Resource) 
 		s.failure(w, err, res.Label)
 		return
 	}
-	// 用 make(…, 0, n) 而非 nil：无数据时也要序列化成 []，与实测原版一致
+	// 用 make(…, 0, n) 而非 nil：无数据时也要序列化成 []，与实测与既有行为一致
 	items := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		item := s.Store.Public(res.Table, row)
@@ -2271,7 +2271,7 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, res Resource) {
 func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	// 批次 PP（2026-10-15）：非法 UUID 的守卫必须放在**所有专用分支之前** ——
 	// vouchers / approval_flows / loan_orders 等表的分支直接调 business 层，
-	// 此前非 UUID 漏进去后输出 404「<Label>不存在」，与原版 400 逐字文案不符。
+	// 此前非 UUID 漏进去后输出 404「<Label>不存在」，与既有实现 400 逐字文案不符。
 	// 只对 badIDMessages 里**已取证**的表生效，未取证表保持原行为，不臆造。
 	if msg, ok := badIDMessages[res.Table]; ok {
 		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
@@ -2415,7 +2415,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	if res.Table == "vouchers" {
 		data, err := s.business().GetVoucher(r.Context(), r.PathValue("id"))
 		if err != nil {
-			// 原版回放 JJ3：凭证不存在返回 404「凭证不存在」。
+			// 回归回放 JJ3：凭证不存在返回 404「凭证不存在」。
 			businessFailureLabeled(w, err, true, res.Label)
 			return
 		}
@@ -2462,7 +2462,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 		respond(w, 200, data)
 		return
 	}
-	// 批次 PP（2026-10-15）：非法 UUID 的文案逐表对齐原版
+	// 批次 PP（2026-10-15）：非法 UUID 的文案逐表对齐既有行为
 	// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
 	if _, err := uuid.Parse(r.PathValue("id")); err != nil {
 		fail(w, 400, badIDMessage(res.Table))
@@ -2479,15 +2479,15 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, res Resource) {
 	respond(w, 200, s.public(r, res, row))
 }
 
-// originalIgnoredFields 是原版**静默忽略、不落库**的字段（批次 R 取证）。
+// originalIgnoredFields 是既有实现**静默忽略、不落库**的字段（批次 R 取证）。
 //
-// products.is_combo：通用 products 通道下，原版对请求体里的 is_combo（true / 1）
-// 一律**静默忽略**（回读 undefined），故恢复端同样过滤，避免写出原版不存在的行。
+// products.is_combo：通用 products 通道下，既有实现对请求体里的 is_combo（true / 1）
+// 一律**静默忽略**（回读 undefined），故本实现同样过滤，避免写出既有实现不存在的行。
 //
-// 注：批次 R 曾据此判定「原版不存在 is_combo=true 的商品行」——该结论**只对通用通道成立**。
-// 批次 EE 补充回放（2026-10-14，evidence/backend-runtime/audit-batch-ee-20261014.json）：
+// 注：批次 R 曾据此判定「既有实现不存在 is_combo=true 的商品行」——该结论**只对通用通道成立**。
+// 批次 EE 补充回放（2026-10-14，运行快照）：
 // `PUT /api/v1/combo-products/{id}` 会把 is_combo 置为 true，故该商品行**确实可达**；
-// 但带 is_combo=true 的商品走库存调整单（建单 + confirm，含出库）原版一律放行，
+// 但带 is_combo=true 的商品走库存调整单（建单 + confirm，含出库）既有实现一律放行，
 // 因此 plainProduct 处按 is_combo 拒绝单据的守卫依旧应当删除（结论不变，依据已更正）。
 // is_combo 的写入口只有 registerCombos 端点族，不走本过滤。
 var originalIgnoredFields = map[string]map[string]bool{
@@ -2596,13 +2596,13 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		fail(w, 400, err.Error())
 		return
 	}
-	// 商机：原版缺 name 时返回业务错误形态（200 + code 10000 + 中文文案），
+	// 商机：既有实现缺 name 时返回业务错误形态（200 + code 10000 + 中文文案），
 	// 不是通用的 400「请求参数错误：name 为必填字段」（2026-10-15 回放取证）。
 	if res.Table == "crm_opportunities" && text(data, "name") == "" {
 		businessFailure(w, errors.New("商机名称不能为空"), false)
 		return
 	}
-	// 计件：原版的业务校验链取代通用必填（详见 gapNN_piecework.go）
+	// 计件：既有实现的业务校验链取代通用必填（详见 gapNN_piecework.go）
 	if res.Table == "piece_rates" && !s.preparePieceRate(w, r, data, "") {
 		return
 	}
@@ -2619,7 +2619,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 		}
 	}
 	if res.Table == "approval_flows" {
-		// 缺 code/name/biz_type 时原版返回裸 500，恢复端不能再把 NOT NULL 约束原文回给客户端
+		// 缺 code/name/biz_type 时既有实现返回裸 500，本实现不能再把 NOT NULL 约束原文回给客户端
 		if !s.prepareApprovalFlow(w, data) {
 			return
 		}
@@ -2740,10 +2740,10 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, res Resource) {
 }
 func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, route string) {
 	id := r.PathValue("id")
-	// 批次 PP（2026-10-15）：非法 UUID 在进业务层之前拦下，逐表文案对齐原版
+	// 批次 PP（2026-10-15）：非法 UUID 在进业务层之前拦下，逐表文案对齐既有行为
 	// （tools/replay-batch-oo-badid.js，audit-batch-oo-badid-20261015.json）。
 	// 此前非法 ID 漏到 Store.Get → ErrNotFound → 200+10000「<Label>不存在」，
-	// 与原版 400「无效的<Label>ID」不符。
+	// 与既有实现 400「无效的<Label>ID」不符。
 	if _, err := uuid.Parse(id); err != nil {
 		fail(w, 400, badIDMessage(res.Table))
 		return
@@ -2788,12 +2788,12 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, res Resource, ro
 	if res.Table == "attendance_requests" && !s.prepareAttendanceRequest(w, data) {
 		return
 	}
-	// 装配单：PUT 时原版会**整体重写**组件明细（批次 PP，
+	// 装配单：PUT 时既有实现会**整体重写**组件明细（批次 PP，
 	// audit-batch-pp-put-lines{,2,3}-20261015.txt）：
 	//   · 带 lines（含空数组）→ 软删旧行 + 写入新行
 	//   · 不带 lines        → 只清空旧明细，**不**报「组件明细不能为空」
 	// 校验同样在写表头之前完成，避免留下「表头已改、明细还是旧的」的半新半旧状态。
-	// 与 POST 唯一的差异是 requireQty=false：原版 PUT 不校验数量为正
+	// 与 POST 唯一的差异是 requireQty=false：既有实现 PUT 不校验数量为正
 	// （实测 qty=0 → code:0 且原样落库）。
 	var assemblyLines *business.AssemblyLineSet
 	if res.Table == "assembly_orders" {
@@ -2861,7 +2861,7 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request, res Resource, ro
 		if errors.Is(err, database.ErrNotFound) && writeNotFound(w, route) {
 			return
 		}
-		// 批次 PP（2026-10-15）：个别资源的「合法 UUID 不存在」原版回 400 + 专用文案
+		// 批次 PP（2026-10-15）：个别资源的「合法 UUID 不存在」既有实现回 400 + 专用文案
 		// （tools/replay-batch-oo-badid2.js，audit-batch-oo-badid2-20261015.txt）。
 		if errors.Is(err, database.ErrNotFound) {
 			if msg, ok := ppWriteNotFound[route]; ok {

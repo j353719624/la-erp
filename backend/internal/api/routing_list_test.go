@@ -10,7 +10,7 @@ import (
 
 func TestOriginalRoutingListReplay(t *testing.T) {
 	c, _ := setup(t)
-	raw, err := readEvidenceSnapshot(t, "backend-runtime/work-orders/routing-list-contracts.json")
+	raw, err := readSnapshot(t, "backend-runtime/work-orders/routing-list-contracts.json")
 	if err != nil {
 		t.Fatal(err)
 	}

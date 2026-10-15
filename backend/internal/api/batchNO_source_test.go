@@ -6,11 +6,11 @@ import (
 )
 
 // 本文件固化批次 N/O 取证（2026-10-14）的结论：
-//   N：各 *Action 函数的 default 分支不可达（API 层白名单限定 + 原版动作集逐项一致）
-//   O：单据表头中「表无对应列」的字段原版一律静默忽略，恢复端原先 501 属误拒
-// 证据见 evidence/backend-runtime/audit-batch-{n,o}-20261014.json。
+//   N：各 *Action 函数的 default 分支不可达（API 层白名单限定 + 既有实现动作集逐项一致）
+//   O：单据表头中「表无对应列」的字段既有实现一律静默忽略，本实现原先 501 属误拒
+// 证据见 运行快照,o}-20261014.json。
 
-// OO：销售订单带无列表头字段应放行且不落库（原版静默忽略）。
+// OO：销售订单带无列表头字段应放行且不落库（既有实现静默忽略）。
 func TestSourceOrderIgnoresFieldsAbsentFromSchema(t *testing.T) {
 	c, product, warehouse, party := testFixture(t, "OO-HEADER")
 	location := c.ok("POST", "/api/v1/locations", map[string]any{"name": "OO", "warehouse_id": warehouse["id"]}).(map[string]any)
@@ -77,7 +77,7 @@ func TestSourceStockDocumentHeaderFieldSplit(t *testing.T) {
 	}
 }
 
-// NN：未注册的动作不得被静默接受——恢复端不应把未实现的动作暴露成成功。
+// NN：未注册的动作不得被静默接受——本实现不应把未实现的动作暴露成成功。
 func TestSourceUnknownActionIsNotAccepted(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "NN-ACTION")
 	adjust := c.ok("POST", "/api/v1/inventory-adjusts", map[string]any{
@@ -85,12 +85,12 @@ func TestSourceUnknownActionIsNotAccepted(t *testing.T) {
 		"lines": []any{map[string]any{"product_id": product["id"], "qty": 1}},
 	}).(map[string]any)
 	path := "/api/v1/inventory-adjusts/" + adjust["id"].(string)
-	// 原版只支持 confirm / cancel（delete 走 HTTP DELETE），
+	// 既有实现只支持 confirm / cancel（delete 走 HTTP DELETE），
 	// 因此一个不存在的动作必须返回错误，而不是 code:0。
 	if status, body := c.request("POST", path+"/bogus-action", map[string]any{}); status == 200 && body["code"] == float64(0) {
 		t.Fatalf("unknown action accepted: %#v", body)
 	}
-	// HTTP DELETE 形态应可用（原版同样支持）
+	// HTTP DELETE 形态应可用（既有实现同样支持）
 	if _, body := c.request("DELETE", path, nil); body["code"] == float64(0) {
 		t.Logf("HTTP DELETE on draft adjustment succeeded (expected: original allows it)")
 	}

@@ -5,11 +5,11 @@ import (
 )
 
 // 本文件固化批次 W 取证（2026-10-14）的结论：
-//   - 原版允许修改单据/商品的 type 字段（恢复端原先 501）
+//   - 既有实现允许修改单据/商品的 type 字段（本实现原先 501）
 //   - 调拨单的库位字段只落库、不校验引用完整性（不存在的库位也建单成功）
-// 证据见 evidence/backend-runtime/audit-batch-w-20261014.json。
+// 证据见 运行快照。
 
-// WW1：允许修改 type（原版 goods → raw 成功）。
+// WW1：允许修改 type（既有实现 goods → raw 成功）。
 func TestSourceTypeFieldIsEditable(t *testing.T) {
 	c, _, _, _ := testFixture(t, "WW-TYPE")
 	product := c.ok("POST", "/api/v1/products", map[string]any{
@@ -50,7 +50,7 @@ func TestSourceTransferLocationHasNoExistenceCheck(t *testing.T) {
 		t.Fatalf("from_location_id should be persisted: %#v", valid["from_location_id"])
 	}
 
-	// 不存在的库位：原版照常建单，不校验
+	// 不存在的库位：既有实现照常建单，不校验
 	for _, key := range []string{"from_location_id", "to_location_id"} {
 		body := map[string]any{
 			"from_warehouse_id": warehouse["id"], "to_warehouse_id": target["id"],

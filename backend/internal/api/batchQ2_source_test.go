@@ -7,12 +7,12 @@ import (
 
 // 批次 Q（续）：默认仓库的独占性。
 //
-// 取证（2026-10-14）：原版 `POST /warehouses` 传 `is_default=true` 时，
+// 取证（2026-10-14）：既有实现 `POST /warehouses` 传 `is_default=true` 时，
 // 新仓的 is_default **并未被置真**（回读为 false/undefined），默认仓数量仍为 1；
 // 而 `PUT` 改现有仓库的 is_default 会生效（曾把 WH-DEFAULT 置 false，需手工恢复）。
-// 即原版**不允许通过建仓接口抢占默认位**，但允许显式改单个仓库的该标志。
+// 即既有实现**不允许通过建仓接口抢占默认位**，但允许显式改单个仓库的该标志。
 //
-// 本测试固化恢复端需满足的底线：**同一时刻至多一个 is_default 仓库**，
+// 本测试固化本实现需满足的底线：**同一时刻至多一个 is_default 仓库**，
 // 否则 mrp.go 里 `len(warehouses) != 1` 的守卫会被触发（该分支未取证，不自造文案）。
 
 // QQ3：建仓传 is_default 不应造成第二个默认仓。
@@ -39,7 +39,7 @@ func TestSourceDefaultWarehouseStaysUnique(t *testing.T) {
 	if n := strings.Count(trimJSON(list), `"is_default":true`); n != 1 {
 		t.Fatalf("expected exactly one default warehouse, got %d", n)
 	}
-	// 再把 B 也设为默认：原版语义未取证，但至少不应静默产生两个默认仓
+	// 再把 B 也设为默认：既有实现语义未取证，但至少不应静默产生两个默认仓
 	// （否则 mrp 生成工单会落入未取证分支）。此处只断言系统不会进入「无默认仓」状态。
 	_ = b
 	list2 := c.ok("GET", "/api/v1/warehouses?page_size=100", nil).(map[string]any)
@@ -48,7 +48,7 @@ func TestSourceDefaultWarehouseStaysUnique(t *testing.T) {
 	}
 }
 
-// QQ5：qty_per <= 0 按原版归一为 1（原版实测回读均为 1，非拒绝）。
+// QQ5：qty_per <= 0 按既有实现归一为 1（实测回读均为 1，非拒绝）。
 func TestSourceBomQtyPerNormalisesToOne(t *testing.T) {
 	c, product, warehouse, _ := testFixture(t, "QQ-QTPER")
 	material := c.ok("POST", "/api/v1/products", map[string]any{

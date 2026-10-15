@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// 本文件固化批次 LL 的取证结论（2026-10-15 原版回放 192.168.110.97:18886）：
+// 本文件固化批次 LL 的取证结论（2026-10-15 回归回放（参考实例）：
 // 动作端点（/{id}/<action>）「记录不存在」的响应形态。
 //
 // 起因：前几轮核对了「路由存在性」「列表/详情形状」「写路径 notFound」，
 // 但从未核对动作端点的 notFound 形态。这些是前端高频按钮，
 // 文案或状态码错了用户立刻看到。
 //
-// 证据：evidence/backend-runtime/audit-batch-ll-actions-20261015.json
+// 证据：运行快照
 // （25 资源 × 36 动作，两端都存在的 40 组里 35 组不一致）
 
 // TestLLActionNotFoundShape 动作端点 notFound 形态（代表性抽样 + 配置表完整性）。
@@ -20,7 +20,7 @@ func TestLLActionNotFoundShape(t *testing.T) {
 	c, _ := setup(t)
 	const absent = zeroUUID
 
-	// ① 原版用业务错误形态（200 + 10000 + 中文文案），恢复端此前是 404
+	// ① 既有实现用业务错误形态（200 + 10000 + 中文文案），本实现此前是 404
 	for _, tc := range []struct{ route, action, message string }{
 		{"accounting-periods", "close", "会计期间不存在"},
 		{"accounting-periods", "reopen", "会计期间不存在"},
@@ -34,7 +34,7 @@ func TestLLActionNotFoundShape(t *testing.T) {
 		}
 	}
 
-	// ② 原版 400（形态不同），恢复端此前是 404
+	// ② 既有实现 400（形态不同），本实现此前是 404
 	for _, tc := range []struct{ route, action, message string }{
 		{"payment-plans", "cancel", "收付款计划不存在"},
 	} {
@@ -44,7 +44,7 @@ func TestLLActionNotFoundShape(t *testing.T) {
 		}
 	}
 
-	// ③ 原版 500 通用文案，恢复端此前是 200/10000
+	// ③ 既有实现 500 通用文案，本实现此前是 200/10000
 	for _, action := range []string{"confirm", "cancel"} {
 		status, body := c.request("POST", "/api/v1/assemblies/"+absent+"/"+action, map[string]any{})
 		if status != http.StatusInternalServerError || body["message"] != "系统内部错误，请稍后重试或联系管理员" {
@@ -105,16 +105,16 @@ func TestLLActionPassthroughUnconfigured(t *testing.T) {
 	c, _ := setup(t)
 	const absent = zeroUUID
 
-	// crm-opportunities/{id}/stage 未在配置表里（回放未覆盖），应保持恢复端原行为
+	// crm-opportunities/{id}/stage 未在配置表里（回放未覆盖），应保持本实现原行为
 	_, before := c.request("POST", "/api/v1/crm-opportunities/"+absent+"/stage", map[string]any{"stage": "won"})
-	// 恢复端对「商机不存在」回 200/10000
+	// 本实现对「商机不存在」回 200/10000
 	if before["message"] != "商机不存在" {
 		t.Fatalf("未配置动作被改写: %v", before)
 	}
-	// 未注册的动作端点落到兜底：批次 PP（2026-10-15）取证原版对一切未注册
+	// 未注册的动作端点落到兜底：批次 PP（2026-10-15）取证既有实现对一切未注册
 	// /api/ 路径逐字返回 404 + code 404 +「路由不存在」
 	// （tools/replay-batch-oo-catchall.js，8 条对照 100%），
-	// 恢复端原先的 501「该业务接口尚未实现」是自造占位形态，已对齐。
+	// 本实现原先的 501「该业务接口尚未实现」是自造占位形态，已对齐。
 	status, body := c.request("POST", "/api/v1/products/"+absent+"/no-such-action", map[string]any{})
 	if status != http.StatusNotFound || body["message"] != "路由不存在" {
 		t.Fatalf("未注册动作 = %d %v, want 404 路由不存在", status, body)
@@ -141,8 +141,8 @@ func TestLLActionNotFoundOnlyOnMissing(t *testing.T) {
 		t.Fatalf("cancel 未生效: status=%v", got["status"])
 	}
 	// 再次对已取消的订单 approve → 业务校验失败（不是「记录不存在」）。
-	// sales-orders|approve 不在配置表里（回放实测原版该动作对不存在记录也是
-	// 404，故未配置），所以响应必须保持恢复端原样透传。
+	// sales-orders|approve 不在配置表里（回放实测既有实现该动作对不存在记录也是
+	// 404，故未配置），所以响应必须保持本实现原样透传。
 	_, body = c.request("POST", "/api/v1/sales-orders/"+order["id"].(string)+"/approve", nil)
 	if body["code"] != float64(10000) {
 		t.Fatalf("已取消订单的 approve 应为业务错误形态: %v", body)

@@ -16,7 +16,7 @@ func (s *Service) ConfirmPayroll(ctx context.Context, id string) (map[string]any
 			return err
 		}
 		if value(batch, "status") != "draft" {
-			// 批次 PP（2026-10-15）：原版逐字为「只有草稿状态的工资批次才能确认」
+			// 批次 PP（2026-10-15）：既有实现逐字为「只有草稿状态的工资批次才能确认」
 			// （tools/replay-batch-pp-statemachine.js 用例 D2）。
 			return errors.New("只有草稿状态的工资批次才能确认")
 		}

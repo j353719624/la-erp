@@ -12,10 +12,10 @@ import (
 	"la-erp/backend/internal/database"
 )
 
-// 本文件承载批次 KK 恢复的写路径（2026-10-15 原版回放 192.168.110.97:18886）。
+// 本文件承载批次 KK 恢复的写路径（2026-10-15 回归回放（参考实例）。
 //
 // 起因：批次 KK 把路由对账从「只看路由存在性」升级为「逐方法语义比对」后，
-// 暴露出 4 组写路径在恢复端完全没有实现（落到 /api/ 兜底 → 501「尚未实现」），
+// 暴露出 4 组写路径在本实现完全没有实现（落到 /api/ 兜底 → 501「尚未实现」），
 // 而前端在 `frontend/src/api/` 里确实调用它们：
 //
 //	① price-lists（POST/PUT/DELETE + price 子资源）
@@ -23,7 +23,7 @@ import (
 //	③ shareholders（POST/PUT/DELETE）、console/companies（POST/PUT）
 //	④ purchase-reconciliations/generate、piecework-records/import-processes
 //
-// 证据：evidence/backend-runtime/audit-batch-kk-20261015.json（72 条回放）
+// 证据：运行快照（72 条回放）
 //
 // 每处的状态码与文案都逐字取自回放，注释里标注对应的步骤号，便于回查。
 
@@ -41,11 +41,11 @@ func (s *Server) registerGapKKWrites() {
 // ── ⑥ sales-contracts/options ────────────────────────────────────────────
 //
 // 前端 `salesContractApi.options()`（frontend/src/api/order.ts:447）在销售订单表单的
-// 「关联合同」下拉里调用。恢复端此前没有这个端点，请求落到
+// 「关联合同」下拉里调用。本实现此前没有这个端点，请求落到
 // `GET /sales-contracts/{id}` 通配上被当作 id 解析，返回 400「无效的 ID」——
 // 表现为下拉框永远加载不出来。
 //
-// 原版实测（2026-10-15）：
+// 实测（2026-10-15）：
 //
 //	· 返回**裸数组**，不是 {list,total}
 //	· 可选 customer_id 过滤；零 UUID → 空数组（不是错误）
@@ -90,8 +90,8 @@ func (s *Server) registerContractOptions() {
 //	KK-10 DELETE /price-lists/price    → 400 同上
 //	KK-11 DELETE 启用中的真实记录      → 200 code:10000「启用中的价目表不能删除，请先停用」
 //
-// 注意 KK-3：原版**不校验重名**，故此处不加唯一性检查（加了就是自造规则）。
-// 注意 KK-7/8：原版对不存在记录回 500 通用文案而非 404，照实复刻。
+// 注意 KK-3：既有实现**不校验重名**，故此处不加唯一性检查（加了就是自造规则）。
+// 注意 KK-7/8：既有实现对不存在记录回 500 通用文案而非 404，照实复刻。
 const priceListValidatorMsg = "请求参数错误: Key: 'createPriceListRequest.Name' Error:Field validation for 'Name' failed on the 'required' tag"
 
 func (s *Server) registerPriceListWrites() {
@@ -143,7 +143,7 @@ func (s *Server) registerPriceListWrites() {
 		}
 		_, err = s.Store.Get(r.Context(), "price_lists", r.PathValue("id"))
 		if err != nil {
-			// 回放 KK-7：原版对不存在的记录回 500 通用文案（不是 404）
+			// 回放 KK-7：既有实现对不存在的记录回 500 通用文案（不是 404）
 			if errors.Is(err, database.ErrNotFound) {
 				fail(w, 500, "系统内部错误，请稍后重试或联系管理员")
 				return
@@ -194,7 +194,7 @@ func (s *Server) registerPriceListWrites() {
 	// /price-lists/price —— 价目表条目维护。回放 KK-9/KK-10 取到的是
 	// 「无效的价目表ID」，即该子资源靠查询参数 price_list_id 定位父记录，
 	// 缺参数即 400。条目本身的增删改语义未取证（前端未调用），故只实现
-	// 原版已取证的参数校验分支，不自造条目逻辑。
+	// 既有实现已取证的参数校验分支，不自造条目逻辑。
 	s.mux.Handle("PUT "+base+"/price", s.protected("price_list_edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "无效的价目表ID")
 	})))
@@ -219,7 +219,7 @@ func (s *Server) registerPriceListWrites() {
 //	KK-19 PUT 不存在的 id         → 200 code:10000「权限不存在」（不是 404）
 //	KK-20 DELETE 不存在的 id      → 200 code:10000 同上
 //
-// 注意 KK-12~15：原版一次性列出**所有**缺失字段（不是遇到第一个就停），
+// 注意 KK-12~15：既有实现一次性列出**所有**缺失字段（不是遇到第一个就停），
 // 且每行以 \n 分隔，故必须逐字段收集后一次输出，顺序为 Code/Name/Module/Type。
 func permissionValidatorMsg(missing []string) string {
 	lines := make([]string, 0, len(missing))
@@ -417,7 +417,7 @@ func (s *Server) registerShareholderWrites() {
 			row, err := s.Store.Get(r.Context(), "shareholders", r.PathValue("id"))
 			if err != nil {
 				if errors.Is(err, database.ErrNotFound) {
-					// 回放 KK-26/27：原版是 400，不是 404
+					// 回放 KK-26/27：既有实现是 400，不是 404
 					fail(w, 400, "股东不存在")
 					return
 				}
@@ -463,10 +463,10 @@ func (s *Server) registerShareholderWrites() {
 // 其余只允许小写字母/数字/下划线。注意「已存在」检查发生在格式校验**之后**
 // （"Abc" 报的是格式错而非已存在）。
 //
-// 重要副作用（回放 KK 自身踩到）：一旦在原版建出第 2 家公司，
+// 重要副作用（回放 KK 自身踩到）：一旦在既有实现建出第 2 家公司，
 // `POST /api/v1/auth/login` 就**必须带 company 字段**，否则返回
 // 400「请选择公司后再登录」。故本实现里建公司时同步写入公司表，
-// 但**不切换登录逻辑**（恢复端是单公司模式），避免引入原版没有的复杂度。
+// 但**不切换登录逻辑**（本实现是单公司模式），避免引入既有实现没有的复杂度。
 var companyCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,19}$`)
 
 func (s *Server) registerCompanyWrites() {
@@ -551,7 +551,7 @@ func (s *Server) registerCompanyWrites() {
 // ── ⑤ purchase-reconciliations/generate 与 piecework-records/import-processes ──
 //
 // 初版取证的参数名是错的，这里记录订正过程（避免后人重犯）：
-// `period` **不是**原版的参数名。原版校验的是 `period_start` / `period_end`
+// `period` **不是**既有实现的参数名。既有实现校验的是 `period_start` / `period_end`
 // 两个日期，**都必填**、格式 YYYY-MM-DD：
 //
 //	{supplier_id}                                → 400 期间格式无效（应为 YYYY-MM-DD）
@@ -612,7 +612,7 @@ func (s *Server) registerGapKKActions() {
 			"period_start":  start.In(cst).Format(time.RFC3339),
 			"period_end":    end.In(cst).Format(time.RFC3339),
 			"status":        "draft",
-			// 本期无对账数据时四项金额均为 0，与原版实测一致
+			// 本期无对账数据时四项金额均为 0，与实测一致
 			"begin_balance": 0,
 			"period_in":     0,
 			"period_out":    0,
@@ -653,7 +653,7 @@ func (s *Server) registerGapKKActions() {
 }
 
 // nextReconciliationNumber 生成 CGDZ{yyyymmdd}{3 位日流水}。
-// 实测原版同日两张对账单是 …001 / …002，故流水按「当日已有条数 +1」递增。
+// 实测既有实现同日两张对账单是 …001 / …002，故流水按「当日已有条数 +1」递增。
 func (s *Server) nextReconciliationNumber(r *http.Request) (string, error) {
 	day := time.Now().In(time.FixedZone("CST", 8*60*60)).Format("20060102")
 	rows, err := s.Store.Rows(r.Context(),
@@ -695,8 +695,8 @@ func indexOf(list []string, value string) int {
 // registerReconciliationWrites 补齐对账单的删除路径。
 //
 // 回放实测（2026-10-15）：前端 `purchaseReconApi.remove(id)` 会调
-// `DELETE /purchase-reconciliations/{id}`，恢复端此前没注册（落 501）。
-// 记录不存在时原版返回 200 + code 10000「对账单不存在」。
+// `DELETE /purchase-reconciliations/{id}`，本实现此前没注册（落 501）。
+// 记录不存在时既有实现返回 200 + code 10000「对账单不存在」。
 func (s *Server) registerReconciliationWrites() {
 	s.mux.Handle("DELETE /api/v1/purchase-reconciliations/{id}", s.protected("purchase_reconciliation_delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		row, err := s.Store.Get(r.Context(), "purchase_reconciliations", r.PathValue("id"))
@@ -723,14 +723,14 @@ func (s *Server) registerReconciliationWrites() {
 // 扫描器 tools/scan-write-labels.mjs 对 Resources 里每张表的 PUT/DELETE 各打一次
 // 「不存在的 id」，发现 66 处不一致：
 //
-//	51 处：原版 200 + code 10000 + 中文文案，恢复端 404 + code 404
-//	15 处：原版**没有**该写路由（404「路由不存在」），恢复端却注册了
+//	51 处：既有实现 200 + code 10000 + 中文文案，本实现 404 + code 404
+//	15 处：既有实现**没有**该写路由（404「路由不存在」），本实现却注册了
 //
 // 两类的差异都不能用「统一 404」或「统一 10000」概括，故按实测逐条配置。
-// 证据：evidence/backend-runtime/audit-batch-kk-write-labels-20261015.json
+// 证据：运行快照
 
-// writeNotFoundBusiness：写路径「记录不存在」时原版返回业务错误形态
-// （HTTP 200 + code 10000）而非 404 的表，逐字文案取自原版回放。
+// writeNotFoundBusiness：写路径「记录不存在」时既有实现返回业务错误形态
+// （HTTP 200 + code 10000）而非 404 的表，逐字文案取自回归回放。
 // 键是路由名；同一路由的 PUT/DELETE 文案一致（回放已逐一确认）。
 var writeNotFoundBusiness = map[string]string{
 	"approval-flows":         "审批流程不存在",
@@ -764,8 +764,8 @@ var writeNotFoundBusiness = map[string]string{
 	"warehouses":             "仓库不存在",
 }
 
-// writeRouteAbsent：原版**没有**这些写路由（回放返回 404「路由不存在」），
-// 恢复端不得自动补出，须逐字返回「路由不存在」。
+// writeRouteAbsent：既有实现**没有**这些写路由（回放返回 404「路由不存在」），
+// 本实现不得自动补出，须逐字返回「路由不存在」。
 // 注意是按「路由 + 方法」而非按表 —— 同一张表 DELETE 可能存在而 PUT 不存在
 // （如 crm-activities / expense-claims / fixed-assets / leads 只有 DELETE）。
 var writeRouteAbsent = map[string][]string{
@@ -790,17 +790,17 @@ var writeRouteAbsent = map[string][]string{
 // tools/scan-action-labels.mjs 对 25 资源 × 36 动作做实际探测，
 // 两端都存在的 40 组里 **35 组不一致**：
 //
-//	25 组：原版 200+10000+中文文案，恢复端 404+404
-//	 5 组：形态同为 200/10000，但恢复端文案与原版不同
-//	 3 组：原版 400，恢复端 404
-//	 2 组：原版 500 通用文案，恢复端 200/10000
+//	25 组：既有实现 200+10000+中文文案，本实现 404+404
+//	 5 组：形态同为 200/10000，但本实现文案与既有实现不同
+//	 3 组：既有实现 400，本实现 404
+//	 2 组：既有实现 500 通用文案，本实现 200/10000
 //
 // 关键：同一资源的**不同动作文案可以不同**
 // （如 purchase-requisitions 的 convert 是「采购申请单不存在」而 submit 是「采购申请不存在」），
 // 故按「资源|动作」做键，不能按资源。
-// 证据：evidence/backend-runtime/audit-batch-ll-actions-20261015.json
+// 证据：运行快照
 
-// actionNotFoundShape 是动作端点（/{id}/<action>）「记录不存在」时原版的形态。
+// actionNotFoundShape 是动作端点（/{id}/<action>）「记录不存在」时既有实现的形态。
 // 由 tools/scan-action-labels.mjs 逐个实测（批次 LL，2026-10-15）得出，40 组里 35 组不一致。
 // 键是「资源|动作」，值是 HTTP 状态码与业务文案。
 type actionNotFound struct {
@@ -849,11 +849,11 @@ var actionNotFoundShapes = map[string]actionNotFound{
 
 // uniqueConflictAsServerError 是「表 → 唯一约束冲突形态」的按表覆盖。
 //
-// 键是表名，值是原版实测的 HTTP 状态码与文案。
-// 目前只有会计期间需要：原版的期间重叠检查只看日期区间，
+// 键是表名，值是实测的 HTTP 状态码与文案。
+// 目前只有会计期间需要：既有实现的期间重叠检查只看日期区间，
 // 「同 period 但日期不重叠」的请求绕过业务校验后直接撞唯一索引，
-// 原版把它当未处理异常抛出，返回 500 通用文案而非业务错误。
-// 证据：docs/UNSUPPORTED-AUDIT-LOG.md 37.8。
+// 既有实现把它当未处理异常抛出，返回 500 通用文案而非业务错误。
+// 证据：审计台账对应条目。
 var uniqueConflictAsServerError = map[string]struct {
 	http int
 	text string

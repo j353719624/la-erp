@@ -1,4 +1,4 @@
-# LA-ERP 恢复版 · systemd 服务单元示例
+# LA-ERP · systemd 服务单元示例
 #
 # 用法：
 #   sudo cp deployment/systemd/la-erp.service /etc/systemd/system/

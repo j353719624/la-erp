@@ -10,7 +10,7 @@ import (
 
 // contractProgress 汇总一张合同关联订单的「已执行 / 已收款」金额。
 //
-// 原版回放 II/II2/II5（2026-10-14，evidence/backend-runtime/audit-batch-ii{,2,5}-20261014.json）
+// 回归回放 II/II2/II5（2026-10-14，运行快照,2,5}-20261014.json）
 // 用受控数据逐个确定的口径：
 //   - 关联订单 = 该表的 linkColumn 指向本合同、未软删、且 status != 'cancelled'
 //     （II2-14：取消一张 50 元订单后 order_count 2→1、ordered_amount 150→100，
@@ -19,7 +19,7 @@ import (
 //   - 金额为订单 total_amount 之和（II-6：100 + 50 = 150）
 //   - 比率 = 金额 / 合同金额 × 100，DivRound(2)，合同金额为 0 时为 "0"
 //     （II-4「33.33」、II-6「50」、II-8「83.33」；II2-2 零额合同为「0」）
-//   - paid_amount：原版**没有任何订单收款路由**，101 张销售订单的 paid_amount 全为 0
+//   - paid_amount：既有实现**没有任何订单收款路由**，101 张销售订单的 paid_amount 全为 0
 //     （批次 BB 结论，business/service.go），故取关联订单 paid_amount 之和，恒为 0
 func (s *Server) contractProgress(r *http.Request, table, linkColumn, contractID string) (int, decimal.Decimal, decimal.Decimal) {
 	count := 0
@@ -44,7 +44,7 @@ func (s *Server) contractProgress(r *http.Request, table, linkColumn, contractID
 }
 
 // ratePercent 计算 amount / total × 100 并保留 2 位小数；total 为 0 时返回 "0"。
-// 用 DivRound(2) + String()：原版实测 150/300 →「50」而非「50.00」，
+// 用 DivRound(2) + String()：实测 150/300 →「50」而非「50.00」，
 // 100/300 →「33.33」，即尾随零不保留。
 func ratePercent(amount, total decimal.Decimal) string {
 	if !total.IsPositive() {
@@ -126,7 +126,7 @@ func (s *Server) listRecord(r *http.Request, res Resource, row map[string]any) (
 		}
 		pub["stock_qty"] = quantity
 	}
-	// 原版回放 II（evidence/backend-runtime/audit-batch-ii-20261014.json）：
+	// 回归回放 II（运行快照）：
 	// 商品款列表返回 sku_count，= 该款下未软删的 SKU 商品数
 	// （II-18 新建款为 0；II-19 生成 2×2=4 个 SKU 后 II-20 读到 4）。
 	if res.Table == "product_spus" {
@@ -136,7 +136,7 @@ func (s *Server) listRecord(r *http.Request, res Resource, row map[string]any) (
 		}
 		pub["sku_count"] = count
 	}
-	// 销售合同执行进度（仅列表侧，原版详情不含这几个字段）
+	// 销售合同执行进度（仅列表侧，既有实现详情不含这几个字段）
 	if res.Table == "sales_contracts" {
 		count, ordered, paid := s.contractProgress(r, "sales_orders", "sales_contract_id", fmt.Sprint(row["id"]))
 		total := decimalOf(row["total_amount"])
@@ -146,7 +146,7 @@ func (s *Server) listRecord(r *http.Request, res Resource, row map[string]any) (
 		pub["progress_rate"] = ratePercent(ordered, total)
 		pub["receipt_rate"] = ratePercent(paid, total)
 	}
-	// 采购合同执行进度（同上，字段名按原版为 executed_amount / progress_rate）
+	// 采购合同执行进度（同上，字段名按既有实现为 executed_amount / progress_rate）
 	if res.Table == "purchase_contracts" {
 		count, executed, _ := s.contractProgress(r, "purchase_orders", "contract_id", fmt.Sprint(row["id"]))
 		total := decimalOf(row["total_amount"])

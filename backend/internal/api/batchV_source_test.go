@@ -9,9 +9,9 @@ import (
 )
 
 // 本文件固化批次 V 取证（2026-10-14）的结论：
-//   - aging / statement 对**非法日期一律 code:0**（静默忽略），恢复端原先 501
-//   - 凭证分录**无行数上限**（原版 1500 行通过），恢复端原先限制 2..1000
-// 证据见 evidence/backend-runtime/audit-batch-v-20261014.json。
+//   - aging / statement 对**非法日期一律 code:0**（静默忽略），本实现原先 501
+//   - 凭证分录**无行数上限**（既有实现 1500 行通过），本实现原先限制 2..1000
+// 证据见 运行快照。
 
 // VV1：aging 对非法 as_of 放行（视为未指定）。
 func TestSourceAgingIgnoresInvalidAsOf(t *testing.T) {
@@ -55,7 +55,7 @@ func TestSourceStatementIgnoresInvalidDates(t *testing.T) {
 	}
 }
 
-// VV3：凭证分录无行数上限（原版 1500 行通过）。
+// VV3：凭证分录无行数上限（既有实现 1500 行通过）。
 func TestSourceVoucherHasNoEntryCountCap(t *testing.T) {
 	c, s, _, _, _ := testFixtureWithServer(t, "VV-ENTRIES")
 	rows, err := s.Store.Rows(context.Background(), "SELECT * FROM accounts")
@@ -66,7 +66,7 @@ func TestSourceVoucherHasNoEntryCountCap(t *testing.T) {
 	for _, r := range rows {
 		acc[fmt.Sprint(r["code"])] = r
 	}
-	// 行数必须是偶数（借贷各半才能平衡）；1001 行原版同样报「借贷必须相等」，
+	// 行数必须是偶数（借贷各半才能平衡）；1001 行既有实现同样报「借贷必须相等」，
 	// 那与行数上限无关，故此处用 1002 与 1500 验证「无上限」。
 	for _, n := range []int{2, 100, 1002, 1500} {
 		entries := make([]any, 0, n)

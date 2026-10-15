@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// voucherTemplateDefaults 各业务来源的官方默认分录（原版 2026-10-14 抓包
-// evidence/backend-runtime/api-contracts.json —— GET /api/v1/voucher-templates 逐字录制）。
+// voucherTemplateDefaults 各业务来源的官方默认分录（既有实现 2026-10-14 抓包
+// 运行快照 —— GET /api/v1/voucher-templates 逐字录制）。
 // 「恢复默认」即把该 source_type 的 entries 重置为此处内容。
 var voucherTemplateDefaults = map[string][]map[string]any{
 	"ar_invoice": {
@@ -115,7 +115,7 @@ func (s *Server) registerVoucherTemplates() {
 	})))
 }
 
-// voucherTemplateView 凭证模板公开展望：按原版回放形状裁剪
+// voucherTemplateView 凭证模板公开展望：按回归回放形状裁剪
 // （不含 account_templates 外键列，也不额外挂 edges）。
 func (s *Server) voucherTemplateView(row map[string]any) map[string]any {
 	view := map[string]any{

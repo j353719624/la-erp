@@ -11,9 +11,9 @@ import (
 )
 
 // 本文件固化批次 FF 取证（2026-10-14）的结论：
-// 路由覆盖对账（tools/audit-route-coverage.mjs）查出「原版有、恢复端无」的 94 条路径，
-// 批次 FF 逐一补齐后重跑对账，缺口为 0（候选 1161｜两端都有 1113｜原版有恢复端无 0）。
-// 证据见 evidence/backend-runtime/route-coverage.json 与 audit-batch-ff-20261014.json。
+// 路由覆盖对账（tools/audit-route-coverage.mjs）查出「既有实现有、本实现无」的 94 条路径，
+// 批次 FF 逐一补齐后重跑对账，缺口为 0（候选 1161｜两端都有 1113｜既有实现有本实现无 0）。
+// 证据见 运行快照 与 audit-batch-ff-20261014.json。
 //
 // 覆盖的新增模块：
 //	platform.go          审计日志/公司/字典/机器码/授权激活
@@ -51,7 +51,7 @@ func TestSourceNumberingRulesDefaults(t *testing.T) {
 			t.Fatalf("%s missing prefix/sample: %v", code, rule)
 		}
 	}
-	// 单据号 4 位流水、主数据 5 位流水（原版回放口径）
+	// 单据号 4 位流水、主数据 5 位流水（回归回放口径）
 	if rule := numberingRuleOf(t, list, "sales_order"); rule["seq_digits"] != float64(4) {
 		t.Fatalf("sales_order seq_digits=%v", rule["seq_digits"])
 	}
@@ -71,7 +71,7 @@ func numberingRuleOf(t *testing.T, list []any, bizType string) map[string]any {
 	return nil
 }
 
-// FF2：缺少 biz_types 时预览返回 400（文案逐字取自原版回放）；带上参数返回下一号。
+// FF2：缺少 biz_types 时预览返回 400（文案逐字取自回归回放）；带上参数返回下一号。
 func TestSourceNumberingPreviewRequiresBizTypes(t *testing.T) {
 	c, _ := setup(t)
 	status, body := c.request("GET", "/api/v1/numbering-rules/preview", nil)
@@ -126,7 +126,7 @@ func TestSourceNumberingRulesRejectsInvalidInput(t *testing.T) {
 
 // ── 凭证模板 ─────────────────────────────────────────────────────────────────
 
-// FF5：凭证模板列表按 code 升序，形状与原版回放一致（无 edges、无外键列）。
+// FF5：凭证模板列表按 code 升序，形状与回归回放一致（无 edges、无外键列）。
 func TestSourceVoucherTemplateList(t *testing.T) {
 	c, _ := setup(t)
 	list := c.ok("GET", "/api/v1/voucher-templates", nil).([]any)
@@ -450,7 +450,7 @@ func TestSourceRfqQuoteAndConvert(t *testing.T) {
 		"lines": []any{map[string]any{"product_id": product["id"], "qty": 4, "quoted_price": 9}},
 	}).(map[string]any)
 	path := "/api/v1/purchase-rfqs/" + rfq["id"].(string)
-	// 原版回放 GG10/GG11（2026-10-14）：草稿询价单转单返回 HTTP 200 + code 10000
+	// 回归回放 GG10/GG11（2026-10-14）：草稿询价单转单返回 HTTP 200 + code 10000
 	// 「只有已确认的询价单才能转采购订单」，不是 400
 	if status, body := c.request("POST", path+"/convert", nil); status != 200 ||
 		body["code"] != float64(10000) || body["message"] != "只有已确认的询价单才能转采购订单" {
@@ -498,7 +498,7 @@ func TestSourceSpuGenerateSkus(t *testing.T) {
 	if first["created"] != float64(4) {
 		t.Fatalf("created=%v want 4", first["created"])
 	}
-	// 原版口径（回放 GG11/MM，2026-10-14）：code = 款号-两位流水，spec = 值用 "/" 连接
+	// 既有实现口径（回放 GG11/MM，2026-10-14）：code = 款号-两位流水，spec = 值用 "/" 连接
 	codes := first["codes"].([]any)
 	for i, code := range codes {
 		if code != fmt.Sprintf("%s-%02d", spu["code"], i+1) {
@@ -515,7 +515,7 @@ func TestSourceSpuGenerateSkus(t *testing.T) {
 			t.Fatalf("sku spec = %v, want 维度值用 / 连接", row["spec"])
 		}
 	}
-	// 未勾 skip_existing 时重复生成：原版返回 HTTP 200 + code 10000「规格组合已存在: 红/S（…）」
+	// 未勾 skip_existing 时重复生成：既有实现返回 HTTP 200 + code 10000「规格组合已存在: 红/S（…）」
 	if status, body := c.request("POST", path, map[string]any{"sale_price": 99}); status != 200 ||
 		body["code"] != float64(10000) || body["message"] != "规格组合已存在: 红/S（如需补建请勾选跳过已存在）" {
 		t.Fatalf("regenerate without skip_existing = %d %v", status, body)

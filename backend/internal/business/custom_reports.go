@@ -13,16 +13,16 @@ import (
 
 var readonlySQL = regexp.MustCompile(`(?is)^\s*(select|with)\b`)
 
-// validateReadOnlySQL 按原版边界校验自定义报表 SQL（2026-10-14 批次 D 回放：
-// audit-batch-d-20261014.json）。原版实测：
+// validateReadOnlySQL 按既有实现边界校验自定义报表 SQL（2026-10-14 批次 D 回放：
+// audit-batch-d-20261014.json）。实测：
 //
 //	SELECT / WITH / 前导空格 / 小写     → code:0 建单并可执行
 //	任何分号（含结尾单个分号）          → 10000「不支持多条语句」
 //	INSERT/UPDATE/DELETE/PRAGMA/ATTACH  → 10000「仅支持 SELECT 查询语句」
 //
-// 即恢复端原有的「只允许 select/with 且不含分号」边界与原版**完全一致**，
-// 只是原版返回业务错误文案而恢复端返回 501。已对齐为原文案。
-// 注意：分号检查先于语句类型检查——「SELECT 1; INSERT …」原版报「不支持多条语句」。
+// 即本实现原有的「只允许 select/with 且不含分号」边界与既有实现**完全一致**，
+// 只是既有实现返回业务错误文案而本实现返回 501。已对齐为原文案。
+// 注意：分号检查先于语句类型检查——「SELECT 1; INSERT …」既有实现报「不支持多条语句」。
 func validateReadOnlySQL(sqlText string) error {
 	if strings.Contains(sqlText, ";") {
 		return errors.New("不支持多条语句")

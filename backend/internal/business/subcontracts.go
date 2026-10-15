@@ -89,12 +89,12 @@ func (s *Service) WriteSubcontract(ctx context.Context, id string, input map[str
 				mode = value(row, "mode")
 			}
 		}
-		// 原版回放 Q1（2026-10-13）：带 work_order_id 创建外协单返回 code:0，
+		// 回归回放 Q1（2026-10-13）：带 work_order_id 创建外协单返回 code:0，
 		// work_order_id **落库并可在详情读到**，但详情 edges 为空（不返回 work_order 关联对象）；
 		// 后续 confirm 亦 code:0 正常转 confirmed。
 		// 原实现对 work_order_id/process_id 非空返回 ErrUnsupported，属错误的拒绝，已移除该限制。
 		// 注意：mode 变更守卫仍保留（`!creating && mode != value(row,"mode")`），
-		// 原版仅创建时验证 mode 取值，未见编辑期改 mode 的证据。
+		// 既有实现仅创建时验证 mode 取值，未见编辑期改 mode 的证据。
 		if value(input, "mode") != "" && value(input, "mode") != "pure" && value(input, "mode") != "with_material" {
 			return errors.New("外协业务模式无效（仅支持 pure/with_material）")
 		}
@@ -139,7 +139,7 @@ func (s *Service) WriteSubcontract(ctx context.Context, id string, input map[str
 				row[k] = input[k]
 			}
 		}
-		// 原版回放 Q1：work_order_id / process_id 会落库并可在详情读到
+		// 回归回放 Q1：work_order_id / process_id 会落库并可在详情读到
 		// （但详情 edges 不返回 work_order 关联对象，见上方注释）。
 		for _, k := range []string{"work_order_id", "process_id"} {
 			if input[k] != nil {
@@ -200,12 +200,12 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 			}
 			changes["status"], changes["complete_date"] = "completed", stamp
 		case "cancel":
-			// 原版回放 R2/R3（2026-10-13 内联取证）：
+			// 回归回放 R2/R3（2026-10-13 内联取证）：
 			//   R1 纯外协 qty=4 只收 1 件（status=confirmed）-> cancel code:0 允许
 			//   R2 纯外协 qty=2 全额收满（status=received）  -> cancel code:10000
 			//      「已收货（含部分收货）的外协单不能取消，请先完成收尾」
 			//   R3 finish-receive 失败后 status=received      -> 同上 code:10000
-			// 结论：原版按 **received 状态**拒绝，与恢复端原有守卫一致，**保留该限制**。
+			// 结论：既有实现按 **received 状态**拒绝，与本实现原有守卫一致，**保留该限制**。
 			// （带料外协 S10 收货后取消 code:0 是另一路径，不与本守卫冲突。）
 			if state == "receiving" || state == "received" {
 				return errors.New("已收货（含部分收货）的外协单不能取消，请先完成收尾")
@@ -215,12 +215,12 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 				break
 			}
 			if state != "draft" && state != "confirmed" {
-				// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json）：
-				// 原版外协状态机实测只有 draft → confirmed → cancelled 三态
+				// 批次 S 复测（2026-10-14，运行快照）：
+				// 既有实现外协状态机实测只有 draft → confirmed → cancelled 三态
 				// （confirm/cancel 均 code:0，cancelled 可重复 cancel），
 				// 加上收货流程产生的 receiving / received，共 5 个取值。
 				// 本守卫只在这 5 个之外的状态（如历史脏数据）才触发 —— 属**防御性断言**，
-				// 原版无对应文案可取证，不自造，保留 ErrUnsupported 作兜底。
+				// 既有实现无对应文案可取证，不自造，保留 ErrUnsupported 作兜底。
 				return ErrUnsupported
 			}
 			if value(row, "mode") == "with_material" {
@@ -229,13 +229,13 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 					return err
 				}
 				for _, material := range materials {
-					// 原版回放（2026-10-13，证据 audit-subcontract-with-material-20261013.json）：
+					// 回归回放（2026-10-13，证据 audit-subcontract-with-material-20261013.json）：
 					//   S4 issue 2 件 -> code=0，库存流水 24->25
 					//   S5 发料后 cancel -> code=10000「外协单已发料，请先退回多余材料后再取消」
 					//   S6 return-material 2 件 -> code=0
 					//   S7 退料后 cancel -> code=0（允许）
-					// 恢复端原先返回 ErrUnsupported（「该业务分支尚未实现」），
-					// 行为对但文案不符，按原版实际业务错误对齐。
+					// 本实现原先返回 ErrUnsupported（「该业务分支尚未实现」），
+					// 行为对但文案不符，按既有实现实际业务错误对齐。
 					if !readDecimal(material, "issued_qty").IsZero() || !readDecimal(material, "consumed_qty").IsZero() || !readDecimal(material, "returned_qty").IsZero() {
 						if !readDecimal(material, "returned_qty").IsZero() && readDecimal(material, "consumed_qty").IsZero() &&
 							readDecimal(material, "issued_qty").Equal(readDecimal(material, "returned_qty")) {
@@ -247,8 +247,8 @@ func (s *Service) SubcontractAction(ctx context.Context, id, action string) (map
 				}
 			}
 			changes["status"] = "cancelled"
-		// 原版 NN7 实测动作集只有 confirm / complete / cancel；delete 为 HTTP DELETE 形态。
-		// 与恢复端白名单一致，本 default **不可达**，保留作兜底。
+		// 既有实现 NN7 实测动作集只有 confirm / complete / cancel；delete 为 HTTP DELETE 形态。
+		// 与本实现白名单一致，本 default **不可达**，保留作兜底。
 		default:
 			return ErrUnsupported
 		}
@@ -515,14 +515,14 @@ func (s *Service) SubcontractMaterials(ctx context.Context, id string, inputs []
 }
 
 func (s *Service) replaceSubcontractMaterials(ctx context.Context, tx *sql.Tx, order, input map[string]any, creating bool) error {
-	// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json
+	// 批次 S 复测（2026-10-14，运行快照
 	// + subcontract/contracts.json）：
 	//   material_lines **不传**        → 10000「带料外协必须至少指定一种发料材料」
 	//   material_lines 传**空数组**   → 10000 同上
 	//   material_lines 传**字符串/数字** → HTTP **400**「系统内部错误，请稍后重试或联系管理员」
 	//   material_lines 数组内**非对象** → HTTP 400 同上
 	// 即「缺失 / 空」走业务文案，「类型错」才走 400。
-	// 原实现把 `!ok || len(rows)==0` 合并判断，对字符串也回业务文案，与原版不符。
+	// 原实现把 `!ok || len(rows)==0` 合并判断，对字符串也回业务文案，与与既有行为不符。
 	raw, present := input["material_lines"]
 	if !present {
 		return errors.New("带料外协必须至少指定一种发料材料")
@@ -538,31 +538,31 @@ func (s *Service) replaceSubcontractMaterials(ctx context.Context, tx *sql.Tx, o
 	prepared := []map[string]any{}
 	for i, raw := range rows {
 		line, ok := raw.(map[string]any)
-		// 批次 S 复测（2026-10-14，evidence/backend-runtime/audit-batch-s-20261014.json）：
-		// 逐项核实原版的真实返回形态，比早期 EE8 记录更细：
+		// 批次 S 复测（2026-10-14，运行快照）：
+		// 逐项核实既有实现的真实返回形态，比早期 EE8 记录更细：
 		//   material_lines 为字符串 / 数字 / 数组内非对象
-		//     → HTTP **400** + 「系统内部错误，请稍后重试或联系管理员」（原版结构体绑定失败）
+		//     → HTTP **400** + 「系统内部错误，请稍后重试或联系管理员」（既有实现结构体绑定失败）
 		//   product_id 为空字符串
-		//     → HTTP **400** + 「参数错误: invalid UUID length: 0」（原版 UUID 解析错误）
+		//     → HTTP **400** + 「参数错误: invalid UUID length: 0」（既有实现 UUID 解析错误）
 		//   material_lines=[{}] 或不传 material_lines
 		//     → 先被「外协数量必须大于0」拦下（HTTP 200 + 10000），说明材料校验在数量校验**之后**
 		//   product_id 为格式合法但不存在的全零 UUID
 		//     → 同样先被数量校验拦下，未观察到 500
 		//
-		// 原实现对前三类返回 ErrUnsupported（映射 HTTP 501），与原版 400 不一致，
-		// 会让前端错误处理分流错误。改用 ErrKnownNoMessage 携带原版状态码与**原文案**。
+		// 原实现对前三类返回 ErrUnsupported（映射 HTTP 501），与既有实现 400 不一致，
+		// 会让前端错误处理分流错误。改用 ErrKnownNoMessage 携带既有实现状态码与**原文案**。
 		if !ok {
 			return ErrKnownNoMessage{Status: 400, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
 		productID := value(line, "product_id")
 		if productID == "" {
-			// 原版对空 product_id 返回 UUID 解析错误（400），非本守卫的商品查找失败。
+			// 既有实现对空 product_id 返回 UUID 解析错误（400），非本守卫的商品查找失败。
 			return ErrKnownNoMessage{Status: 400, Note: "参数错误: invalid UUID length: 0"}
 		}
 		if _, err := s.Store.GetWith(ctx, tx, "products", productID); err != nil {
 			return ErrKnownNoMessage{Status: 500, Note: "系统内部错误，请稍后重试或联系管理员"}
 		}
-		// 原版 EE8：同一材料出现两行 → 10000「发料材料不能重复」，与恢复端一致。
+		// 既有实现 EE8：同一材料出现两行 → 10000「发料材料不能重复」，与本实现一致。
 		if seen[productID] {
 			return errors.New("发料材料不能重复")
 		}
