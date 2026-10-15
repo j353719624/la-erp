@@ -111,7 +111,14 @@ func (s *Service) WriteVoucher(ctx context.Context, id string, input map[string]
 				return errors.New("只有草稿状态的凭证才能编辑")
 			}
 		}
-		h["type"], h["voucher_date"], h["total_debit"], h["total_credit"] = input["type"], input["voucher_date"], debit.String(), credit.String()
+		// 回放 OO（2026-10-15）：原版缺 type 返回裸 400 + 通用文案，恢复端原来把
+	// `constraint failed: NOT NULL constraint failed: vouchers.type (1299)` 原样回给
+	// 客户端 —— 与批次 OO 修的 approval_flows 是同一类实现泄漏，必须收口。
+	// 建单时 type 是 NOT NULL 列，缺了必然落到 DB 错误，故在建单分支先拦。
+	if creating && value(input, "type") == "" {
+		return errors.New("系统内部错误，请稍后重试或联系管理员")
+	}
+	h["type"], h["voucher_date"], h["total_debit"], h["total_credit"] = input["type"], input["voucher_date"], debit.String(), credit.String()
 		if input["remark"] != nil {
 			h["remark"] = input["remark"]
 		}

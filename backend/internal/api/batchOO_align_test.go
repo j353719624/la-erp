@@ -160,6 +160,52 @@ func TestOOInvoiceIssueNotFound(t *testing.T) {
 	}
 }
 
+// TestOOVoucherTypeRequired 凭证缺 type 时的形态。
+//
+// 回放 OO（2026-10-15）：原版返回裸 400 + 通用文案，恢复端原来把
+// `constraint failed: NOT NULL constraint failed: vouchers.type (1299)` 原样回给客户端
+// —— 与 TestOOApprovalFlowRequired 是同一类实现泄漏。
+//
+// 同批对照中**一致**的两条也一并固化，防止后续改动误伤：
+// 空 entries → 「凭证分录不能为空」；借贷不等 → 「借方金额与贷方金额必须相等」。
+func TestOOVoucherTypeRequired(t *testing.T) {
+	c, _ := setup(t)
+	accounts := c.ok(http.MethodGet, "/api/v1/accounts?page=1&page_size=1", nil).(map[string]any)
+	list := accounts["list"].([]any)
+	if len(list) == 0 {
+		t.Skip("fixture 无科目")
+	}
+	aid := list[0].(map[string]any)["id"].(string)
+	line := func(direction string, amount int) map[string]any {
+		return map[string]any{"account_id": aid, "account_name": "测试科目", "direction": direction, "amount": amount}
+	}
+
+	for _, tc := range []struct {
+		tag     string
+		body    map[string]any
+		wantMsg string
+	}{
+		{
+			"缺 type",
+			map[string]any{"voucher_date": "2026-10-05T00:00:00+08:00", "entries": []any{line("debit", 1), line("credit", 1)}},
+			"系统内部错误，请稍后重试或联系管理员",
+		},
+		{
+			"空 entries",
+			map[string]any{"type": "general", "voucher_date": "2026-10-05T00:00:00+08:00", "entries": []any{}},
+			"凭证分录不能为空",
+		},
+		{
+			"借贷不等",
+			map[string]any{"type": "general", "voucher_date": "2026-10-05T00:00:00+08:00", "entries": []any{line("debit", 1), line("credit", 2)}},
+			"借方金额与贷方金额必须相等",
+		},
+	} {
+		status, result := c.request(http.MethodPost, "/api/v1/vouchers", tc.body)
+		ooExpect(t, tc.tag, 400, 400, tc.wantMsg, status, result)
+	}
+}
+
 func TestOOApprovalFlowRequired(t *testing.T) {
 	c, _ := setup(t)
 	// 缺 code/name/biz_type 时原版返回裸 500 + 通用文案。
