@@ -36,6 +36,8 @@ const FILES = [
   "audit-batch-pp-autopost3-20261015.txt",    // 剩余 4 处过账点
   "audit-batch-pp-autopost4-20261015.txt",    // 调拨拦截 / 0 金额分录 / 税金形态
   "audit-batch-pp-voucher-shape-20261015.txt", // 凭证与分录形态干净取样
+  "audit-batch-pp-return-cost-20261015.txt",   // 退货冲销金额的受控对照
+  "audit-batch-pp-asm-statemachine-20261015.txt", // 装配单 confirm/cancel 状态矩阵
 ];
 
 // 一行里可能出现多步（用 | 分隔），也可能形如「原版 : approve: http200 code=10000 <文案>」。

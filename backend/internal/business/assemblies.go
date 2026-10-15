@@ -26,7 +26,7 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 		switch action {
 		case "confirm":
 			if status != "draft" {
-				return errors.New("只有草稿装配单才能确认")
+				return errors.New("只有草稿状态的组装单才能确认")
 			}
 			// 批次 PP（2026-10-15）：原版 confirm 不只是改状态 ——
 			// 还会**校验组件库存**并产生两条库存流水（组件出 / 成品入）。
@@ -39,8 +39,14 @@ func (s *Service) AssemblyAction(ctx context.Context, id, action string) (map[st
 			}
 			changes["status"], changes["confirmed_at"] = "confirmed", now()
 		case "cancel":
-			if status != "draft" && status != "confirmed" {
-				return errors.New("当前状态不能取消")
+			// 批次 PP（2026-10-15）：原版 cancel **只准入 draft**，confirmed /
+			// cancelled 一律拒绝，且文案与 confirm 同构（「只有草稿状态的组装单
+			// 才能取消」）。恢复端原先放行 confirmed —— 而已确认的装配单已经
+			// 产生组件出 / 成品入两条库存流水，允许取消会让库存与单据状态脱节。
+			// 证据：evidence/backend-runtime/audit-batch-pp-asm-statemachine-20261015.txt
+			// 矩阵 ③④⑤⑦ 四条。
+			if status != "draft" {
+				return errors.New("只有草稿状态的组装单才能取消")
 			}
 			changes["status"] = "cancelled"
 		// 原版 NN4 实测动作集只有 confirm / cancel，与恢复端白名单完全一致。
