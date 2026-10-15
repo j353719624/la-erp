@@ -26,6 +26,47 @@ func accountingPeriod(date string) (string, error) {
 // post writes the original's journal, posted voucher, links and monthly balances
 // together with the business transaction. A failed leg rolls everything back.
 func (s *Service) post(ctx context.Context, tx *sql.Tx, source, id, no, date, remark string, entries []Posting) error {
+	return s.postShaped(ctx, tx, source, id, no, date, remark, entries, VoucherShape{})
+}
+
+// VoucherShape 描述自动过账生成凭证时**各过账点之间的形态差异**。
+//
+// 批次 PP（2026-10-15）：绝大多数过账点产出 type=general 且分录无 remark 的凭证，
+// 但税金缴纳实测是 type=payment、分录 remark="缴纳税费"、凭证头 remark 被加工成
+// 「缴纳税费（<原 remark>）」（证据：audit-batch-pp-voucher-shape-20261015.txt）。
+// 三者都要按原版走，故不能在 post 里写死。
+type VoucherShape struct {
+	Type        string // 凭证 type；空则回落 "general"
+	Remark      string // 凭证头 remark（调用方已加工好的最终文本）
+	EntryRemark string // 分录 remark
+}
+
+// postShaped 是 post 的可定制形态版本，额外的 shape 参数用于税金缴纳等特例。
+func (s *Service) postShaped(ctx context.Context, tx *sql.Tx, source, id, no, date, remark string,
+	entries []Posting, shape VoucherShape) error {
+	// 原版**跳过金额为 0 的分录**，且全部分录都为 0 时**整个凭证不产生**
+	// （批次 PP 取证：audit-batch-pp-autopost4-20261015.txt）。
+	//
+	// 决定性证据是同一张销售退货单在「金额非 0」与「金额为 0」两种情形下的对照：
+	//   明细带 price=200 → 两端都是 4 条分录、D=210 C=210（含 6001/1122 收入冲销）
+	//   明细不带 price   → 金额被重算为 0，原版只落 2 条（1405/6401 成本冲销），
+	//                      恢复端仍落 4 条（多两条 0 金额行）
+	// 即原版**确实构造**了收入冲销那两条，只是 0 金额不入账 —— 不是「不构造」。
+	// 采购退货更彻底：两条分录都为 0 时原版凭证增量为 0（业务动作仍 code:0 成功）。
+	kept := make([]Posting, 0, len(entries))
+	for _, e := range entries {
+		if e.Amount.IsZero() {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	entries = kept
+	if shape.Remark != "" {
+		remark = shape.Remark
+	}
 	debit, credit := decimal.Zero, decimal.Zero
 	for _, e := range entries {
 		if e.Amount.IsNegative() {
@@ -49,17 +90,21 @@ func (s *Service) post(ctx context.Context, tx *sql.Tx, source, id, no, date, re
 	if err != nil {
 		return err
 	}
+	voucherType := shape.Type
+	if voucherType == "" {
+		voucherType = "general"
+	}
 	voucher := s.base("vouchers")
-	for k, v := range map[string]any{"voucher_no": number, "type": "general", "voucher_date": date, "status": "posted", "remark": remark, "source_id": id, "source_type": source, "source_no": no, "total_debit": debit.String(), "total_credit": credit.String()} {
+	for k, v := range map[string]any{"voucher_no": number, "type": voucherType, "voucher_date": date, "status": "posted", "remark": remark, "source_id": id, "source_type": source, "source_no": no, "total_debit": debit.String(), "total_credit": credit.String()} {
 		voucher[k] = v
 	}
 	if err := s.Store.InsertWith(ctx, tx, "vouchers", voucher); err != nil {
 		return err
 	}
-	return s.postVoucherEntries(ctx, tx, voucher, entries, true)
+	return s.postVoucherEntries(ctx, tx, voucher, entries, true, shape.EntryRemark)
 }
 
-func (s *Service) postVoucherEntries(ctx context.Context, tx *sql.Tx, voucher map[string]any, entries []Posting, createLines bool) error {
+func (s *Service) postVoucherEntries(ctx context.Context, tx *sql.Tx, voucher map[string]any, entries []Posting, createLines bool, entryRemark ...string) error {
 	date := value(s.Store.Public("vouchers", voucher), "voucher_date")
 	period, err := accountingPeriod(date)
 	if err != nil {
@@ -86,9 +131,16 @@ func (s *Service) postVoucherEntries(ctx context.Context, tx *sql.Tx, voucher ma
 		if err := s.Store.InsertWith(ctx, tx, "journal_entries", journal); err != nil {
 			return err
 		}
-		if createLines {
-			line := s.base("voucher_entries")
-			for k, v := range map[string]any{"sequence": i + 1, "account_code": e.Code, "account_name": account["name"], "direction": e.Direction, "amount": e.Amount.String(), "remark": "", "account_entries": account["id"], "voucher_entries": voucher["id"]} {
+		// 分录 remark 默认留空 —— 现场产生的凭证里，原版除税金缴纳外的分录
+	// remark 实测均为空（历史库里 payroll/expense_paid 那几条带 remark 的是
+	// 早期数据，不能拿来定规则，见 audit-batch-pp-voucher-shape-20261015.txt）。
+	lineRemark := ""
+	if len(entryRemark) > 0 {
+		lineRemark = entryRemark[0]
+	}
+	if createLines {
+		line := s.base("voucher_entries")
+		for k, v := range map[string]any{"sequence": i + 1, "account_code": e.Code, "account_name": account["name"], "direction": e.Direction, "amount": e.Amount.String(), "remark": lineRemark, "account_entries": account["id"], "voucher_entries": voucher["id"]} {
 				line[k] = v
 			}
 			if err := s.Store.InsertWith(ctx, tx, "voucher_entries", line); err != nil {

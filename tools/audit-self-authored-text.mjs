@@ -24,16 +24,26 @@ const EXEMPT = new Set([
 // ② 容易被漏审（批次 PP 就漏过一次：新加的三条装配明细文案全是常量形态，
 // 审计脚本只认 ①，报「无自造」而实际有一条是自造的）。
 // 过滤条件：含中文（排除 "last_out_at" 之类的内部枚举值）+ 用 = 而非 :=（后者是局部变量）。
+//
+// 四种写法都要覆盖（批次 PP 补了后两种，此前只认前两种导致漏审）：
+//   ① errors.New("…") / fmt.Errorf("…")
+//   ② 包级 XxxYyy = "…"
+//   ③ 函数内 const xxx = "…"      ← 漏审过
+//   ④ return "…" / 裸字符串       ← 漏审过
 const CJK = /[一-鿿]/;
-const INLINE = /(?:errors\.New|fmt\.Errorf)\("([^"]{4,})"/g;
-const CONST = /^\+?\s*([A-Za-z_]\w*)\s*=\s*"([^"]{4,})"/g;
+const LITERAL = /"([^"]{4,})"/g;
+const ASSIGN = /=\s*"([^"]{4,})"/g;
+const RETURN = /return\s+"([^"]{4,})"/g;
 
 function collectLiterals(text, out, linePrefix) {
   for (const raw of text.split("\n")) {
     const line = linePrefix ? raw.slice(1) : raw; // 去掉 diff 的 "+"
-    for (const m of line.matchAll(INLINE)) out.add(m[1]);
-    for (const m of line.matchAll(CONST)) {
-      if (CJK.test(m[2])) out.add(m[2]);
+    for (const m of line.matchAll(/(?:errors\.New|fmt\.Errorf)\("([^"]{4,})"/g)) out.add(m[1]);
+    for (const m of line.matchAll(ASSIGN)) {
+      if (CJK.test(m[1])) out.add(m[1]);
+    }
+    for (const m of line.matchAll(RETURN)) {
+      if (CJK.test(m[1])) out.add(m[1]);
     }
   }
 }
@@ -80,9 +90,20 @@ collectLiterals(
   true,
 );
 
+// 两种命中都算有证据：
+//   ① 完整相等（含 %s 通配）
+//   ② **片段前缀**：新增文案是某条原版 message 的开头。
+//      批次 PP 遇到这种情况：`缴纳税费` 是常量，原版实测 message 是
+//      「缴纳税费（税金过账…）」，两者不相等但前者确实是原版文案的组成部分。
+//      要求片段长度 ≥ 4，避免过短造成的假命中。
 const hasEvidence = (c) => {
   const pat = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%[sd]/g, ".*?");
-  return [...original].some((o) => new RegExp(`^${pat}$`).test(o));
+  if ([...original].some((o) => new RegExp(`^${pat}$`).test(o))) return true;
+  if (c.length >= 4) {
+    const esc = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if ([...original].some((o) => o.startsWith(esc))) return true;
+  }
+  return false;
 };
 
 const bad = [...added].filter((c) => !baseline.has(c) && !hasEvidence(c) && !EXEMPT.has(c)).sort();

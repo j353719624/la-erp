@@ -284,6 +284,17 @@ func rejectAdvanced(input map[string]any) error {
 func (s *Service) Create(ctx context.Context, d Document, input map[string]any, user string) (map[string]any, error) {
 	return s.writeDocument(ctx, d, input, user, "")
 }
+
+// transferOrderGuard 给出原版拦截「手工创建调拨类出/入库单」的文案。
+//
+// 逐字照抄原版实测（批次 PP，2026-10-15）：入库侧是「调拨到货…调拨入库」，
+// 出库侧是「调拨发货…调拨出库」，两句话**不一样**，不能只写一条。
+func transferOrderGuard(incoming bool) string {
+	if incoming {
+		return "调拨到货请使用「库存调拨单」完成，禁止手工创建/确认「调拨入库」类入库单（请删除该单或改用其他类型）"
+	}
+	return "调拨发货请使用「库存调拨单」完成，禁止手工创建/确认「调拨出库」类出库单（请删除该单或改用其他类型）"
+}
 func (s *Service) writeDocument(ctx context.Context, d Document, input map[string]any, user, existingID string) (map[string]any, error) {
 	raw, ok := input["lines"].([]any)
 	if existingID == "" && (!ok || len(raw) == 0) {
@@ -441,10 +452,24 @@ func (s *Service) writeDocument(ctx context.Context, d Document, input map[strin
 				return err
 			}
 			h["type"] = ""
-			// 原版不校验单据类型（2026-10-13 R3 回放：stock-ins/stock-outs 的
-			// type=sales/purchase/garbage 全部落库；S5：type=other 与 source 可共存），
+			// 原版对**绝大多数**类型不校验（2026-10-13 R3 回放：stock-ins/stock-outs
+			// 的 type=sales/purchase/garbage 全部落库；S5：type=other 与 source 可共存），
 			// 传入值原样持久化。
+			//
+			// 唯一的例外是 **transfer** —— 批次 PP（2026-10-15）实测原版在
+			// 出/入库单的**写路径**上专门拦截它（audit-batch-pp-autopost4-20261015.txt
+			// 与 /tmp 取证补录）：
+			//   stock-outs  type=transfer → 400+400 调拨发货请使用「库存调拨单」完成，
+			//                              禁止手工创建/确认「调拨出库」类出库单（…）
+			//   stock-ins   type=transfer → 400+400 调拨到货请使用「库存调拨单」完成，
+			//                              禁止手工创建/确认「调拨入库」类入库单（…）
+			// POST 建单与 PUT 改单**两处都拦**（同一文案）；但 confirm 不拦 ——
+			// 已存量的 transfer 单据 confirm 实测 code:0，故这里只守写路径。
+			// 恢复端此前完全放行，等于允许手工造出本该由调拨单产生的出入库单。
 			if t := value(input, "type"); t != "" {
+				if t == "transfer" {
+					return ErrOriginalNoMessage{Status: 400, Note: transferOrderGuard(d.Incoming)}
+				}
 				h["type"] = t
 			}
 		}
@@ -1015,7 +1040,28 @@ func (s *Service) Transition(ctx context.Context, d Document, id, user string, c
 				source, remark = "purchase_inbound", "采购入库确认"
 				entries = []Posting{{"1403", "debit", total}, {"2202", "credit", total}}
 			}
-			if value(h, "type") != "other" && value(h, "type") != "" {
+			// 批次 PP（2026-10-15）：原版出入库的自动过账是 **type 白名单**，
+			// 不是「排除 other / 空」的黑名单。
+			//
+			// 受控对照（tools/replay-batch-pp-stocktype.js）：两端各铺同样的货，
+			// 对 18 个 type 取值逐个 confirm，结果只有两个值会过账：
+			//   出库 → 仅 "sales"     （sale / sales_out / salesout / SALES / Sales / out 全不过账）
+			//   入库 → 仅 "purchase"  （purchase_in / Purchase / buy / in / purchases 全不过账）
+			// 即**精确匹配且大小写敏感**，其余一律不产生凭证。
+			//
+			// 恢复端原先是 `type != "other" && type != ""`，把 12 种原版不记账的
+			// 情形都记了账，账目里会凭空多出大量 sales_outbound / purchase_inbound 凭证。
+			//
+			// ⚠️ 首版取证曾误得「原版出库不过账」：当时用的是 type="sale"（单数），
+			// 而原版白名单里是 "sales"，恰好落在白名单外；同批里 type="sales" 那组
+			// 又被库存不足挡住。是 `TestOriginalBusinessFlowReplay` 的
+			// journal_entries 条数对不上（56 vs 48）才暴露了取样错误 ——
+			// 原版回放快照里 sales_outbound 有 8 条分录，证明出库确实过账。
+			postingType := "sales"
+			if d.Incoming {
+				postingType = "purchase"
+			}
+			if value(h, "type") == postingType {
 				if err := s.post(ctx, tx, source, id, value(h, d.Number), now(), remark, entries); err != nil {
 					return err
 				}

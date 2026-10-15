@@ -30,11 +30,23 @@ const FILES = [
   "audit-batch-pp-put-lines-20261015.txt",    // PUT 整体重写语义
   "audit-batch-pp-put-lines2-20261015.txt",   // PUT 复用 B/C/D/E 段、不校验 G
   "audit-batch-pp-put-lines3-20261015.txt",   // PUT 的 D/F 段与落库值
+  "audit-batch-pp-outbound-20261015.txt",     // 出库过账（首版，取样有误，保留作留档）
+  "audit-batch-pp-outbound2-20261015.txt",    // 出库过账二次受控对照
+  "audit-batch-pp-stocktype-20261015.txt",    // 出入库过账 type 白名单（18 值扫描）
+  "audit-batch-pp-autopost3-20261015.txt",    // 剩余 4 处过账点
+  "audit-batch-pp-autopost4-20261015.txt",    // 调拨拦截 / 0 金额分录 / 税金形态
+  "audit-batch-pp-voucher-shape-20261015.txt", // 凭证与分录形态干净取样
 ];
 
 // 一行里可能出现多步（用 | 分隔），也可能形如「原版 : approve: http200 code=10000 <文案>」。
 // 逐段匹配 http<code> code=<code> <文案>，再由调用方确认该行属于原版。
 const SEG = /http(\d+)\s+code=(\d+)\s+([^|]*)/g;
+// autopost3/4 用 `|` 分隔多段，文案落在 remark="…" 里，
+// SEG 的 `[^|]*` 会在第一个 `|` 处截断，故单独提取 remark。
+const REMARK = /remark="([^"]*)"/g;
+// 还有一类是「http<状态码> 后直接跟中文文案」（如调拨拦截的建单失败行），
+// 中间没有 code= 字段，SEG 同样抓不到。
+const BARE = /http\d+\s+([一-鿿][^|]*)/g;
 
 const records = [];
 for (const file of FILES) {
@@ -66,6 +78,16 @@ for (const file of FILES) {
         code: Number(m[2]),
         message,
       });
+    }
+    for (const m of line.matchAll(REMARK)) {
+      const message = m[1].trim();
+      if (!message || message === "success") continue;
+      records.push({ source: file, step, http: 0, code: 0, message });
+    }
+    for (const m of line.matchAll(BARE)) {
+      const message = m[1].trim();
+      if (!message || message === "success") continue;
+      records.push({ source: file, step, http: 0, code: 0, message });
     }
   }
 }
